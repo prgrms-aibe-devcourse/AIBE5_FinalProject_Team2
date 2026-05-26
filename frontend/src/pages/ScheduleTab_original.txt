@@ -1,0 +1,403 @@
+function ScheduleTab() {
+  const { googleAccessToken, setGoogleAccessToken } = useStore();
+  const CLIENT_ID   = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const CALENDAR_ID = import.meta.env.VITE_GOOGLE_CALENDAR_ID || "primary";
+  const SCOPES = "https://www.googleapis.com/auth/calendar.events";
+
+  const [token, setToken]             = useState(googleAccessToken);
+  const [tokenClient, setTokenClient] = useState(null);
+  const [events, setEvents]           = useState([]);
+  const [loading, setLoading]         = useState(false);
+  const calRef = useRef(null);
+
+  const [calTitle, setCalTitle] = useState("");
+  const [calView, setCalView] = useState("timeGridWeek");
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState({ title: "", start: "", end: "", allDay: false });
+
+  const [myCals] = useState([
+    { label: "외주 업무 일정", color: "#4285F4" },
+    { label: "회사 업무 일정", color: "#4285F4" },
+    { label: "개인/가족 일정", color: "#0F9D58" },
+  ]);
+  const [otherCals] = useState([
+    { label: "자기계발 일정", color: "#0F9D58" },
+  ]);
+  const [calChecks, setCalChecks] = useState({
+    "외주 업무 일정": true,
+    "회사 업무 일정": true,
+    "개인/가족 일정": true,
+    "자기계발 일정": true,
+  });
+
+  // GIS init
+  useEffect(() => {
+    if (googleAccessToken) setToken(googleAccessToken);
+    if (!CLIENT_ID || !window.google?.accounts?.oauth2) return;
+    const tc = window.google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      callback: (resp) => {
+        if (resp?.access_token) {
+          setToken(resp.access_token);
+          setGoogleAccessToken(resp.access_token);
+        }
+      },
+    });
+    setTokenClient(tc);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [CLIENT_ID, googleAccessToken]);
+
+  useEffect(() => {
+    if (!token && tokenClient && !loading) {
+      const t = setTimeout(() => tokenClient.requestAccessToken({ prompt: "" }), 500);
+      return () => clearTimeout(t);
+    }
+  }, [token, tokenClient, loading]);
+
+  const fetchEvents = useCallback(async (start, end) => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const url =
+        `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events` +
+        `?timeMin=${encodeURIComponent(new Date(start).toISOString())}` +
+        `&timeMax=${encodeURIComponent(new Date(end).toISOString())}` +
+        `&singleEvents=true&orderBy=startTime&maxResults=250` +
+        `&fields=items(id,summary,start,end)`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) {
+        if (res.status === 401) {
+          setToken(null);
+          setGoogleAccessToken(null);
+          if (tokenClient) setTimeout(() => tokenClient.requestAccessToken({ prompt: "" }), 1000);
+        }
+        return;
+      }
+      const data = await res.json();
+      setEvents((data.items || []).map(ev => ({
+        id:     ev.id,
+        title:  ev.summary || "(제목 없음)",
+        start:  ev.start?.dateTime || ev.start?.date,
+        end:    ev.end?.dateTime   || ev.end?.date,
+        allDay: !!ev.start?.date,
+      })));
+    } finally {
+      setLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, CALENDAR_ID]);
+
+  const handleDatesSet = useCallback((info) => {
+    fetchEvents(info.start, info.end);
+    setCalTitle(info.view.title);
+    setCalView(info.view.type);
+  }, [fetchEvents]);
+
+  const openNewEventModal = (startStr, endStr, allDay) => {
+    const now = new Date();
+    const defaultStart = startStr || now.toISOString().slice(0, 16);
+    const defaultEnd   = endStr   || new Date(Date.now() + 3600000).toISOString().slice(0, 16);
+    setForm({ title: "", start: defaultStart, end: defaultEnd, allDay: !!allDay });
+    setModalOpen(true);
+  };
+
+  const insertEvent = async () => {
+    if (!token || !form.title.trim()) return;
+    const body = {
+      summary: form.title,
+      start: form.allDay
+        ? { date: form.start.slice(0, 10) }
+        : { dateTime: new Date(form.start).toISOString() },
+      end: form.allDay
+        ? { date: (form.end || form.start).slice(0, 10) }
+        : { dateTime: new Date(form.end || form.start).toISOString() },
+    };
+    await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events`,
+      { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) }
+    );
+    setModalOpen(false);
+    const cal = calRef.current?.getApi();
+    if (cal) fetchEvents(cal.view.currentStart, cal.view.currentEnd);
+  };
+
+  return (
+    <div style={{ display: "flex", height: 820, borderRadius: 16, overflow: "hidden" }}>
+      {/* 왼쪽 미니 사이드바 */}
+      <div style={{
+        width: 180, flexShrink: 0,
+        borderRight: "1px solid #F1F5F9",
+        padding: "16px 10px",
+        overflowY: "auto",
+        background: "white",
+      }}>
+        {/* 만들기 버튼 */}
+        <button
+          onClick={() => openNewEventModal()}
+          style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "10px 18px 10px 14px", borderRadius: 22,
+            border: "1px solid #E5E7EB", background: "white",
+            color: "#374151", fontSize: 14, fontWeight: 600,
+            cursor: "pointer", fontFamily: F, marginBottom: 22,
+            boxShadow: "0 1px 6px rgba(0,0,0,0.08)",
+            transition: "box-shadow 0.2s",
+          }}
+          onMouseEnter={e => e.currentTarget.style.boxShadow = "0 3px 10px rgba(0,0,0,0.14)"}
+          onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 6px rgba(0,0,0,0.08)"}
+        >
+          <span style={{ fontSize: 20, lineHeight: 1, color: "#3B82F6" }}>+</span>
+          만들기
+          <span style={{ fontSize: 10, color: "#9CA3AF" }}>▾</span>
+        </button>
+
+        {/* 미니 캘린더 */}
+        <MiniCalendar onDateClick={(date) => {
+          const cal = calRef.current?.getApi();
+          if (cal) cal.changeView("timeGridDay", date);
+        }} />
+
+        {/* 사용자 검색 */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "7px 10px", border: "1px solid #E5E7EB",
+          borderRadius: 8, marginBottom: 22, color: "#9CA3AF",
+        }}>
+          <span style={{ fontSize: 13 }}>👤</span>
+          <span style={{ fontSize: 12, fontFamily: F }}>사용자 검색</span>
+        </div>
+
+        {/* 내 캘린더 */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#374151", fontFamily: F }}>내 캘린더</span>
+            <span style={{ fontSize: 14, color: "#9CA3AF", cursor: "pointer" }}>∧</span>
+          </div>
+          {myCals.map(c => (
+            <label key={c.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={calChecks[c.label] ?? true}
+                onChange={() => setCalChecks(p => ({ ...p, [c.label]: !p[c.label] }))}
+                style={{ width: 14, height: 14, accentColor: c.color }}
+              />
+              <span style={{ fontSize: 12, color: "#374151", fontFamily: F }}>{c.label}</span>
+            </label>
+          ))}
+        </div>
+
+        {/* 다른 캘린더 */}
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#374151", fontFamily: F }}>다른 캘린더</span>
+            <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+              <span style={{ fontSize: 16, color: "#9CA3AF", cursor: "pointer", lineHeight: 1 }}>+</span>
+              <span style={{ fontSize: 14, color: "#9CA3AF", cursor: "pointer", marginLeft: 4 }}>∧</span>
+            </div>
+          </div>
+          {otherCals.map(c => (
+            <label key={c.label} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={calChecks[c.label] ?? true}
+                onChange={() => setCalChecks(p => ({ ...p, [c.label]: !p[c.label] }))}
+                style={{ width: 14, height: 14, accentColor: c.color }}
+              />
+              <span style={{ fontSize: 12, color: "#374151", fontFamily: F }}>{c.label}</span>
+            </label>
+          ))}
+        </div>
+
+        {loading && (
+          <div style={{ fontSize: 11, color: "#94A3B8", fontFamily: F, marginTop: 16, textAlign: "center" }}>
+            불러오는 중...
+          </div>
+        )}
+      </div>
+
+      {/* 오른쪽: 커스텀 툴바 + FullCalendar */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }} className="dash-cal">
+        <style>{dashCalStyles}</style>
+
+        {/* ── 구글 캘린더 스타일 커스텀 툴바 ── */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "10px 16px", borderBottom: "1px solid #dadce0",
+          background: "white", flexShrink: 0,
+        }}>
+          {/* 왼쪽: 오늘 + ‹ › + 날짜 제목 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <button
+              onClick={() => calRef.current?.getApi().today()}
+              style={{
+                padding: "6px 14px", borderRadius: 6,
+                border: "1px solid #dadce0", background: "white",
+                color: "#3c4043", fontSize: 13, fontWeight: 500,
+                cursor: "pointer", fontFamily: F, transition: "background 0.15s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "#f8f9fa"}
+              onMouseLeave={e => e.currentTarget.style.background = "white"}
+            >오늘</button>
+            <button
+              onClick={() => calRef.current?.getApi().prev()}
+              style={{
+                width: 30, height: 30, borderRadius: "50%",
+                border: "none", background: "transparent",
+                color: "#3c4043", fontSize: 22, lineHeight: 1,
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >‹</button>
+            <button
+              onClick={() => calRef.current?.getApi().next()}
+              style={{
+                width: 30, height: 30, borderRadius: "50%",
+                border: "none", background: "transparent",
+                color: "#3c4043", fontSize: 22, lineHeight: 1,
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >›</button>
+            <span style={{ fontSize: 17, fontWeight: 400, color: "#3c4043", fontFamily: F, marginLeft: 8 }}>
+              {calTitle}
+            </span>
+          </div>
+
+          {/* 오른쪽: 뷰 드롭다운 */}
+          <CalViewDropdown calView={calView} onViewChange={(v) => {
+            setCalView(v);
+            calRef.current?.getApi().changeView(v);
+          }} />
+        </div>
+
+        {/* FullCalendar 영역 */}
+        <div style={{ flex: 1, overflow: "hidden" }}>
+          <FullCalendar
+            ref={calRef}
+            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+            initialView="timeGridWeek"
+            locale="ko"
+            firstDay={1}
+            events={events}
+            datesSet={handleDatesSet}
+            headerToolbar={false}
+            height="100%"
+            selectable
+            allDaySlot={false}
+            select={(info) => openNewEventModal(info.startStr, info.endStr, info.allDay)}
+            dayHeaderContent={(args) => {
+              const d = args.date;
+              const dow = d.getDay();
+              const names = ['일','월','화','수','목','금','토'];
+              const isSun = dow === 0;
+              const isSat = dow === 6;
+              const labelColor = args.isToday ? '#1a73e8' : isSun ? '#e57373' : isSat ? '#4a90d9' : '#70757a';
+              const numColor   = args.isToday ? 'white'   : isSun ? '#e57373' : isSat ? '#4a90d9' : '#3c4043';
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0', gap: 2 }}>
+                  <span style={{ fontSize: 10, color: labelColor, fontFamily: F, fontWeight: 500 }}>
+                    {names[dow]}
+                  </span>
+                  <div style={{
+                    width: 26, height: 26, borderRadius: '50%',
+                    background: args.isToday ? '#1a73e8' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 13, fontWeight: args.isToday ? 600 : 400,
+                    color: numColor, fontFamily: F,
+                  }}>{d.getDate()}</div>
+                </div>
+              );
+            }}
+          />
+        </div>
+      </div>
+
+      {/* 이벤트 추가 모달 */}
+      {modalOpen && (
+        <div
+          onClick={() => setModalOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: "white", borderRadius: 18, padding: "28px 32px 24px", width: 560, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", fontFamily: F }}
+          >
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: "#1E293B", margin: "0 0 20px" }}>일정 추가</h3>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>제목 <span style={{ color: "#EF4444" }}>*</span></div>
+              <input
+                value={form.title}
+                onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+                placeholder="일정 제목 입력"
+                autoFocus
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: "1.5px solid #E2E8F0", borderRadius: 8, fontSize: 14, fontFamily: F, outline: "none" }}
+                onFocus={e => e.target.style.borderColor = "#3B82F6"}
+                onBlur={e => e.target.style.borderColor = "#E2E8F0"}
+                onKeyDown={e => e.key === "Enter" && form.title.trim() && insertEvent()}
+              />
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, fontSize: 13, color: "#374151", cursor: "pointer", fontFamily: F }}>
+              <input
+                type="checkbox"
+                checked={form.allDay}
+                onChange={e => setForm(p => ({ ...p, allDay: e.target.checked }))}
+                style={{ accentColor: "#3B82F6" }}
+              />
+              종일
+            </label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 22 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>시작</div>
+                <input
+                  type={form.allDay ? "date" : "datetime-local"}
+                  value={form.allDay ? form.start.slice(0, 10) : form.start.slice(0, 16)}
+                  onChange={e => setForm(p => ({ ...p, start: e.target.value }))}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: "1.5px solid #E2E8F0", borderRadius: 8, fontSize: 14, fontFamily: F, outline: "none" }}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
+                  onBlur={e => e.target.style.borderColor = "#E2E8F0"}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>종료</div>
+                <input
+                  type={form.allDay ? "date" : "datetime-local"}
+                  value={form.allDay ? (form.end || form.start).slice(0, 10) : (form.end || form.start).slice(0, 16)}
+                  onChange={e => setForm(p => ({ ...p, end: e.target.value }))}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: "1.5px solid #E2E8F0", borderRadius: 8, fontSize: 14, fontFamily: F, outline: "none" }}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
+                  onBlur={e => e.target.style.borderColor = "#E2E8F0"}
+                />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setModalOpen(false)}
+                style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #E5E7EB", background: "white", color: "#374151", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: F }}
+              >취소</button>
+              <button
+                onClick={insertEvent}
+                disabled={!form.title.trim()}
+                style={{
+                  padding: "10px 24px", borderRadius: 10, border: "none",
+                  background: form.title.trim()
+                    ? "linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #6366f1 100%)"
+                    : "#E5E7EB",
+                  color: form.title.trim() ? "white" : "#9CA3AF",
+                  fontSize: 14, fontWeight: 700,
+                  cursor: form.title.trim() ? "pointer" : "default",
+                  fontFamily: F,
+                }}
+              >저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

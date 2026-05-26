@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="50%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#ef4444"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="80%" cy="20%" r="60%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.35)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+    </radialGradient>
+    <pattern id="dots" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.5" fill="rgba(255,255,255,0.10)"/>
+    </pattern>
+  </defs>
+  
+      <rect width="1200" height="630" fill="url(#g)"/>
+      <rect width="1200" height="630" fill="url(#glow)"/>
+      <circle cx="1050" cy="540" r="160" fill="rgba(255,255,255,0.10)"/>
+      <circle cx="120" cy="120" r="70" fill="rgba(255,255,255,0.08)"/>
+  <text x="60" y="130" font-family="Pretendard, -apple-system, sans-serif" font-weight="700" font-size="26" fill="rgba(255,255,255,0.85)" letter-spacing="3">DEVBRIDGE PORTFOLIO</text>
+  <text x="60" y="270" font-family="Pretendard, -apple-system, sans-serif" font-weight="800" font-size="68" fill="white">DevBridge - 개발자</text><text x="60" y="348" font-family="Pretendard, -apple-system, sans-serif" font-weight="800" font-size="68" fill="white">매칭 플랫폼</text>
+  <rect x="60" y="470" rx="22" ry="22" width="130" height="44" fill="rgba(255,255,255,0.22)" /><text x="125" y="500" font-family="Pretendard, -apple-system, sans-serif" font-weight="600" font-size="22" fill="white" text-anchor="middle">React</text><rect x="204" y="470" rx="22" ry="22" width="238" height="44" fill="rgba(255,255,255,0.22)" /><text x="323" y="500" font-family="Pretendard, -apple-system, sans-serif" font-weight="600" font-size="22" fill="white" text-anchor="middle">Spring Boot</text><rect x="456" y="470" rx="22" ry="22" width="130" height="44" fill="rgba(255,255,255,0.22)" /><text x="521" y="500" font-family="Pretendard, -apple-system, sans-serif" font-weight="600" font-size="22" fill="white" text-anchor="middle">MySQL</text><rect x="600" y="470" rx="22" ry="22" width="220" height="44" fill="rgba(255,255,255,0.22)" /><text x="710" y="500" font-family="Pretendard, -apple-system, sans-serif" font-weight="600" font-size="22" fill="white" text-anchor="middle">OpenAI API</text>
+</svg>

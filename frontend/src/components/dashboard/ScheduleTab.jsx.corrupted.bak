@@ -1,0 +1,1214 @@
+import { useState, useRef, useEffect, useCallback } from "react";
+import FullCalendar from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/daygrid";
+import timeGridPlugin from "@fullcalendar/timegrid";
+import interactionPlugin from "@fullcalendar/interaction";
+import useStore from "../../store/useStore";
+
+const F = "'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const DAY_WIDTHS = {
+  mon: 1.15,
+  tue: 1,
+  wed: 1,
+  thu: 1,
+  fri: 1,
+  sat: 1,
+  sun: 1,
+};
+const AXIS_WIDTH_PCT = 4; // 시간축 너비 (%)
+const DAY_WIDTH_PCT = 14; // 월요일 기본 너비 (%)
+const DAY_WIDTHS_PCT = { mon: 11, tue: 11, wed: 11, thu: 11, fri: 11, sat: 11, sun: 11 }; // 요일별 개별 너비
+const AXIS_WIDTH_PX = 44; // (레거시: 일부 계산에서 여전히 참조됨)
+
+function buildDayColCss(widths) {
+  const days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  let css = "";
+  // axis col — 모든 scrollgrid-section 테이블의 첫 번째 col 을 AXIS_WIDTH_PCT 로 고정
+  css += `  .dash-cal .fc-scrollgrid [class*="fc-scrollgrid-section"] > * > table > colgroup > col:first-child,\n  .dash-cal [class*="fc-scrollgrid-section"] table > colgroup > col:first-child { width: ${AXIS_WIDTH_PCT}% !important; min-width: ${AXIS_WIDTH_PCT}% !important; }\n`;
+  // 요일별 너비 (모든 scrollgrid-section 테이블 + 내부 cols 테이블)
+  days.forEach((d, i) => {
+    const w = DAY_WIDTHS_PCT[d];
+    css += `  .dash-cal [class*="fc-scrollgrid-section"] table > colgroup > col:nth-child(${i + 2}) { width: ${w}% !important; }\n`;
+    css += `  .dash-cal .fc-timegrid-cols table > colgroup > col:nth-child(${i + 2}) { width: ${w}% !important; }\n`;
+  });
+  // widths 인자는 이제 사용 X (레거시 호환성을 위해 인자만 유지)
+  void widths;
+  css += `  .dash-cal .fc-scrollgrid-section-header table > colgroup > col:nth-child(9),\n  .dash-cal .fc-scrollgrid-section-body table > colgroup > col:nth-child(9) { width: 0 !important; min-width: 0 !important; }\n`;
+  return css;
+}
+
+/* ── FullCalendar 구글 캘린더 테마 CSS ─────────────────────── */
+const dashCalStyles = `
+  .dash-cal .fc { font-family: ${F}; background: white; }
+
+  /* 내장 툴바 숨김 */
+  .dash-cal .fc-toolbar { display: none !important; }
+
+  /* === fc-timegrid-cols: axis phantom td 를 실제 너비로 유지 (시각 = 히트박스) === */
+  .dash-cal .fc-timegrid-cols > table {
+    width: 100% !important;
+    table-layout: fixed !important;
+  }
+  /* colgroup: 첫 col(axis) = AXIS_WIDTH_PCT, 나머지 7 col 균등 */
+  .dash-cal .fc-timegrid-cols table > colgroup > col:first-child {
+    width: ${AXIS_WIDTH_PCT}% !important;
+  }
+  .dash-cal .fc-timegrid-cols table > colgroup > col:nth-child(n+2) {
+    width: ${DAY_WIDTH_PCT}% !important;
+  }
+  /* phantom axis td — fc-timegrid-col 클래스는 있지만 fc-day-* 가 없음.
+     자리는 AXIS_WIDTH_PCT 로 유지(display:none 금지!) 하고 내용/이벤트/히트박스 모두 차단 */
+  .dash-cal .fc-timegrid-cols table > tbody > tr > td.fc-timegrid-col:not(.fc-day-mon):not(.fc-day-tue):not(.fc-day-wed):not(.fc-day-thu):not(.fc-day-fri):not(.fc-day-sat):not(.fc-day-sun) {
+    width: ${AXIS_WIDTH_PCT}% !important;
+    min-width: ${AXIS_WIDTH_PCT}% !important;
+    max-width: ${AXIS_WIDTH_PCT}% !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: white !important;
+    pointer-events: none !important;
+    position: relative !important;
+    z-index: 2 !important;
+  }
+  .dash-cal .fc-timegrid-cols table > tbody > tr > td.fc-timegrid-col:not(.fc-day-mon):not(.fc-day-tue):not(.fc-day-wed):not(.fc-day-thu):not(.fc-day-fri):not(.fc-day-sat):not(.fc-day-sun) * {
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+  /* 요일 td 너비 (월 14% / 화~일 10%) */
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col.fc-day-mon { width: ${DAY_WIDTHS_PCT.mon}% !important; }
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col.fc-day-tue { width: ${DAY_WIDTHS_PCT.tue}% !important; }
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col.fc-day-wed { width: ${DAY_WIDTHS_PCT.wed}% !important; }
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col.fc-day-thu { width: ${DAY_WIDTHS_PCT.thu}% !important; }
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col.fc-day-fri { width: ${DAY_WIDTHS_PCT.fri}% !important; }
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col.fc-day-sat { width: ${DAY_WIDTHS_PCT.sat}% !important; }
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col.fc-day-sun { width: ${DAY_WIDTHS_PCT.sun}% !important; }
+
+  /* 이벤트가 요일 칸 바깥으로 넘치지 않도록 */
+  .dash-cal td.fc-timegrid-col { position: relative; overflow: hidden; }
+  .dash-cal .fc-timegrid-col-events { left: 0 !important; right: 0 !important; max-width: 100% !important; }
+  .dash-cal .fc-timegrid-event-harness { max-width: 100% !important; }
+
+  /* 불필요 아이콘 숨김 */
+  .dash-cal .fc-timegrid-now-indicator-arrow { display: none !important; }
+  .dash-cal [class*="fc-icon-chevron"] { display: none !important; }
+  .dash-cal .fc-resource-timeline-divider { display: none !important; }
+  /* 스크롤바 0-크기 (display:none 대신 → FullCalendar 헤더 보정값 0 유지) */
+  .dash-cal .fc-scroller::-webkit-scrollbar { width: 0; height: 0; }
+  .dash-cal .fc-scroller { scrollbar-width: none; }
+  /* 마우스 호버 시 time-grid 세로 스크롤 허용 */
+  .dash-cal:hover .fc-timegrid .fc-scroller::-webkit-scrollbar { width: 4px; }
+  .dash-cal:hover .fc-timegrid .fc-scroller { scrollbar-width: thin; scrollbar-color: #CBD5E1 transparent; }
+  .dash-cal:hover .fc-timegrid .fc-scroller::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 2px; }
+  .dash-cal:hover .fc-timegrid .fc-scroller::-webkit-scrollbar-track { background: transparent; }
+  /* 오른쪽 사이드 sticky 화살표 버튼 제거 */
+  .dash-cal .fc-timegrid-body ~ .fc-scroller-harness,
+  .dash-cal td.fc-timegrid-divider + td { display: none !important; }
+
+  /* 컬럼 헤더 공통 스타일 (너비는 DAY_WIDTHS에서 제어) */
+  .dash-cal .fc-col-header-cell {
+    border-color: #dadce0 !important;
+    background: white !important;
+    padding: 0 !important;
+  }
+  .dash-cal .fc-col-header-cell-cushion {
+    font-size: 11px !important; font-weight: 500 !important;
+    color: #70757a !important; text-decoration: none !important;
+    font-family: ${F} !important;
+  }
+
+  /* 토요일 헤더/컬럼 — 파스텔 파랑 */
+  .dash-cal .fc-day-sat .fc-col-header-cell-cushion,
+  .dash-cal .fc-day-sat .fc-daygrid-day-number { color: #4a90d9 !important; }
+  .dash-cal td.fc-day-sat { background: rgba(74,144,217,0.04) !important; }
+
+  /* 일요일 헤더/컬럼 — 파스텔 빨강 */
+  .dash-cal .fc-day-sun .fc-col-header-cell-cushion,
+  .dash-cal .fc-day-sun .fc-daygrid-day-number { color: #e57373 !important; }
+  .dash-cal td.fc-day-sun { background: rgba(229,115,115,0.04) !important; }
+
+  /* 시간 축 — 헤더 th / 바디 td / slot-label td 모두 동일 너비 */
+  .dash-cal .fc-timegrid-axis,
+  .dash-cal th.fc-timegrid-axis,
+  .dash-cal td.fc-timegrid-axis,
+  .dash-cal td.fc-timegrid-slot-label { width: ${AXIS_WIDTH_PCT}% !important; max-width: ${AXIS_WIDTH_PCT}% !important; min-width: ${AXIS_WIDTH_PCT}% !important; }
+  /* 바디 슬롯 테이블(시간라벨 + lane) 의 첫 col 을 axis 너비로 고정 */
+  .dash-cal .fc-timegrid-slots table { table-layout: fixed !important; width: 100% !important; }
+  .dash-cal .fc-timegrid-slots table > colgroup > col:first-child { width: ${AXIS_WIDTH_PCT}% !important; }
+  /* 바디 cols 테이블(요일 칸)은 axis 이후 영역만 차지하도록 */
+  .dash-cal .fc-timegrid-cols { padding-left: 0 !important; }
+  .dash-cal .fc-timegrid-body { position: relative !important; }
+  /* fc-highlight(드래그 선택 미러)가 axis 영역을 침범하지 않도록 */
+  .dash-cal .fc-timegrid-slots .fc-highlight,
+  .dash-cal td.fc-timegrid-slot-label .fc-highlight { display: none !important; }
+  /* phantom axis td 내부에 생성되는 highlight/bg overlay 완전 제거 */
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col:not(.fc-day-mon):not(.fc-day-tue):not(.fc-day-wed):not(.fc-day-thu):not(.fc-day-fri):not(.fc-day-sat):not(.fc-day-sun) .fc-highlight,
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col:not(.fc-day-mon):not(.fc-day-tue):not(.fc-day-wed):not(.fc-day-thu):not(.fc-day-fri):not(.fc-day-sat):not(.fc-day-sun) .fc-highlight-container,
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col:not(.fc-day-mon):not(.fc-day-tue):not(.fc-day-wed):not(.fc-day-thu):not(.fc-day-fri):not(.fc-day-sat):not(.fc-day-sun) .fc-timegrid-col-bg,
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col:not(.fc-day-mon):not(.fc-day-tue):not(.fc-day-wed):not(.fc-day-thu):not(.fc-day-fri):not(.fc-day-sat):not(.fc-day-sun) .fc-timegrid-col-events,
+  .dash-cal .fc-timegrid-cols td.fc-timegrid-col:not(.fc-day-mon):not(.fc-day-tue):not(.fc-day-wed):not(.fc-day-thu):not(.fc-day-fri):not(.fc-day-sat):not(.fc-day-sun) .fc-timegrid-col-frame {
+    display: none !important;
+  }
+  /* axis(시간 라벨) td 자체가 불투명 배경을 가져서 뒤에 깔리는 selection mirror 를 가림 */
+  .dash-cal td.fc-timegrid-slot-label,
+  .dash-cal th.fc-timegrid-axis,
+  .dash-cal td.fc-timegrid-axis {
+    background: white !important;
+    position: relative !important;
+    z-index: 3 !important;
+  }
+  /* axis 셀 안에 생길 수 있는 selection overlay 전부 제거 */
+  .dash-cal td.fc-timegrid-slot-label *,
+  .dash-cal th.fc-timegrid-axis *,
+  .dash-cal td.fc-timegrid-axis * {
+    background-color: transparent !important;
+  }
+  .dash-cal .fc-timegrid-slot-label-cushion {
+    font-size: 10px !important; color: #70757a !important;
+    font-weight: 400 !important; font-family: ${F} !important;
+    padding-right: 4px !important; padding-left: 2px !important; white-space: nowrap !important;
+  }
+  .dash-cal .fc-timegrid-slot { height: 24px !important; }
+  .dash-cal .fc-timegrid-slot-lane { border-color: #f1f3f4 !important; }
+
+  /* 월 뷰 헤더 가운데 정렬 */
+  .dash-cal .fc-col-header-cell-cushion {
+    display: flex !important; align-items: center !important; justify-content: center !important;
+    width: 100% !important;
+    font-size: 11px !important; font-weight: 500 !important;
+    color: #70757a !important; text-decoration: none !important;
+    font-family: ${F} !important;
+  }
+
+  /* 월 뷰 셀 — 추가 1.5cm 축소 (min-height 21px 감소) */
+  .dash-cal .fc-daygrid-day-frame { min-height: 43px !important; }
+
+  /* 월 뷰 날짜 숫자 — 왼쪽 위 */
+  .dash-cal .fc-daygrid-day-top {
+    flex-direction: row !important; justify-content: flex-start !important;
+  }
+
+  /* 그리드 선 */
+  .dash-cal .fc-scrollgrid td,
+  .dash-cal .fc-scrollgrid th { border-color: #dadce0 !important; }
+  .dash-cal .fc-timegrid-col { border-color: #dadce0 !important; }
+  .dash-cal .fc-scrollgrid { border-color: #dadce0 !important; }
+
+  /* 오늘 컬럼 */
+  .dash-cal .fc-day-today { background: rgba(26,115,232,0.04) !important; }
+
+  /* 이벤트 */
+  .dash-cal .fc-timegrid-event {
+    border-radius: 4px !important; border: none !important; padding: 2px 4px !important;
+  }
+  .dash-cal .fc-event-title {
+    font-size: 11px !important; font-weight: 500 !important; font-family: ${F} !important;
+  }
+  .dash-cal .fc-event-time { font-size: 10px !important; font-family: ${F} !important; }
+  .dash-cal .fc-daygrid-event {
+    border-radius: 4px !important; font-size: 11px !important; border: none !important;
+  }
+
+  /* 월 뷰 날짜 숫자 */
+  .dash-cal .fc-daygrid-day-number {
+    font-size: 12px !important; color: #3c4043 !important;
+    font-weight: 400 !important; padding: 4px 8px !important;
+    font-family: ${F} !important;
+  }
+  .dash-cal .fc-day-today .fc-daygrid-day-number {
+    background: #1a73e8 !important; color: white !important;
+    border-radius: 50% !important; width: 26px !important; height: 26px !important;
+    display: flex !important; align-items: center !important; justify-content: center !important;
+    font-weight: 500 !important; padding: 0 !important; margin: 4px !important;
+  }
+
+  /* 종일 행 */
+  .dash-cal .fc-timegrid-all-day { display: none !important; }
+  .dash-cal .fc-timegrid-axis-cushion { font-size: 10px !important; color: #70757a !important; font-family: ${F} !important; }
+
+  /* 7일(월~일) 모두 표시 — 가로 스크롤 방지 */
+  .dash-cal .fc-scroller { overflow-x: hidden !important; }
+  .dash-cal .fc-timegrid-cols table,
+  .dash-cal .fc-col-header table { table-layout: fixed !important; min-width: 0 !important; width: 100% !important; }
+  .dash-cal .fc-timegrid-col { min-width: 0 !important; }
+
+  /* 헤더 행이 세로 스크롤바 폭만큼 힘입지 않도록 (일요일 잘림 방지) */
+  .dash-cal col.fc-scrollgrid-shrink-cushion,
+  .dash-cal th.fc-scrollgrid-shrink,
+  .dash-cal td.fc-scrollgrid-shrink { width: 0 !important; min-width: 0 !important; max-width: 0 !important; padding: 0 !important; border: 0 !important; }
+  .dash-cal .fc-scrollgrid-section-header .fc-scroller,
+  .dash-cal .fc-scrollgrid-section-footer .fc-scroller { overflow: hidden !important; margin-right: 0 !important; }
+
+  /* ── 구글 캘린더 테마 추가 미세 조정 ── */
+  .dash-cal .fc { font-family: 'Google Sans','Roboto',${F} !important; color: #3c4043; }
+  /* 헤더 여유 증가 + 구글 캘린더 스타일 */
+  .dash-cal .fc-col-header-cell { padding: 6px 0 !important; height: 48px !important; vertical-align: middle !important; }
+  .dash-cal .fc-col-header-cell-cushion {
+    flex-direction: column !important; gap: 2px !important;
+    text-transform: uppercase !important; letter-spacing: 0.5px !important;
+    font-family: 'Google Sans','Roboto',${F} !important;
+  }
+  /* 오늘 요일 텍스트 파랑 강조 */
+  .dash-cal .fc-col-header-cell.fc-day-today .fc-col-header-cell-cushion { color: #1a73e8 !important; }
+
+  /* 시간 라벨 구글 캘린더 스타 (설라이스 위쪽 정렬) */
+  .dash-cal .fc-timegrid-axis { border-right: 1px solid #dadce0 !important; }
+  .dash-cal td.fc-timegrid-slot-label { border-right: 1px solid #dadce0 !important; }
+  .dash-cal .fc-timegrid-slot-label-cushion {
+    transform: translateY(-6px); display: inline-block;
+    padding: 0 6px 0 4px !important;
+    font-weight: 500 !important;
+  }
+  .dash-cal .fc-timegrid-slot-minor { border-top-style: none !important; }
+  .dash-cal .fc-timegrid-slot-lane { border-color: #e8eaed !important; }
+
+  /* 현재 시간 붉은 선 */
+  .dash-cal .fc-timegrid-now-indicator-line { border-color: #ea4335 !important; border-width: 2px !important; }
+
+  /* 이벤트 구글 캘린더 그림자 효과 */
+  .dash-cal .fc-timegrid-event {
+    box-shadow: 0 1px 2px rgba(60,64,67,0.15) !important;
+    padding: 2px 6px !important;
+  }
+  .dash-cal .fc-timegrid-event .fc-event-main { padding: 0 !important; }
+  .dash-cal .fc-event-title { font-size: 12px !important; line-height: 1.3 !important; }
+  .dash-cal .fc-event-time { font-size: 11px !important; opacity: 0.9 !important; }
+
+  /* 요일별 컬럼 너비 (DAY_WIDTHS 비율) */
+${buildDayColCss(DAY_WIDTHS)}`;
+
+function MiniCalendar({ onDateClick }) {
+  const [vd, setVd] = useState(new Date());
+  const y = vd.getFullYear();
+  const m = vd.getMonth();
+  const today = new Date();
+  // Monday-first
+  const firstDow = (new Date(y, m, 1).getDay() + 6) % 7;
+  const dim = new Date(y, m + 1, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= dim; d++) cells.push(d);
+  const DOW = ["월", "화", "수", "목", "금", "토", "일"];
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#1E293B", fontFamily: F }}>
+          {y}년 {m + 1}월
+        </span>
+        <div style={{ display: "flex" }}>
+          <button
+            onClick={() => setVd(new Date(y, m - 1, 1))}
+            style={{ border: "none", background: "none", cursor: "pointer", padding: "2px 5px", borderRadius: 4, fontSize: 18, color: "#6B7280", lineHeight: 1 }}
+          >‹</button>
+          <button
+            onClick={() => setVd(new Date(y, m + 1, 1))}
+            style={{ border: "none", background: "none", cursor: "pointer", padding: "2px 5px", borderRadius: 4, fontSize: 18, color: "#6B7280", lineHeight: 1 }}
+          >›</button>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", rowGap: 2 }}>
+        {DOW.map(d => (
+          <div key={d} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: "#94A3B8", fontFamily: F, paddingBottom: 4 }}>
+            {d}
+          </div>
+        ))}
+        {cells.map((day, i) => {
+          const isToday = day &&
+            today.getFullYear() === y &&
+            today.getMonth() === m &&
+            today.getDate() === day;
+          return (
+            <div
+              key={i}
+              onClick={() => day && onDateClick && onDateClick(new Date(y, m, day))}
+              style={{
+                textAlign: "center", fontSize: 11, fontFamily: F,
+                color: isToday ? "white" : day ? "#374151" : "transparent",
+                background: isToday ? "#3B82F6" : "transparent",
+                borderRadius: "50%", width: 24, height: 24,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: day ? "pointer" : "default",
+                fontWeight: isToday ? 700 : 400,
+                margin: "0 auto",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={e => { if (day && !isToday) e.currentTarget.style.background = "#EFF6FF"; }}
+              onMouseLeave={e => { if (day && !isToday) e.currentTarget.style.background = "transparent"; }}
+            >
+              {day || ""}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ── CalViewDropdown (주/월/일 전환 드롭다운) ─────────────── */
+/* ── 내 캘린더 필터 드롭다운 (실제 Google 캘린더 목록) ──────── */
+function CalendarFilterDropdown({ calendars, selected, onToggle }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          padding: "6px 14px", borderRadius: 6,
+          border: "1px solid #dadce0", background: "white",
+          color: "#3c4043", fontSize: 13, fontWeight: 500,
+          cursor: "pointer", fontFamily: F,
+          display: "flex", alignItems: "center", gap: 6,
+          transition: "background 0.15s",
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = "#f8f9fa"}
+        onMouseLeave={e => e.currentTarget.style.background = "white"}
+      >
+        내 캘린더 <span style={{ fontSize: 10, color: "#70757a" }}>▾</span>
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", right: 0,
+          background: "white", border: "1px solid #dadce0",
+          borderRadius: 8, padding: "8px 0", zIndex: 100,
+          minWidth: 240, maxHeight: 360, overflowY: "auto",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+        }}>
+          <div style={{
+            padding: "4px 16px 8px", fontSize: 12, fontWeight: 600,
+            color: "#3c4043", fontFamily: F, borderBottom: "1px solid #f1f3f4", marginBottom: 4,
+          }}>내 캘린더</div>
+          {(!calendars || calendars.length === 0) && (
+            <div style={{ padding: "10px 16px", fontSize: 12, color: "#70757a", fontFamily: F }}>
+              캘린더 목록을 불러오는 중...
+            </div>
+          )}
+          {calendars && calendars.map((c) => {
+            const checked = selected.includes(c.id);
+            const color = c.backgroundColor || "#4285f4";
+            return (
+              <label
+                key={c.id}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 16px", fontSize: 13,
+                  color: "#3c4043", cursor: "pointer", fontFamily: F,
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = "#f8f9fa"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+              >
+                <span style={{
+                  width: 16, height: 16, borderRadius: 3,
+                  background: checked ? color : "white",
+                  border: `2px solid ${color}`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "white", fontSize: 11, fontWeight: 900, flexShrink: 0,
+                }}>{checked ? "✓" : ""}</span>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => onToggle(c.id)}
+                  style={{ display: "none" }}
+                />
+                <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 180 }}>
+                  {c.summary}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── 모달용 캘린더 선택 드롭다운 (단일 선택) ─────────────── */
+function ModalCalendarSelect({ calendars, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  const current = (calendars || []).find(c => c.id === value) || calendars?.[0];
+  const color = current?.backgroundColor || "#4285f4";
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: "100%", boxSizing: "border-box",
+          padding: "10px 12px", border: "1.5px solid #E2E8F0", borderRadius: 8,
+          background: "white", color: "#374151", fontSize: 14, fontFamily: F,
+          display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+          justifyContent: "space-between",
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: 10, overflow: "hidden" }}>
+          <span style={{ width: 14, height: 14, borderRadius: 3, background: color, flexShrink: 0 }} />
+          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {current?.summary || "캘린더 선택"}
+          </span>
+        </span>
+        <span style={{ fontSize: 10, color: "#70757a" }}>▾</span>
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
+          background: "white", border: "1px solid #dadce0", borderRadius: 8,
+          padding: "6px 0", zIndex: 100, maxHeight: 240, overflowY: "auto",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+        }}>
+          {(!calendars || calendars.length === 0) && (
+            <div style={{ padding: "10px 14px", fontSize: 12, color: "#70757a", fontFamily: F }}>
+              캘린더 목록 없음
+            </div>
+          )}
+          {calendars && calendars.map(c => {
+            const selected = c.id === value;
+            return (
+              <div
+                key={c.id}
+                onClick={() => { onChange(c.id); setOpen(false); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "8px 14px", fontSize: 13, fontFamily: F,
+                  color: "#3c4043", cursor: "pointer",
+                  background: selected ? "#f1f5f9" : "transparent",
+                  fontWeight: selected ? 600 : 400,
+                }}
+                onMouseEnter={e => { if (!selected) e.currentTarget.style.background = "#f8f9fa"; }}
+                onMouseLeave={e => { if (!selected) e.currentTarget.style.background = "transparent"; }}
+              >
+                <span style={{ width: 14, height: 14, borderRadius: 3, background: c.backgroundColor || "#4285f4", flexShrink: 0 }} />
+                <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {c.summary}
+                </span>
+                {c.primary && <span style={{ marginLeft: "auto", fontSize: 11, color: "#70757a" }}>기본</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CalViewDropdown({ calView, onViewChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  const labels = { dayGridMonth: "월", timeGridWeek: "주", timeGridDay: "일" };
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          padding: "6px 14px", borderRadius: 6,
+          border: "1px solid #dadce0", background: "white",
+          color: "#3c4043", fontSize: 13, fontWeight: 500,
+          cursor: "pointer", fontFamily: F,
+          display: "flex", alignItems: "center", gap: 6,
+          transition: "background 0.15s",
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = "#f8f9fa"}
+        onMouseLeave={e => e.currentTarget.style.background = "white"}
+      >
+        {labels[calView] || "주"} <span style={{ fontSize: 10, color: "#70757a" }}>▾</span>
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", right: 0,
+          background: "white", border: "1px solid #dadce0",
+          borderRadius: 8, padding: "4px 0", zIndex: 100,
+          minWidth: 90, boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+        }}>
+          {[["dayGridMonth", "월"], ["timeGridWeek", "주"], ["timeGridDay", "일"]].map(([v, l]) => (
+            <div
+              key={v}
+              onClick={() => { onViewChange(v); setOpen(false); }}
+              style={{
+                padding: "8px 16px", fontSize: 13,
+                fontWeight: calView === v ? 700 : 400,
+                color: calView === v ? "#1a73e8" : "#3c4043",
+                cursor: "pointer", fontFamily: F, background: "transparent",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "#f8f9fa"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >{l}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── DatePickerDropdown (날짜 선택 팝오버) ────────── */
+function DatePickerDropdown({ onPick }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          padding: "6px 12px", borderRadius: 6,
+          border: "1px solid #dadce0", background: "white",
+          color: "#3c4043", fontSize: 13, fontWeight: 500,
+          cursor: "pointer", fontFamily: F,
+          display: "flex", alignItems: "center", gap: 6,
+          transition: "background 0.15s",
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = "#f8f9fa"}
+        onMouseLeave={e => e.currentTarget.style.background = "white"}
+        title="날짜 선택"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+          <line x1="16" y1="2" x2="16" y2="6"/>
+          <line x1="8" y1="2" x2="8" y2="6"/>
+          <line x1="3" y1="10" x2="21" y2="10"/>
+        </svg>
+        달력
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", right: 0,
+          background: "white", border: "1px solid #dadce0",
+          borderRadius: 12, padding: "14px 16px", zIndex: 100,
+          width: 260, boxShadow: "0 6px 20px rgba(0,0,0,0.14)",
+        }}>
+          <MiniCalendar onDateClick={(d) => { onPick(d); setOpen(false); }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── ScheduleTab (내 스케줄 관리) ─────────────────────────── */
+function ScheduleTab() {
+  const { googleAccessToken, setGoogleAccessToken } = useStore();
+  const CLIENT_ID   = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const CALENDAR_ID = import.meta.env.VITE_GOOGLE_CALENDAR_ID || "hylee132@gmail.com";
+  const SCOPES = "https://www.googleapis.com/auth/calendar";
+
+  const [token, setToken]             = useState(googleAccessToken);
+  const [tokenClient, setTokenClient] = useState(null);
+  const [events, setEvents]           = useState([]);
+  const [loading, setLoading]         = useState(false);
+  const calRef = useRef(null);
+
+  const [calTitle, setCalTitle] = useState("");
+  const [calView, setCalView] = useState("timeGridWeek");
+  const [calendars, setCalendars] = useState([]);
+  const [selectedCalIds, setSelectedCalIds] = useState([]);
+
+  const [modalOpen, setModalOpen] = useState(false);
+  // 편집 중인 이벤트 정보 (null이면 새 이벤트 추가 모드)
+  const [editing, setEditing] = useState(null); // { eventId, calendarId }
+  const [form, setForm] = useState({ title: "", start: "", end: "", allDay: false, calendarId: "" });
+
+  // GIS init
+  useEffect(() => {
+    if (googleAccessToken) setToken(googleAccessToken);
+    if (!CLIENT_ID || !window.google?.accounts?.oauth2) return;
+    const tc = window.google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      callback: (resp) => {
+        if (resp?.access_token) {
+          setToken(resp.access_token);
+          setGoogleAccessToken(resp.access_token);
+        }
+      },
+    });
+    setTokenClient(tc);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [CLIENT_ID, googleAccessToken]);
+
+  useEffect(() => {
+    if (!token && tokenClient && !loading) {
+      const t = setTimeout(() => tokenClient.requestAccessToken({ prompt: "" }), 500);
+      return () => clearTimeout(t);
+    }
+  }, [token, tokenClient, loading]);
+
+  const fetchEvents = useCallback(async (start, end) => {
+    if (!token) return;
+    if (!selectedCalIds || selectedCalIds.length === 0) { setEvents([]); return; }
+    setLoading(true);
+    try {
+      const colorMap = Object.fromEntries((calendars || []).map(c => [c.id, c.backgroundColor || "#4285f4"]));
+      const results = await Promise.all(selectedCalIds.map(async (calId) => {
+        const url =
+          "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(calId) + "/events" +
+          "?timeMin=" + encodeURIComponent(new Date(start).toISOString()) +
+          "&timeMax=" + encodeURIComponent(new Date(end).toISOString()) +
+          "&singleEvents=true&orderBy=startTime&maxResults=250" +
+          "&fields=items(id,summary,start,end)";
+        const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+        if (!res.ok) {
+          if (res.status === 401) {
+            setToken(null);
+            setGoogleAccessToken(null);
+            if (tokenClient) setTimeout(() => tokenClient.requestAccessToken({ prompt: "" }), 1000);
+          }
+          return [];
+        }
+        const data = await res.json();
+        const color = colorMap[calId] || "#4285f4";
+        return (data.items || []).map(ev => ({
+          id:     `${calId}:${ev.id}`,
+          title:  ev.summary || "(제목 없음)",
+          start:  ev.start?.dateTime || ev.start?.date,
+          end:    ev.end?.dateTime   || ev.end?.date,
+          allDay: !!ev.start?.date,
+          backgroundColor: color,
+          borderColor: color,
+          textColor: "#ffffff",
+          extendedProps: { calendarId: calId },
+        }));
+      }));
+      setEvents(results.flat());
+    } finally {
+      setLoading(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, selectedCalIds, calendars]);
+
+  // 토큰이 생기면 캘린더 목록 불러오기
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    fetch("https://www.googleapis.com/calendar/v3/users/me/calendarList?fields=items(id,summary,summaryOverride,backgroundColor,primary,selected)", {
+      headers: { Authorization: "Bearer " + token }
+    }).then(async r => {
+      if (!r.ok) {
+        if (r.status === 401 || r.status === 403) {
+          setToken(null);
+          setGoogleAccessToken(null);
+          if (tokenClient) setTimeout(() => tokenClient.requestAccessToken({ prompt: "consent" }), 500);
+        }
+        return null;
+      }
+      return r.json();
+    }).then(data => {
+      if (cancelled || !data?.items) return;
+      const list = data.items.map(c => ({
+        id: c.id,
+        summary: c.summaryOverride || c.summary || c.id,
+        backgroundColor: c.backgroundColor || "#4285f4",
+        primary: !!c.primary,
+      }));
+      setCalendars(list);
+      setSelectedCalIds(prev => prev.length ? prev : list.map(c => c.id));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const handleDatesSet = useCallback((info) => {
+    fetchEvents(info.start, info.end);
+    setCalTitle(info.view.title);
+    setCalView(info.view.type);
+  }, [fetchEvents]);
+
+  // 선택된 캘린더 목록이 바뀌면 현재 뷰 범위로 재조회
+  useEffect(() => {
+    const cal = calRef.current?.getApi();
+    if (cal) fetchEvents(cal.view.currentStart, cal.view.currentEnd);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCalIds, calendars]);
+
+  // 마운트 직후 + 윈도우 리사이즈 시 FullCalendar 레이아웃 재계산
+  useEffect(() => {
+    const update = () => {
+      try { calRef.current?.getApi()?.updateSize(); } catch { /* noop */ }
+    };
+    const t1 = setTimeout(update, 0);
+    const t2 = setTimeout(update, 150);
+    const t3 = setTimeout(update, 400);
+    window.addEventListener("resize", update);
+    return () => {
+      clearTimeout(t1); clearTimeout(t2); clearTimeout(t3);
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  // 요일별 col 너비를 JS로 강제 (FullCalendar 인라인 width 오버라이드)
+  useEffect(() => {
+    const root = calRef.current?.elRef?.current;
+    if (!root) return;
+    const days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    const total = days.reduce((s, d) => s + (DAY_WIDTHS[d] || 0), 0) || 7;
+
+    let busy = false;
+    let mo; // forward declare for apply()
+    const apply = () => {
+      if (busy) return;
+      busy = true;
+      if (mo) mo.disconnect();
+      try {
+        // 헤더 테이블: 9 cols [axis, 월~일, shrink]
+        const headerTable = root.querySelector(".fc-scrollgrid-section-header table");
+        // 바디 섹션 테이블: 9 cols [axis, 월~일, shrink] — 헤더와 동일하게 만들어야 정렬됨
+        const bodySectionTable = root.querySelector(".fc-scrollgrid-section-body table, .fc-scrollgrid-section-liquid table");
+        // 실제 day cells 테이블: 7 cols [월~일] 중첩 테이블
+        const colsTable = root.querySelector(".fc-timegrid-cols table");
+        const containerWidth = root.clientWidth;
+        const dayArea = Math.max(0, containerWidth - AXIS_WIDTH_PX);
+
+        const applyNineCols = (table) => {
+          if (!table) return;
+          const cols = table.querySelectorAll(":scope > colgroup > col");
+          if (cols[0]) cols[0].style.setProperty("width", `${AXIS_WIDTH_PX}px`, "important");
+          days.forEach((d, i) => {
+            const col = cols[i + 1];
+            if (!col) return;
+            const w = dayArea * ((DAY_WIDTHS[d] || 0) / total);
+            col.style.setProperty("width", `${w}px`, "important");
+          });
+          if (cols[8]) cols[8].style.setProperty("width", "0px", "important");
+          table.style.setProperty("width", `${containerWidth}px`, "important");
+        };
+
+        applyNineCols(headerTable);
+        applyNineCols(bodySectionTable);
+
+        if (colsTable) {
+          // 바디 cols 테이블의 요일별 너비는 CSS display:grid + grid-template-columns 로 제어하므로
+          // JS에서는 원치 않는 phantom td 숨김만 추가 보장
+          const dayClassMap = { mon: "fc-day-mon", tue: "fc-day-tue", wed: "fc-day-wed", thu: "fc-day-thu", fri: "fc-day-fri", sat: "fc-day-sat", sun: "fc-day-sun" };
+          const dayTds = root.querySelectorAll("td.fc-timegrid-col");
+          dayTds.forEach((td) => {
+            let isDay = false;
+            for (const d of days) {
+              if (td.classList.contains(dayClassMap[d])) { isDay = true; break; }
+            }
+            if (!isDay) {
+              // phantom axis td — display:none 금지! 자리만 유지하고 내용/이벤트/히트박스 차단
+              td.style.removeProperty("display");
+              td.style.setProperty("width", `${AXIS_WIDTH_PX}px`, "important");
+              td.style.setProperty("min-width", `${AXIS_WIDTH_PX}px`, "important");
+              td.style.setProperty("max-width", `${AXIS_WIDTH_PX}px`, "important");
+              td.style.setProperty("padding", "0", "important");
+              td.style.setProperty("border", "0", "important");
+              td.style.setProperty("background", "white", "important");
+              td.style.setProperty("pointer-events", "none", "important");
+              td.style.setProperty("position", "relative", "important");
+              td.style.setProperty("z-index", "2", "important");
+              td.querySelectorAll("*").forEach((el) => {
+                el.style.setProperty("visibility", "hidden", "important");
+                el.style.setProperty("pointer-events", "none", "important");
+              });
+            }
+          });
+        }
+      } finally {
+        requestAnimationFrame(() => {
+          busy = false;
+          if (mo) mo.observe(root, {
+            childList: true, subtree: true,
+            attributes: true, attributeFilter: ["style"],
+          });
+        });
+      }
+    };
+
+    const scheduleApply = () => {
+      requestAnimationFrame(() => {
+        apply();
+        requestAnimationFrame(apply);
+      });
+    };
+
+    // MutationObserver: FC가 col style을 바꾸면 즉시 다시 적용
+    mo = new MutationObserver(() => {
+      if (busy) return;
+      scheduleApply();
+    });
+    mo.observe(root, {
+      childList: true, subtree: true,
+      attributes: true, attributeFilter: ["style"],
+    });
+
+    // ResizeObserver: 컨테이너 크기 변화 대응
+    const ro = new ResizeObserver(() => scheduleApply());
+    ro.observe(root);
+
+    // 초기 여러 번 시도
+    scheduleApply();
+    const timers = [50, 150, 400, 800, 1500].map((ms) => setTimeout(scheduleApply, ms));
+
+    return () => {
+      mo.disconnect();
+      ro.disconnect();
+      timers.forEach(clearTimeout);
+    };
+  }, []);
+
+  const openNewEventModal = (startStr, endStr, allDay) => {
+    const now = new Date();
+    const defaultStart = startStr || now.toISOString().slice(0, 16);
+    const defaultEnd   = endStr   || new Date(Date.now() + 3600000).toISOString().slice(0, 16);
+    const defaultCalId =
+      calendars.find(c => c.primary)?.id ||
+      selectedCalIds[0] ||
+      calendars[0]?.id ||
+      CALENDAR_ID;
+    setEditing(null);
+    setForm({ title: "", start: defaultStart, end: defaultEnd, allDay: !!allDay, calendarId: defaultCalId });
+    setModalOpen(true);
+  };
+
+  // FullCalendar 이벤트 렌더링 형식의 날짜를 <input type="datetime-local"> 값으로 변환
+  const toLocalDT = (d) => {
+    if (!d) return "";
+    const dt = d instanceof Date ? d : new Date(d);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  };
+
+  const openEditEventModal = (clickInfo) => {
+    const ev = clickInfo.event;
+    const calId = ev.extendedProps?.calendarId || CALENDAR_ID;
+    // id 형식은 "<calId>:<eventId>" — 실제 google eventId 만 분리
+    const fullId = ev.id || "";
+    const eventId = fullId.includes(":") ? fullId.substring(fullId.indexOf(":") + 1) : fullId;
+    setEditing({ eventId, calendarId: calId });
+    setForm({
+      title: ev.title || "",
+      start: ev.allDay
+        ? (ev.startStr || "").slice(0, 10)
+        : toLocalDT(ev.start),
+      end: ev.allDay
+        ? (ev.endStr || ev.startStr || "").slice(0, 10)
+        : toLocalDT(ev.end || ev.start),
+      allDay: !!ev.allDay,
+      calendarId: calId,
+    });
+    setModalOpen(true);
+  };
+
+  const saveEvent = async () => {
+    if (!token || !form.title.trim()) return;
+    const body = {
+      summary: form.title,
+      start: form.allDay
+        ? { date: form.start.slice(0, 10) }
+        : { dateTime: new Date(form.start).toISOString() },
+      end: form.allDay
+        ? { date: (form.end || form.start).slice(0, 10) }
+        : { dateTime: new Date(form.end || form.start).toISOString() },
+    };
+    const targetCalId = form.calendarId || CALENDAR_ID;
+    if (editing) {
+      // 기존 이벤트 수정 — 캘린더가 바뀌면 move 후 patch (간단하게: 원본 삭제 후 새로 생성)
+      if (editing.calendarId && editing.calendarId !== targetCalId) {
+        // 원본에서 삭제
+        await fetch(
+          "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(editing.calendarId) + "/events/" + encodeURIComponent(editing.eventId),
+          { method: "DELETE", headers: { Authorization: "Bearer " + token } }
+        );
+        // 새 캘린더에 생성
+        await fetch(
+          "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(targetCalId) + "/events",
+          { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(body) }
+        );
+      } else {
+        await fetch(
+          "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(targetCalId) + "/events/" + encodeURIComponent(editing.eventId),
+          { method: "PATCH", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(body) }
+        );
+      }
+    } else {
+      await fetch(
+        "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(targetCalId) + "/events",
+        { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      );
+    }
+    setModalOpen(false);
+    setEditing(null);
+    const cal = calRef.current?.getApi();
+    if (cal) { cal.unselect(); fetchEvents(cal.view.currentStart, cal.view.currentEnd); }
+  };
+
+  const deleteEvent = async () => {
+    if (!token || !editing) return;
+    if (!window.confirm("이 일정을 삭제하시겠습니까?")) return;
+    await fetch(
+      "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(editing.calendarId) + "/events/" + encodeURIComponent(editing.eventId),
+      { method: "DELETE", headers: { Authorization: "Bearer " + token } }
+    );
+    setModalOpen(false);
+    setEditing(null);
+    const cal = calRef.current?.getApi();
+    if (cal) { cal.unselect(); fetchEvents(cal.view.currentStart, cal.view.currentEnd); }
+  };
+
+  return (
+    <div style={{ display: "flex", height: "100%", minHeight: 820, borderRadius: 16, overflow: "hidden" }}>
+      {/* 오른쪽: 커스텀 툴바 + FullCalendar */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }} className="dash-cal">
+        <style>{dashCalStyles}</style>
+
+        {/* ── 구글 캘린더 스타일 커스텀 툴바 ── */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "10px 16px", borderBottom: "1px solid #dadce0",
+          background: "white", flexShrink: 0,
+        }}>
+          {/* 왼쪽: 오늘 + ‹ › + 날짜 제목 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <button
+              onClick={() => calRef.current?.getApi().today()}
+              style={{
+                padding: "6px 14px", borderRadius: 6,
+                border: "1px solid #dadce0", background: "white",
+                color: "#3c4043", fontSize: 13, fontWeight: 500,
+                cursor: "pointer", fontFamily: F, transition: "background 0.15s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "#f8f9fa"}
+              onMouseLeave={e => e.currentTarget.style.background = "white"}
+            >오늘</button>
+            <button
+              onClick={() => calRef.current?.getApi().prev()}
+              style={{
+                width: 30, height: 30, borderRadius: "50%",
+                border: "none", background: "transparent",
+                color: "#3c4043", fontSize: 22, lineHeight: 1,
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >‹</button>
+            <button
+              onClick={() => calRef.current?.getApi().next()}
+              style={{
+                width: 30, height: 30, borderRadius: "50%",
+                border: "none", background: "transparent",
+                color: "#3c4043", fontSize: 22, lineHeight: 1,
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >›</button>
+            <span style={{ fontSize: 19, fontWeight: 600, color: "#3c4043", fontFamily: F, marginLeft: 8 }}>
+              {calTitle}
+            </span>
+          </div>
+
+          {/* 오른쪽: 만들기 + 달력 + 뷰 드롭다운 */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button
+              onClick={() => openNewEventModal()}
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "6px 14px", borderRadius: 22,
+                border: "1px solid #E5E7EB", background: "white",
+                color: "#374151", fontSize: 13, fontWeight: 600,
+                cursor: "pointer", fontFamily: F,
+                boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+                transition: "box-shadow 0.2s",
+              }}
+              onMouseEnter={e => e.currentTarget.style.boxShadow = "0 3px 10px rgba(0,0,0,0.12)"}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.06)"}
+            >
+              <span style={{ fontSize: 16, lineHeight: 1, color: "#3B82F6" }}>+</span>
+              만들기
+            </button>
+            <CalendarFilterDropdown
+              calendars={calendars}
+              selected={selectedCalIds}
+              onToggle={(id) => setSelectedCalIds((prev) => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])}
+            />
+            <DatePickerDropdown onPick={(d) => calRef.current?.getApi().gotoDate(d)} />
+            <CalViewDropdown calView={calView} onViewChange={(v) => {
+              setCalView(v);
+              calRef.current?.getApi().changeView(v);
+            }} />
+          </div>
+        </div>
+
+        {/* FullCalendar 영역 */}
+        <div style={{ flex: 1, overflow: "hidden" }}>
+          <FullCalendar
+            ref={calRef}
+            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+            initialView="timeGridWeek"
+            scrollTime="06:00:00"
+            slotMinTime="06:00:00"
+            locale="ko"
+            firstDay={1}
+            slotLabelContent={(args) => {
+              const h = args.date.getHours();
+              const ampm = h < 12 ? 'AM' : 'PM';
+              const h12 = h % 12 === 0 ? 12 : h % 12;
+              return (
+                <span style={{ fontSize: 10, color: '#70757a', fontFamily: F, fontWeight: 400 }}>
+                  {h12} {ampm}
+                </span>
+              );
+            }}
+            events={events}
+            datesSet={handleDatesSet}
+            headerToolbar={false}
+            height="100%"
+            selectable
+            allDaySlot={false}
+            select={(info) => openNewEventModal(info.startStr, info.endStr, info.allDay)}
+            eventClick={(info) => { info.jsEvent?.preventDefault(); openEditEventModal(info); }}
+            dayHeaderContent={(args) => {
+              const d = args.date;
+              const dow = d.getDay();
+              const names = ['일','월','화','수','목','금','토'];
+              const isSun = dow === 0;
+              const isSat = dow === 6;
+              const labelColor = args.isToday ? '#1a73e8' : isSun ? '#e57373' : isSat ? '#4a90d9' : '#70757a';
+              const numColor   = args.isToday ? 'white'   : isSun ? '#e57373' : isSat ? '#4a90d9' : '#3c4043';
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0', gap: 2 }}>
+                  <span style={{ fontSize: 10, color: labelColor, fontFamily: F, fontWeight: 500 }}>
+                    {names[dow]}
+                  </span>
+                  <div style={{
+                    width: 26, height: 26, borderRadius: '50%',
+                    background: args.isToday ? '#1a73e8' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 13, fontWeight: args.isToday ? 600 : 400,
+                    color: numColor, fontFamily: F,
+                  }}>{d.getDate()}</div>
+                </div>
+              );
+            }}
+          />
+        </div>
+      </div>
+
+      {/* 이벤트 추가 모달 */}
+      {modalOpen && (
+        <div
+          onClick={() => { setModalOpen(false); setEditing(null); calRef.current?.getApi()?.unselect(); }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: "white", borderRadius: 18, padding: "28px 32px 24px", width: 560, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", fontFamily: F }}
+          >
+            <h3 style={{ fontSize: 18, fontWeight: 800, color: "#1E293B", margin: "0 0 20px" }}>{editing ? "일정 수정" : "일정 추가"}</h3>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>제목 <span style={{ color: "#EF4444" }}>*</span></div>
+              <input
+                value={form.title}
+                onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
+                placeholder="일정 제목 입력"
+                autoFocus
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: "1.5px solid #E2E8F0", borderRadius: 8, fontSize: 14, fontFamily: F, outline: "none" }}
+                onFocus={e => e.target.style.borderColor = "#3B82F6"}
+                onBlur={e => e.target.style.borderColor = "#E2E8F0"}
+                onKeyDown={e => e.key === "Enter" && form.title.trim() && saveEvent()}
+              />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>캘린더</div>
+              <ModalCalendarSelect
+                calendars={calendars}
+                value={form.calendarId}
+                onChange={(id) => setForm(p => ({ ...p, calendarId: id }))}
+              />
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, fontSize: 13, color: "#374151", cursor: "pointer", fontFamily: F }}>
+              <input
+                type="checkbox"
+                checked={form.allDay}
+                onChange={e => setForm(p => ({ ...p, allDay: e.target.checked }))}
+                style={{ accentColor: "#3B82F6" }}
+              />
+              종일
+            </label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 22 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>시작</div>
+                <input
+                  type={form.allDay ? "date" : "datetime-local"}
+                  value={form.allDay ? form.start.slice(0, 10) : form.start.slice(0, 16)}
+                  onChange={e => setForm(p => ({ ...p, start: e.target.value }))}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: "1.5px solid #E2E8F0", borderRadius: 8, fontSize: 14, fontFamily: F, outline: "none" }}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
+                  onBlur={e => e.target.style.borderColor = "#E2E8F0"}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 6 }}>종료</div>
+                <input
+                  type={form.allDay ? "date" : "datetime-local"}
+                  value={form.allDay ? (form.end || form.start).slice(0, 10) : (form.end || form.start).slice(0, 16)}
+                  onChange={e => setForm(p => ({ ...p, end: e.target.value }))}
+                  style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: "1.5px solid #E2E8F0", borderRadius: 8, fontSize: 14, fontFamily: F, outline: "none" }}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
+                  onBlur={e => e.target.style.borderColor = "#E2E8F0"}
+                />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "flex-end" }}>
+              {editing && (
+                <button
+                  onClick={deleteEvent}
+                  style={{
+                    padding: "10px 20px", borderRadius: 10,
+                    border: "1px solid #FECACA", background: "white",
+                    color: "#DC2626", fontSize: 14, fontWeight: 600,
+                    cursor: "pointer", fontFamily: F, marginRight: "auto",
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#FEF2F2"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "white"; }}
+                >삭제</button>
+              )}
+              <button
+                onClick={() => { setModalOpen(false); setEditing(null); calRef.current?.getApi()?.unselect(); }}
+                style={{ padding: "10px 20px", borderRadius: 10, border: "1px solid #E5E7EB", background: "white", color: "#374151", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: F }}
+              >취소</button>
+              <button
+                onClick={saveEvent}
+                disabled={!form.title.trim()}
+                style={{
+                  padding: "10px 24px", borderRadius: 10, border: "none",
+                  background: form.title.trim()
+                    ? "linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #6366f1 100%)"
+                    : "#E5E7EB",
+                  color: form.title.trim() ? "white" : "#9CA3AF",
+                  fontSize: 14, fontWeight: 700,
+                  cursor: form.title.trim() ? "pointer" : "default",
+                  fontFamily: F,
+                }}
+              >저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default ScheduleTab;

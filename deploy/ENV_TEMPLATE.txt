@@ -1,0 +1,22 @@
+# /etc/devbridge/env  (chmod 600, owner root:root)
+# systemd EnvironmentFile= 형식 → KEY=VALUE 한 줄씩, 따옴표/공백 주의
+DB_HOST=localhost
+DB_PORT=3306
+DB_NAME=devbridge_db
+DB_USERNAME=devbridge
+DB_PASSWORD=DevBridge2026!
+
+# 64자 이상 랜덤 문자열 권장. 기존 키가 있으면 그대로 사용 (세션 유지)
+JWT_SECRET=__REPLACE_ME__
+
+# 외부 서비스 키 (기존 값 그대로 옮겨오기)
+GEMINI_API_KEY=__REPLACE_ME__
+STREAM_CHAT_API_KEY=__REPLACE_ME__
+STREAM_CHAT_API_SECRET=__REPLACE_ME__
+MAIL_USERNAME=__REPLACE_ME__
+MAIL_PASSWORD=__REPLACE_ME__
+
+# 새 인스턴스 IP로 교체 (콤마 구분, http://IP 또는 http://도메인)
+CORS_ALLOWED_ORIGINS=http://NEW_PUBLIC_IP
+
+UPLOAD_DIR=/var/devbridge/uploads
