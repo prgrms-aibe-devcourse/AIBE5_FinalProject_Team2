@@ -1,7 +1,7 @@
 package com.DevBridge.devbridge.domain.project.entity;
 
 import com.DevBridge.devbridge.domain.user.entity.User;
-import com.DevBridge.devbridge.domain.partner.entity.PartnerProfile;
+import com.DevBridge.devbridge.domain.client.entity.ClientProfile;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -54,7 +54,7 @@ public class Project {
 
     @Enumerated(EnumType.STRING)
     @Builder.Default
-    private PartnerProfile.Grade grade = PartnerProfile.Grade.SILVER;
+    private ClientProfile.Grade grade = ClientProfile.Grade.SILVER;
 
     @Column(name = "work_scope", columnDefinition = "JSON")
     private String workScope;

@@ -1,7 +1,6 @@
 package com.DevBridge.devbridge.domain.client.entity;
 
 import com.DevBridge.devbridge.domain.user.entity.User;
-import com.DevBridge.devbridge.domain.partner.entity.PartnerProfile;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -35,7 +34,7 @@ public class ClientProfile {
 
     @Enumerated(EnumType.STRING)
     @Builder.Default
-    private PartnerProfile.Grade grade = PartnerProfile.Grade.SILVER;
+    private Grade grade = Grade.SILVER;
 
     @Column(name = "slogan_sub", length = 255)
     private String sloganSub;
@@ -72,5 +71,9 @@ public class ClientProfile {
 
     public enum ClientType {
         INDIVIDUAL, TEAM, SOLE_PROPRIETOR, CORPORATION
+    }
+
+    public enum Grade {
+        SILVER, GOLD, PLATINUM, DIAMOND
     }
 }

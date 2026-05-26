@@ -1,8 +1,0 @@
-.venv/
-__pycache__/
-*.pyc
-cache/
-models_cache/
-reports/
-.env
-pip_list.txt
