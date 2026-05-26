@@ -9,6 +9,8 @@ import java.time.LocalDateTime;
  * 사용 가능한 AI 모델 카탈로그.
  * Free/Pro 구독별 월간 토큰 한도와 활성 여부를 보유.
  */
+
+
 @Entity
 @Table(name = "AI_MODEL_CATALOG")
 @Getter
