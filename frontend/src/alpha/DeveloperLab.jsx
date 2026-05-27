@@ -462,6 +462,8 @@ function BacktestReportView({ btResult }) {
 export default function DeveloperLab() {
   useTheme(); // ThemeContext 연결 유지
   const [searchParams] = useSearchParams();
+  const sidePanelScrollRef = useRef(null);
+  const logScrollRef = useRef(null);
 
   // ── 워크스페이스 ──
   const [wsId, setWsId] = useState(null);
@@ -510,6 +512,13 @@ export default function DeveloperLab() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  // 진입·패널 전환 시 스크롤 맨 위로 리셋
+  useEffect(() => {
+    if (sidePanelScrollRef.current) sidePanelScrollRef.current.scrollTop = 0;
+    if (logScrollRef.current) logScrollRef.current.scrollTop = 0;
+  }, [sidePanel]);
+
   const [folderOpen, setFolderOpen] = useState(true);
   const [dataGroupOpen, setDataGroupOpen] = useState(true);
   const [myDataOpen, setMyDataOpen] = useState(true);
@@ -816,7 +825,7 @@ export default function DeveloperLab() {
               {sidePanel==="explorer" ? "탐색기" : "데이터 브라우저"}
             </div>
 
-            <div style={{flex:1, overflow:"auto"}}>
+            <div ref={sidePanelScrollRef} style={{flex:1, overflow:"auto"}}>
 
               {/* ── Explorer ── */}
               {sidePanel==="explorer" && (
@@ -1024,7 +1033,7 @@ export default function DeveloperLab() {
                 </button>
               </div>
             </div>
-            <div style={{flex:1,overflow:"auto",padding:"6px 14px",
+            <div ref={logScrollRef} style={{flex:1,overflow:"auto",padding:"6px 14px",
               fontFamily:"'Fira Code','Cascadia Code',monospace",fontSize:11}}>
               {logLines.length===0&&runStatus==="idle"&&(
                 <div style={{color:"#2d3748",marginTop:4}}>
