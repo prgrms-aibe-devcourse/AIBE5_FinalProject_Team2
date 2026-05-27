@@ -95,5 +95,7 @@ public class User {
     public enum Gender {
         MALE, FEMALE, OTHER
     }
+    
+    
 }
 
