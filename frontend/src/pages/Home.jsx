@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Palette, Search } from "lucide-react";
-import heroImg from "../assets/home.png";
+import bannerVideo from "../assets/배너후보.mp4";
 import useStore from "../store/useStore";
 import { useLanguage } from "../i18n/LanguageContext";
 import translations from "../i18n/translations";
@@ -86,9 +86,12 @@ function Home() {
 
       {/* ── HERO ── */}
       <section style={{ position: "relative", width: "100%", height: 520, overflow: "hidden" }}>
-        <img
-          src={heroImg}
-          alt="hero"
+        <video
+          src={bannerVideo}
+          autoPlay
+          loop
+          muted
+          playsInline
           style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }}
         />
         {/* 중앙 그라데이션 오버레이 */}
