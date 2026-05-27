@@ -438,13 +438,16 @@ export default function ChatPanel({ id, ws, onChange }) {
               alignItems: "flex-end", gap: 6, marginBottom: 12,
             }}>
               {m.role !== "user" && (
-                <img src={ASSISTANT_HERO_SRC} alt="AI"
-                  style={{
-                    width: 40, height: 40, borderRadius: "50%", background: "white",
-                    border: "1px solid " + theme.panelBorder, objectFit: "contain",
-                    flex: "0 0 auto", boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-                    marginRight: -2,
-                  }} />
+                <div style={{
+                  width: 40, height: 40, borderRadius: "50%", background: "white",
+                  border: "1px solid " + theme.panelBorder,
+                  flex: "0 0 auto", boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+                  marginRight: -2, overflow: "hidden",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <img src={ASSISTANT_HERO_SRC} alt="AI"
+                    style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                </div>
               )}
               <div style={{
                 maxWidth: "82%", padding: "10px 14px", borderRadius: 12,
