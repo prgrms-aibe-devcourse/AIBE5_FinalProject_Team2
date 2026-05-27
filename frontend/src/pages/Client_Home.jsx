@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Palette, Search } from "lucide-react";
-import homeBg from "../assets/home.png";
+import bannerVideo from "../assets/배너후보.mp4";
 import { useLanguage } from "../i18n/LanguageContext";
 import translations from "../i18n/translations";
 import { trustScoreLabel, krwFmt } from "../mock/strategies";
@@ -92,7 +92,14 @@ function Client_Home() {
 
       {/* HERO */}
       <section style={{ position: "relative", width: "100%", height: 520, overflow: "hidden" }}>
-        <img src={homeBg} alt="hero" style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
+        <video
+          src={bannerVideo}
+          autoPlay
+          loop
+          muted
+          playsInline
+          style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center", display: "block" }}
+        />
         <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,0.0001) 0%, rgba(0,0,0,0.0001) 50%, rgba(0,0,0,0.0001) 100%)" }} />
         <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 20px" }}>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>

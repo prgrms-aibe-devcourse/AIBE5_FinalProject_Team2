@@ -1,30 +1,30 @@
 // Alpha-Helix 사용자 아바타(Hero) 자산 인덱스
 // LeftSidebar 드롭다운/ChatPanel 어시스턴트 아바타에서 공통 사용
-import hero from "../assets/hero.png";
-import heroDefault from "../assets/hero_default.png";
-import heroCheck from "../assets/hero_check.png";
-import heroMeeting from "../assets/hero_meeting.png";
-import heroMoney from "../assets/hero_money.png";
-import heroStudent from "../assets/hero_student.png";
-import heroTeacher from "../assets/hero_teacher.png";
-import heroVacation from "../assets/hero_vacation.png";
+import heliSleep   from "../assets/heli_sleep.png";
+import heliStar    from "../assets/heli_star.png";
+import heliCoffee  from "../assets/heli_coffee.png";
+import heliNight   from "../assets/heli_night.png";
+import heliMap     from "../assets/heli_map.png";
+import heliForest  from "../assets/heli_forest.png";
+import heliWork    from "../assets/heli_work.png";
+import heliBook    from "../assets/heli_book.png";
 
 export const HEROES = [
-  { key: "default",  label: "기본",    src: heroDefault },
-  { key: "meeting",  label: "미팅",    src: heroMeeting },
-  { key: "money",    label: "수익",    src: heroMoney },
-  { key: "vacation", label: "휴가",    src: heroVacation },
-  { key: "student",  label: "학생",    src: heroStudent },
-  { key: "teacher",  label: "선생님",  src: heroTeacher },
-  { key: "check",    label: "체크",    src: heroCheck },
-  { key: "classic",  label: "클래식",  src: hero },
+  { key: "work",    label: "업무",   src: heliWork   },
+  { key: "coffee",  label: "커피",   src: heliCoffee },
+  { key: "book",    label: "독서",   src: heliBook   },
+  { key: "star",    label: "스타",   src: heliStar   },
+  { key: "map",     label: "지도",   src: heliMap    },
+  { key: "forest",  label: "숲",     src: heliForest },
+  { key: "night",   label: "야간",   src: heliNight  },
+  { key: "sleep",   label: "수면",   src: heliSleep  },
 ];
 
 const LS_KEY = "alpha.heroKey";
 
 export function getCurrentHeroKey() {
-  try { return localStorage.getItem(LS_KEY) || "default"; }
-  catch { return "default"; }
+  try { return localStorage.getItem(LS_KEY) || "work"; }
+  catch { return "work"; }
 }
 
 export function getCurrentHeroSrc() {
@@ -39,5 +39,5 @@ export function setCurrentHeroKey(key) {
   } catch { /* ignore */ }
 }
 
-// 어시스턴트(AI 매니저) 전용 아바타 — 항상 teacher 고정
-export const ASSISTANT_HERO_SRC = heroTeacher;
+// 어시스턴트(AI 매니저) 전용 아바타 — 항상 work 고정
+export const ASSISTANT_HERO_SRC = heliWork;
