@@ -80,6 +80,18 @@ public class User {
     @Column(name = "slogan", length = 500)
     private String slogan;
 
+    /** GitHub 사용자명 (Developer Studio Git 연동). 토큰 검증 후 저장. */
+    @Column(name = "github_username", length = 100)
+    private String githubUsername;
+
+    /** GitHub Personal Access Token (AES-GCM 암호화 후 저장). 절대 평문 노출 금지. */
+    @Column(name = "github_token_encrypted", columnDefinition = "VARBINARY(512)")
+    private byte[] githubTokenEncrypted;
+
+    /** GitHub 연동 마지막 검증 시각. */
+    @Column(name = "github_connected_at")
+    private LocalDateTime githubConnectedAt;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
@@ -95,7 +107,4 @@ public class User {
     public enum Gender {
         MALE, FEMALE, OTHER
     }
-    
-    
 }
-
