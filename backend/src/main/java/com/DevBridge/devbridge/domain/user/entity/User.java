@@ -96,3 +96,4 @@ public class User {
         MALE, FEMALE, OTHER
     }
 }
+
