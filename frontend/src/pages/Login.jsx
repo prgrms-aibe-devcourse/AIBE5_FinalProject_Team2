@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGoogleLogin } from "@react-oauth/google";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import useStore from "../store/useStore";
 import { authApi } from "../api";
-import homeBg from "../assets/home.png";
+import bannerVideo from "../assets/배너후보.mp4";
 import { useLanguage } from "../i18n/LanguageContext";
 
 const BASE_FONT = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
@@ -13,6 +13,11 @@ function Login() {
   const navigate = useNavigate();
   const { t } = useLanguage();
   const { setLogin, setUserRole, setUser, setUsername, setDbId } = useStore();
+
+  const videoRef = useRef(null);
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = 0.55;
+  }, []);
 
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
@@ -43,7 +48,7 @@ function Login() {
     } else if (redirect === "project_register") {
       navigate("/project_register", { replace: true });
     } else {
-      navigate("/client_home", { replace: true });
+      navigate("/home", { replace: true });
     }
   };
 
@@ -251,19 +256,32 @@ function Login() {
       minHeight: "100vh", display: "flex", flexDirection: "column",
       fontFamily: BASE_FONT, position: "relative",
     }}>
-      {/* 배경 이미지 (블러) */}
+      {/* 배경 비디오 (블러) */}
+      <video
+        ref={videoRef}
+        src={bannerVideo}
+        autoPlay
+        loop
+        muted
+        playsInline
+        style={{
+          position: "fixed", inset: 0, zIndex: 0,
+          width: "100%", height: "100%",
+          objectFit: "cover",
+          filter: "blur(12px) brightness(0.6)",
+          transform: "scale(1.05)",
+        }}
+      />
+      {/* 다크 그라디언트 오버레이 */}
       <div style={{
-        position: "fixed", inset: 0, zIndex: 0,
-        backgroundImage: `url(${homeBg})`,
-        backgroundSize: "cover", backgroundPosition: "center",
-        filter: "blur(12px) brightness(0.85)",
-        transform: "scale(1.05)",
+        position: "fixed", inset: 0, zIndex: 1,
+        background: "linear-gradient(to bottom, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.55) 100%)",
       }} />
 
       {/* 메인 콘텐츠 */}
       <div style={{
         flex: 1, display: "flex", justifyContent: "center", alignItems: "center",
-        position: "relative", zIndex: 1, padding: "40px 20px 20px",
+        position: "relative", zIndex: 2, padding: "40px 20px 20px",
       }}>
         <div style={{
           width: "100%", maxWidth: 460, background: "white",
@@ -501,7 +519,7 @@ function Login() {
 
       {/* 하단 Footer */}
       <div style={{
-        position: "relative", zIndex: 1,
+        position: "relative", zIndex: 2,
         textAlign: "center", padding: "20px 0 24px",
       }}>
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}>
