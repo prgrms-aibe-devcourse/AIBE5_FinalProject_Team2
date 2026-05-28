@@ -115,7 +115,7 @@ export default function BrokerSettings() {
       <Header_client />
       <main style={{ maxWidth: 720, margin: "0 auto", padding: "40px 20px 80px" }}>
         <div style={{ marginBottom: 24 }}>
-          <button onClick={() => navigate("/client_home")}
+          <button onClick={() => navigate("/home")}
             style={{ background: "none", border: "none", color: "#6B7280", fontSize: 13, cursor: "pointer", padding: 0 }}>
             ‹ 홈으로
           </button>
