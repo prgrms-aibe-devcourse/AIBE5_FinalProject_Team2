@@ -184,7 +184,7 @@ function Header_client() {
         height: 58, gap: 14,
       }}>
         {/* 로고 */}
-        <Link to="/client_home" style={{
+        <Link to="/home" style={{
           display: "flex", alignItems: "center", gap: 8,
           textDecoration: "none", flexShrink: 0,
           marginRight: 16, marginLeft: -8,

@@ -4,7 +4,7 @@ import {
   Home, Layers, BarChart3, Activity, ShieldCheck,
   ScrollText, Sparkles, Wallet, Inbox, MessageSquare, Image as ImageIcon, Bell,
   Globe, Settings, MoreHorizontal, Palette, UserCircle, ChevronRight, Check, LogOut,
-  Code2, Laptop, FileCode, Database, TerminalSquare, FolderOpen,
+  Code2, Laptop, FileCode, Database, TerminalSquare, FolderOpen, CreditCard,
 } from "lucide-react";
 import logoIcon from "../../assets/main_logo.png";
 import { HEROES, getCurrentHeroKey, getCurrentHeroSrc, setCurrentHeroKey } from "../../alpha/heroAssets";
@@ -56,11 +56,11 @@ const WS_SUBMENUS = [
 ];
 
 const DEV_SUBMENUS = [
-  { key: "explorer", label: "파일 탐색기",    Icon: FolderOpen     },
-  { key: "code",     label: "코드 편집기",    Icon: FileCode       },
-  { key: "data",     label: "데이터 탐색기",  Icon: Database       },
-  { key: "report",   label: "백테스트 결과",  Icon: BarChart3      },
-  { key: "console",  label: "콘솔 / 터미널", Icon: TerminalSquare },
+  { key: "explorer", label: "파일 탐색기",   Icon: FolderOpen },
+  { key: "code",     label: "코드 편집기",   Icon: FileCode },
+  { key: "data",     label: "데이터 탐색기", Icon: Database },
+  { key: "report",   label: "백테스트 결과",  Icon: BarChart3 },
+  { key: "console",  label: "콘솔 / 터미널",  Icon: TerminalSquare },
 ];
 
 const LANGS = [
@@ -85,7 +85,9 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [wsTabSel, setWsTabSel] = useState(null);
   const [workspaces, setWorkspaces] = useState([]);
+  const [wsBtnTop, setWsBtnTop] = useState(100);
   const [devMenuOpen, setDevMenuOpen] = useState(false);
+  const [devBtnTop, setDevBtnTop] = useState(160);
   const langRef = useRef(null);
   const gearRef = useRef(null);
   const heroRef = useRef(null);
@@ -93,30 +95,33 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
   const wsFlyoutRef = useRef(null);
   const wsHoverOpenTimer = useRef(null);
   const wsHoverCloseTimer = useRef(null);
+  const themeCloseTimer = useRef(null);
   const devBtnRef = useRef(null);
   const devFlyoutRef = useRef(null);
   const devHoverOpenTimer = useRef(null);
   const devHoverCloseTimer = useRef(null);
-  const themeCloseTimer = useRef(null);
   const onWsAreaEnter = () => {
     if (wsHoverCloseTimer.current) { clearTimeout(wsHoverCloseTimer.current); wsHoverCloseTimer.current = null; }
   };
-  const onWsBtnEnter = (e) => {
-    onWsAreaEnter();
-    if (!isAuthed || wsMenuOpen) return;
-    wsHoverOpenTimer.current = setTimeout(() => setWsMenuOpen(true), 500);
-  };
   const onWsAreaLeave = () => {
     if (wsHoverOpenTimer.current) { clearTimeout(wsHoverOpenTimer.current); wsHoverOpenTimer.current = null; }
-    wsHoverCloseTimer.current = setTimeout(() => { setWsMenuOpen(false); setWsTabSel(null); }, 200);
+    wsHoverCloseTimer.current = setTimeout(() => setWsMenuOpen(false), 200);
   };
-
+  const onWsBtnEnter = () => {
+    onWsAreaEnter();
+    if (!isAuthed || wsMenuOpen) return;
+    const rect = wsBtnRef.current?.getBoundingClientRect();
+    if (rect) setWsBtnTop(rect.top);
+    wsHoverOpenTimer.current = setTimeout(() => setWsMenuOpen(true), 500);
+  };
   const onDevAreaEnter = () => {
     if (devHoverCloseTimer.current) { clearTimeout(devHoverCloseTimer.current); devHoverCloseTimer.current = null; }
   };
-  const onDevBtnEnter = (e) => {
+  const onDevBtnEnter = () => {
     onDevAreaEnter();
     if (!isAuthed || devMenuOpen) return;
+    const rect = devBtnRef.current?.getBoundingClientRect();
+    if (rect) setDevBtnTop(rect.top);
     devHoverOpenTimer.current = setTimeout(() => setDevMenuOpen(true), 500);
   };
   const onDevAreaLeave = () => {
@@ -151,7 +156,7 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
       if (!inBtn && !inFly) { setWsMenuOpen(false); setWsTabSel(null); }
       const inDevBtn = devBtnRef.current && devBtnRef.current.contains(e.target);
       const inDevFly = devFlyoutRef.current && devFlyoutRef.current.contains(e.target);
-      if (!inDevBtn && !inDevFly) setDevMenuOpen(false);
+      if (!inDevBtn && !inDevFly) { setDevMenuOpen(false); }
     };
     document.addEventListener("mousedown", onDoc);
     const onHeroChange = (e) => setHeroKey(e?.detail?.key || getCurrentHeroKey());
@@ -224,7 +229,7 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
         display: "flex", flexDirection: "column", alignItems: "center",
         paddingTop: 6, paddingBottom: 8, gap: 3, zIndex: 1000,
       }}>
-        <button onClick={() => nav("/client_home")} title="Alpha-Helix 홈" style={{
+        <button onClick={() => nav("/home")} title="Alpha-Helix 홈" style={{
           width: 38, height: 38, marginBottom: 6, borderRadius: 9, border: "none",
           background: "white", cursor: "pointer", display: "inline-flex",
           alignItems: "center", justifyContent: "center", padding: 0, overflow: "hidden",
@@ -237,7 +242,7 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
         {TABS.filter(t => t.key === "home").map(t => (
           <SideIconBtn key={t.key} title={t.label} active={isActive(t)} onClick={() => go(t)}>
             {isActive(t) && <ActiveIndicator />}
-            <t.Icon size={17} strokeWidth={isActive(t) ? 2.4 : 1.9} />
+            <t.Icon size={22} strokeWidth={isActive(t) ? 2.4 : 1.9} />
           </SideIconBtn>
         ))}
         {/* 워크스페이스 플라이아웃 버튼 */}
@@ -251,9 +256,16 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
             }}
           >
             {(wsMenuOpen || inAlpha) && <ActiveIndicator />}
-            <Layers size={17} strokeWidth={(wsMenuOpen || inAlpha) ? 2.4 : 1.9} />
+            <Layers size={22} strokeWidth={(wsMenuOpen || inAlpha) ? 2.4 : 1.9} />
           </SideIconBtn>
         </div>
+        {/* home·config·developer 제외 나머지 탭 */}
+        {TABS.filter(t => t.key !== "home" && t.key !== "config" && t.key !== "developer" && !t.sub && !t.devSub).map(t => (
+          <SideIconBtn key={t.key} title={t.label} active={isActive(t)} onClick={() => go(t)}>
+            {isActive(t) && <ActiveIndicator />}
+            <t.Icon size={22} strokeWidth={isActive(t) ? 2.4 : 1.9} />
+          </SideIconBtn>
+        ))}
         {/* Developer Studio 플라이아웃 버튼 */}
         <div ref={devBtnRef} onMouseEnter={onDevBtnEnter} onMouseLeave={onDevAreaLeave}>
           <SideIconBtn
@@ -261,32 +273,33 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
             active={devMenuOpen || inDeveloper}
             onClick={() => {
               if (!isAuthed) { setShowLogin(true); return; }
+              const rect = devBtnRef.current?.getBoundingClientRect();
+              if (rect) setDevBtnTop(rect.top);
               nav("/alpha/developer");
+              setDevMenuOpen(true);
             }}
           >
             {(devMenuOpen || inDeveloper) && <ActiveIndicator />}
-            <Laptop size={17} strokeWidth={(devMenuOpen || inDeveloper) ? 2.4 : 1.9} />
+            <Laptop size={22} strokeWidth={(devMenuOpen || inDeveloper) ? 2.4 : 1.9} />
           </SideIconBtn>
         </div>
-        {/* home·config·developer 제외 나머지 탭 */}
-        {TABS.filter(t => t.key !== "home" && t.key !== "config" && t.key !== "developer" && !t.sub && !t.devSub).map(t => (
-          <SideIconBtn key={t.key} title={t.label} active={isActive(t)} onClick={() => go(t)}>
-            {isActive(t) && <ActiveIndicator />}
-            <t.Icon size={17} strokeWidth={isActive(t) ? 2.4 : 1.9} />
-          </SideIconBtn>
-        ))}
+        {/* developer 하위 탭: DeveloperLab 내부 Activity Bar로 이동됨 */}
 
         <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+          <SideIconBtn title="전체 브리핑" active={loc.pathname === "/briefing"} onClick={() => { if (!isAuthed) { setShowLogin(true); return; } nav("/briefing"); }}>
+            {loc.pathname === "/briefing" && <ActiveIndicator />}
+            <Sparkles size={22} strokeWidth={loc.pathname === "/briefing" ? 2.4 : 1.9} />
+          </SideIconBtn>
           <SideIconBtn title="알림함" active={loc.pathname === "/notifications"} onClick={() => { if (!isAuthed) { setShowLogin(true); return; } nav("/notifications"); }}>
-            <Bell size={17} />
+            <Bell size={22} />
           </SideIconBtn>
           <SideIconBtn title="이용 가이드" active={!!guideOpen} onClick={onToggleGuide}>
-            <MoreHorizontal size={18} />
+            <MoreHorizontal size={22} />
           </SideIconBtn>
 
           <div ref={langRef} style={{ position: "relative" }}>
             <SideIconBtn title="언어 변경" active={langOpen} onClick={() => setLangOpen(o => !o)}>
-              <Globe size={17} />
+              <Globe size={22} />
             </SideIconBtn>
             {langOpen && (
               <div style={{
@@ -317,7 +330,7 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
 
           <div ref={gearRef} style={{ position: "relative" }}>
             <SideIconBtn title="설정" active={gearOpen} onClick={() => { setGearOpen(o => !o); setThemeSubOpen(false); }}>
-              <Settings size={17} />
+              <Settings size={22} />
             </SideIconBtn>
             {gearOpen && (
               <div style={{
@@ -404,14 +417,13 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
             <div ref={heroRef} style={{ position: "relative" }}>
               <button onClick={() => setHeroOpen(o => !o)} title="내 Hero / 마이페이지"
                 style={{
-                  width: 36, height: 36, borderRadius: "50%", background: "white",
-                  border: heroOpen ? "2px solid #6366f1" : "2px solid rgba(255,255,255,0.9)",
-                  cursor: "pointer",
+                  width: 34, height: 34, borderRadius: "50%", background: "white",
+                  border: heroOpen ? "2px solid #6366f1" : "none", cursor: "pointer",
                   display: "inline-flex", alignItems: "center", justifyContent: "center",
                   boxShadow: "0 2px 6px rgba(0,0,0,0.15)", overflow: "hidden", padding: 0,
                 }}>
                 <img src={getCurrentHeroSrc()} alt="me"
-                  style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                  style={{ width: 30, height: 30, objectFit: "contain" }} />
               </button>
               {heroOpen && (
                 <div style={{
@@ -432,12 +444,11 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
                       <button key={h.key} onClick={() => { setCurrentHeroKey(h.key); setHeroKey(h.key); }}
                         title={h.label}
                         style={{
-                          width: 44, height: 44, padding: 0, borderRadius: "50%",
-                          background: heroKey === h.key ? "#EFF6FF" : "white",
+                          width: 44, height: 44, padding: 2, borderRadius: 8,
+                          background: heroKey === h.key ? "#EFF6FF" : "transparent",
                           border: heroKey === h.key ? "2px solid #6366f1" : "1px solid #E2E8F0",
                           cursor: "pointer", display: "inline-flex",
                           alignItems: "center", justifyContent: "center",
-                          overflow: "hidden",
                         }}>
                         <img src={h.src} alt={h.label}
                           style={{ width: "100%", height: "100%", objectFit: "contain" }} />
@@ -473,51 +484,12 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
 
       <LoginRequiredModal open={showLogin} onClose={() => setShowLogin(false)} />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-
-      {/* ── 워크스페이스 플라이아웃 ── */}
-      {/* ── Developer Studio 플라이아웃 ── */}
-      {devMenuOpen && (
-        <div ref={devFlyoutRef} onMouseEnter={onDevAreaEnter} onMouseLeave={onDevAreaLeave} style={{
-          position: "fixed", left: 58, top: 48, zIndex: 1200,
-        }}>
-          <div style={{
-            background: "white", border: "1px solid #E2E8F0", borderRadius: 12,
-            boxShadow: "0 12px 32px rgba(0,0,0,0.18)", padding: 6, minWidth: 186,
-          }}>
-            <div style={{ padding: "4px 10px 8px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>
-              Developer Studio
-            </div>
-            {DEV_SUBMENUS.map(item => {
-              const params = new URLSearchParams(loc.search);
-              const currentPanel = params.get("panel") || "explorer";
-              const active = inDeveloper && currentPanel === item.key;
-              return (
-                <button key={item.key}
-                  onClick={() => { nav(`/alpha/developer?panel=${item.key}`); setDevMenuOpen(false); }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 10,
-                    width: "100%", padding: "8px 10px", borderRadius: 8,
-                    border: "none", background: active ? "#EFF6FF" : "transparent",
-                    color: active ? "#1d4ed8" : "#0F172A",
-                    fontSize: 13, fontWeight: active ? 700 : 500,
-                    cursor: "pointer", textAlign: "left",
-                  }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = "#F8FAFC"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = active ? "#EFF6FF" : "transparent"; }}
-                >
-                  <item.Icon size={15} color={active ? "#1d4ed8" : "#475569"} />
-                  <span style={{ flex: 1 }}>{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      <SubscriptionModal open={subOpen} onClose={() => setSubOpen(false)} />
 
       {/* ── 워크스페이스 플라이아웃 ── */}
       {wsMenuOpen && (
         <div ref={wsFlyoutRef} onMouseEnter={onWsAreaEnter} onMouseLeave={onWsAreaLeave} style={{
-          position: "fixed", left: 58, top: 48, zIndex: 1200,
+          position: "fixed", left: 58, top: wsBtnTop, zIndex: 1200,
           display: "flex", gap: 4,
         }}>
           {/* Panel 1 — 서브메뉴 */}
@@ -597,6 +569,49 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Developer Studio 플라이아웃 ── */}
+      {devMenuOpen && (
+        <div ref={devFlyoutRef} onMouseEnter={onDevAreaEnter} onMouseLeave={onDevAreaLeave} style={{
+          position: "fixed", left: 58, top: devBtnTop, zIndex: 1200,
+          display: "flex", gap: 4,
+        }}>
+          <div style={{
+            background: "white", border: "1px solid #E2E8F0", borderRadius: 12,
+            boxShadow: "0 12px 32px rgba(0,0,0,0.18)", padding: 6, minWidth: 200,
+          }}>
+            <div style={{ padding: "4px 10px 8px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>
+              Developer Studio
+            </div>
+            {DEV_SUBMENUS.map(item => {
+              const params = new URLSearchParams(loc.search);
+              const currentPanel = params.get("panel") || "explorer";
+              const active = inDeveloper && currentPanel === item.key;
+              return (
+                <button key={item.key}
+                  onClick={() => {
+                    nav(`/alpha/developer?panel=${item.key}`);
+                    setDevMenuOpen(false);
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    width: "100%", padding: "8px 10px", borderRadius: 8,
+                    border: "none", background: active ? "#EFF6FF" : "transparent",
+                    color: active ? "#1d4ed8" : "#0F172A",
+                    fontSize: 13, fontWeight: active ? 700 : 500,
+                    cursor: "pointer", textAlign: "left",
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = "#F8FAFC"; }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = active ? "#EFF6FF" : "transparent"; }}
+                >
+                  <item.Icon size={15} color={active ? "#1d4ed8" : "#475569"} />
+                  <span style={{ flex: 1 }}>{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </>

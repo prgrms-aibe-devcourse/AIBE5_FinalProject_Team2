@@ -16,8 +16,8 @@ const SECTIONS = [
     { label: "주문 제안 승인 큐",      to: "/alpha_guide#orders" },
   ]},
   { title: "정책", items: [
-    { label: "개인정보 처리방침", to: "/usage_guide/policy" },
-    { label: "이용약관",         to: "/usage_guide/service_policy" },
+    { label: "개인정보 처리방침", to: "/alpha_privacy" },
+    { label: "이용약관",         to: "/alpha_terms" },
   ]},
 ];
 
@@ -86,7 +86,7 @@ export default function GuideDock({ open, onClose, width = 320 }) {
         ))}
 
         <div style={{ padding: "12px 10px", borderTop: "1px solid #F1F5F9", marginTop: 8 }}>
-          <button onClick={() => nav("/usage_guide")} style={{
+          <button onClick={() => nav("/alpha_guide")} style={{
             width: "100%", padding: "8px 12px", borderRadius: 8,
             background: "linear-gradient(135deg, #60a5fa, #6366f1)",
             color: "white", border: "none", cursor: "pointer",
