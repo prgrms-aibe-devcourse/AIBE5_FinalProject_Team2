@@ -29,8 +29,8 @@ export const runBacktest         = (id, period, customParams) => {
   }
   return api.post(`/alpha/workspaces/${id}/backtest`, null, period ? { params: { period } } : undefined).then(r => r.data);
 };
-export const runRegime           = (id) => api.post(`/alpha/workspaces/${id}/regime`).then(r => r.data);
-export const runTrust            = (id) => api.post(`/alpha/workspaces/${id}/trust`).then(r => r.data);
+export const runRegime           = (id, options) => api.post(`/alpha/workspaces/${id}/regime`, options || {}).then(r => r.data);
+export const runTrust            = (id, options) => api.post(`/alpha/workspaces/${id}/trust`, options || {}).then(r => r.data);
 export const runBriefing         = (id) => api.post(`/alpha/workspaces/${id}/briefing`).then(r => r.data);
 export const runAutoPipeline     = (id) => api.post(`/alpha/workspaces/${id}/auto-run`).then(r => r.data);
 export const saveCode            = (id, codeJson) =>
@@ -40,6 +40,16 @@ export const queueOrders         = (id) =>
 
 // Decision Log
 export const fetchDecisionLog    = (id) => api.get(`/alpha/workspaces/${id}/log`).then(r => r.data);
+
+// Alpha Ezer Live Patch (ChangeSet)
+export const applyPatch          = (id, title, ops) =>
+  api.post(`/alpha/workspaces/${id}/changesets`, { title, ops }).then(r => r.data);
+export const keepPatch           = (id, csId) =>
+  api.post(`/alpha/workspaces/${id}/changesets/${csId}/keep`).then(r => r.data);
+export const undoPatch           = (id, csId) =>
+  api.post(`/alpha/workspaces/${id}/changesets/${csId}/undo`).then(r => r.data);
+export const listChangeSets      = (id, status) =>
+  api.get(`/alpha/workspaces/${id}/changesets`, status ? { params: { status } } : {}).then(r => r.data);
 
 // LLM Multi-Provider Router (Claude / OpenAI / Perplexity / Gemini)
 export const listLlmProviders    = () => api.get("/llm/providers").then(r => r.data);
@@ -73,3 +83,31 @@ export const getPendingCount     = () => api.get("/proposals/pending-count").the
 export const createProposal      = (body) => api.post("/proposals", body).then(r => r.data);
 export const approveProposal     = (id) => api.post(`/proposals/${id}/approve`).then(r => r.data);
 export const rejectProposal      = (id, reason) => api.post(`/proposals/${id}/reject`, { reason }).then(r => r.data);
+
+// Developer Studio Git 연동
+export const getGitStatus            = () => api.get("/alpha/git/status").then(r => r.data);
+export const connectGit              = (token) => api.post("/alpha/git/connect", { token }).then(r => r.data);
+export const disconnectGit           = () => api.delete("/alpha/git/connect").then(r => r.data);
+export const listGitRepos            = () => api.get("/alpha/git/repos").then(r => r.data);
+export const getWorkspaceGitStatus   = (id) => api.get(`/alpha/workspaces/${id}/git/status`).then(r => r.data);
+export const linkWorkspaceRepo       = (id, repoFullName, branch) =>
+  api.post(`/alpha/workspaces/${id}/git/link`, { repoFullName, branch }).then(r => r.data);
+export const unlinkWorkspaceRepo     = (id) => api.delete(`/alpha/workspaces/${id}/git/link`).then(r => r.data);
+export const listWorkspaceCommits    = (id, branch, perPage = 30) =>
+  api.get(`/alpha/workspaces/${id}/git/commits`, { params: { branch, perPage } }).then(r => r.data);
+export const getWorkspaceCommit      = (id, sha) =>
+  api.get(`/alpha/workspaces/${id}/git/commits/${sha}`).then(r => r.data);
+export const compareWorkspaceRefs    = (id, base, head) =>
+  api.get(`/alpha/workspaces/${id}/git/compare`, { params: { base, head } }).then(r => r.data);
+export const pushWorkspaceFiles      = (id, body) =>
+  api.post(`/alpha/workspaces/${id}/git/push`, body).then(r => r.data);
+export const createWorkspacePr       = (id, body) =>
+  api.post(`/alpha/workspaces/${id}/git/pr`, body).then(r => r.data);
+
+// 무한매수법 (InfiniteBuying) 구독 관리
+export const listInfiniteBuying      = () => api.get("/broker/infinite-buying").then(r => r.data);
+export const createInfiniteBuying    = (body) => api.post("/broker/infinite-buying", body).then(r => r.data);
+export const setInfiniteBuyingActive = (id, active) => api.patch(`/broker/infinite-buying/${id}/active`, { active }).then(r => r.data);
+export const resetInfiniteBuying     = (id) => api.patch(`/broker/infinite-buying/${id}/reset`).then(r => r.data);
+export const deleteInfiniteBuying    = (id) => api.delete(`/broker/infinite-buying/${id}`);
+export const runNowInfiniteBuying    = (id) => api.post(`/broker/infinite-buying/${id}/run-now`).then(r => r.data);
