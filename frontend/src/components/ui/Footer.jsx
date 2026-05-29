@@ -50,8 +50,8 @@ export default function Footer() {
       links: [
         { key: "footer.links.aboutUs" },
         { key: "footer.links.careers" },
-        { key: "footer.links.privacyPolicy", href: "/privacy" },
-        { key: "footer.links.termsOfService", href: "/terms" },
+        { key: "footer.links.privacyPolicy", href: "/alpha_privacy" },
+        { key: "footer.links.termsOfService", href: "/alpha_terms" },
       ],
     },
   ];
@@ -156,12 +156,12 @@ export default function Footer() {
             {t("footer.copyright")}
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            <a href="/privacy" style={{ fontSize: 12, color: "#94A3B8", textDecoration: "none", fontFamily: F }}
+            <a href="/alpha_privacy" style={{ fontSize: 12, color: "#94A3B8", textDecoration: "none", fontFamily: F }}
               onMouseEnter={e => e.currentTarget.style.color = "#3B82F6"}
               onMouseLeave={e => e.currentTarget.style.color = "#94A3B8"}>
               {t("footer.links.privacyPolicy")}
             </a>
-            <a href="/terms" style={{ fontSize: 12, color: "#94A3B8", textDecoration: "none", fontFamily: F }}
+            <a href="/alpha_terms" style={{ fontSize: 12, color: "#94A3B8", textDecoration: "none", fontFamily: F }}
               onMouseEnter={e => e.currentTarget.style.color = "#3B82F6"}
               onMouseLeave={e => e.currentTarget.style.color = "#94A3B8"}>
               {t("footer.links.termsOfService")}

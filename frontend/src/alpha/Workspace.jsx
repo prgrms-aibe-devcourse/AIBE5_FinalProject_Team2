@@ -72,6 +72,33 @@ export default function Workspace() {
   const [newStrategyOpen, setNewStrategyOpen] = useState(false);
   const [newStrategyName, setNewStrategyName] = useState("");
 
+  // 우측 전략 요약 패널 가로 폭 (드래그로 조절)
+  const [rightW, setRightW] = useState(() => {
+    const v = Number(localStorage.getItem("alpha.rightPanelWidth"));
+    return Number.isFinite(v) && v >= 220 && v <= 640 ? v : 300;
+  });
+  useEffect(() => { localStorage.setItem("alpha.rightPanelWidth", String(rightW)); }, [rightW]);
+  const startRightResize = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = rightW;
+    const onMove = (ev) => {
+      // 좌측으로 이동 = 패널 넓어짐 (drag left = wider)
+      const next = Math.min(640, Math.max(220, startW - (ev.clientX - startX)));
+      setRightW(next);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
   useEffect(() => { localStorage.setItem("alpha.lastWsId", id); }, [id]);
   const reload = () => getWorkspace(id).then(setWs).catch(e => setErr(e.message));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -79,6 +106,16 @@ export default function Workspace() {
 
   // user-level 슬로건 (워크스페이스 이름과 별개)
   useEffect(() => { getMySlogan().then(setUserSlogan).catch(() => {}); }, []);
+
+  // Alpha Ezer 라이브 패치 후 자동 리로드
+  useEffect(() => {
+    const onReload = (e) => {
+      if (!e?.detail || Number(e.detail.wsId) === Number(id)) reload();
+    };
+    window.addEventListener("alphaWorkspaceReload", onReload);
+    return () => window.removeEventListener("alphaWorkspaceReload", onReload);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   // 좌측 사이드바용 전체 워크스페이스 로드 + 각 ws의 trust 머지
   useEffect(() => {
@@ -147,9 +184,98 @@ export default function Workspace() {
   const regimeText = ws.lastRegime?.current_label || ws.lastRegime?.label || "정상 (Normal)";
   const isHighVol = /high.*vol|위험|warning|⚡/i.test(regimeText);
 
+  // Trust Score 탭일 때는 우측 패널을 좌측 사이드바 하단으로 이동 (메인 영역 가독성 ↑)
+  const isTrust = tab === "trust";
+
+  const summarySections = (
+    <>
+      {/* 전략 요약 */}
+      <section>
+        <div style={sideTitle(theme)}>전략 요약</div>
+        <div style={sideCard(theme)}>
+          <div style={{ fontSize: 13.5, fontWeight: 800, color: theme.text, marginBottom: 4 }}>{template}</div>
+          <div style={{ fontSize: 11.5, color: theme.textMuted, marginBottom: 10, lineHeight: 1.45 }}>{goalSummary}</div>
+          <div style={{ fontSize: 11, color: theme.textMuted }}>자산</div>
+          <div style={{ fontSize: 12.5, color: theme.text, marginTop: 3, fontWeight: 600 }}>
+            {assets.length > 0 ? assets.join(" / ") : "—"}
+          </div>
+          <div style={{ marginTop: 10, display: "inline-block", padding: "3px 10px", borderRadius: 999, background: theme.accentSoft, color: theme.accent, fontSize: 11, fontWeight: 700 }}>
+            {STATUS_LABEL[ws.status] || ws.status}
+          </div>
+        </div>
+      </section>
+
+      {/* 현재 REGIME */}
+      <section>
+        <div style={sideTitle(theme)}>현재 REGIME</div>
+        <div style={{
+          ...sideCard(theme),
+          background: isHighVol ? "#FEF9C3" : "#F1F5F9",
+          border: `1px solid ${isHighVol ? "#FDE68A" : theme.panelBorder}`,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 800, color: isHighVol ? "#92400E" : theme.text }}>
+            <AlertTriangle size={14} /> {regimeText}
+          </div>
+          <div style={{ fontSize: 11.5, color: isHighVol ? "#92400E" : theme.textMuted, marginTop: 4 }}>
+            {isHighVol ? "Risk-off 조건 모니터링 중" : "Regime 탭에서 분석 실행"}
+          </div>
+        </div>
+      </section>
+
+      {/* TRUST SCORE */}
+      <section>
+        <div style={sideTitle(theme)}>TRUST SCORE</div>
+        <div style={sideCard(theme)}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 4, marginBottom: 8 }}>
+            <span style={{ fontSize: 36, fontWeight: 900, color: theme.text, lineHeight: 1 }}>
+              {trustScore != null ? trustScore : "—"}
+            </span>
+            <span style={{ fontSize: 12, color: theme.textMuted }}>/ 100</span>
+          </div>
+          {trustScore == null && (
+            <button onClick={() => setTab("trust")} style={{
+              width: "100%", padding: "7px 10px", borderRadius: 8, border: `1px solid ${theme.panelBorder}`,
+              background: "white", color: theme.text, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+            }}>Trust Score 측정하기</button>
+          )}
+          {Object.entries(subScores).map(([k, v]) => {
+            const KO = {
+              generalization: "Generalization",
+              regime_robustness: "Regime",
+              parameter_stability: "Param Stability",
+              risk_control: "Risk Control",
+              statistical_confidence: "Stat Confidence",
+            };
+            return (
+              <div key={k} style={{ marginTop: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: theme.text, marginBottom: 3 }}>
+                  <span>{KO[k] || k}</span><b>{v}</b>
+                </div>
+                <div style={{ height: 4, background: "#E5E7EB", borderRadius: 2, overflow: "hidden" }}>
+                  <div style={{ width: `${v}%`, height: "100%", background: theme.accent }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 주요 리스크 */}
+      <section>
+        <div style={sideTitle(theme)}>주요 리스크</div>
+        <div style={{
+          ...sideCard(theme),
+          fontSize: 11.5, color: theme.text, lineHeight: 1.55,
+        }}>
+          {trust?.narrative || "Trust Score 측정 후 자동 분석된 리스크 요약이 표시됩니다."}
+        </div>
+      </section>
+    </>
+  );
+
   return (
     <>
-    <div style={{ display: "grid", gridTemplateColumns: "240px 1fr 300px", height: "100vh", background: theme.bg }}>
+    <div style={{ display: "grid", gridTemplateColumns: isTrust ? "240px 1fr" : `240px 1fr ${rightW}px`, height: "100vh", background: theme.bg }}>
       {/* ============================== 왼쪽 사이드바 ============================== */}
       <aside style={{
         borderRight: `1px solid ${theme.panelBorder}`, background: theme.panel,
@@ -157,7 +283,7 @@ export default function Workspace() {
       }}>
         <button onClick={() => navigate("/alpha")} style={{
           background: "transparent", border: "none", color: theme.textMuted, cursor: "pointer",
-          display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, padding: 0, alignSelf: "flex-start",
+          display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 600, padding: 0, alignSelf: "flex-start",
         }}><ChevronLeft size={14} /> 워크스페이스 목록</button>
 
         {/* 슬로건 (user-level: 투자 최종 목표) — 워크스페이스 이름과는 별개 */}
@@ -221,6 +347,13 @@ export default function Workspace() {
 
         {/* 탭별 도움말 — 이미지의 파란 안내 창을 여기로 이동 */}
         <TabHelpCard tab={tab} theme={theme} />
+
+        {/* Trust Score 탭일 때만 좌측 하단에 전략 요약 노출 (메인 영역 확장) */}
+        {isTrust && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 4 }}>
+            {summarySections}
+          </div>
+        )}
       </aside>
 
       {/* ============================== 가운데 본문 ============================== */}
@@ -297,94 +430,28 @@ export default function Workspace() {
         </div>
       </main>
 
-      {/* ============================== 오른쪽 패널 ============================== */}
+      {/* ============================== 오른쪽 패널 (Trust Score 탭에서는 숨김) ============================== */}
+      {!isTrust && (
       <aside style={{
         borderLeft: `1px solid ${theme.panelBorder}`, background: theme.panel,
         padding: "18px 16px", display: "flex", flexDirection: "column", gap: 14, overflow: "auto",
+        position: "relative",
       }}>
-        {/* 전략 요약 */}
-        <section>
-          <div style={sideTitle(theme)}>전략 요약</div>
-          <div style={sideCard(theme)}>
-            <div style={{ fontSize: 13.5, fontWeight: 800, color: theme.text, marginBottom: 4 }}>{template}</div>
-            <div style={{ fontSize: 11.5, color: theme.textMuted, marginBottom: 10, lineHeight: 1.45 }}>{goalSummary}</div>
-            <div style={{ fontSize: 11, color: theme.textMuted }}>자산</div>
-            <div style={{ fontSize: 12.5, color: theme.text, marginTop: 3, fontWeight: 600 }}>
-              {assets.length > 0 ? assets.join(" / ") : "—"}
-            </div>
-            <div style={{ marginTop: 10, display: "inline-block", padding: "3px 10px", borderRadius: 999, background: theme.accentSoft, color: theme.accent, fontSize: 11, fontWeight: 700 }}>
-              {STATUS_LABEL[ws.status] || ws.status}
-            </div>
-          </div>
-        </section>
-
-        {/* 현재 REGIME */}
-        <section>
-          <div style={sideTitle(theme)}>현재 REGIME</div>
-          <div style={{
-            ...sideCard(theme),
-            background: isHighVol ? "#FEF9C3" : "#F1F5F9",
-            border: `1px solid ${isHighVol ? "#FDE68A" : theme.panelBorder}`,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 800, color: isHighVol ? "#92400E" : theme.text }}>
-              <AlertTriangle size={14} /> {regimeText}
-            </div>
-            <div style={{ fontSize: 11.5, color: isHighVol ? "#92400E" : theme.textMuted, marginTop: 4 }}>
-              {isHighVol ? "Risk-off 조건 모니터링 중" : "Regime 탭에서 분석 실행"}
-            </div>
-          </div>
-        </section>
-
-        {/* TRUST SCORE */}
-        <section>
-          <div style={sideTitle(theme)}>TRUST SCORE</div>
-          <div style={sideCard(theme)}>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 4, marginBottom: 8 }}>
-              <span style={{ fontSize: 36, fontWeight: 900, color: theme.text, lineHeight: 1 }}>
-                {trustScore != null ? trustScore : "—"}
-              </span>
-              <span style={{ fontSize: 12, color: theme.textMuted }}>/ 100</span>
-            </div>
-            {trustScore == null && (
-              <button onClick={() => setTab("trust")} style={{
-                width: "100%", padding: "7px 10px", borderRadius: 8, border: `1px solid ${theme.panelBorder}`,
-                background: "white", color: theme.text, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
-              }}>Trust Score 측정하기</button>
-            )}
-            {Object.entries(subScores).map(([k, v]) => {
-              const KO = {
-                generalization: "Generalization",
-                regime_robustness: "Regime",
-                parameter_stability: "Param Stability",
-                risk_control: "Risk Control",
-                statistical_confidence: "Stat Confidence",
-              };
-              return (
-                <div key={k} style={{ marginTop: 8 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: theme.text, marginBottom: 3 }}>
-                    <span>{KO[k] || k}</span><b>{v}</b>
-                  </div>
-                  <div style={{ height: 4, background: "#E5E7EB", borderRadius: 2, overflow: "hidden" }}>
-                    <div style={{ width: `${v}%`, height: "100%", background: theme.accent }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* 주요 리스크 */}
-        <section>
-          <div style={sideTitle(theme)}>주요 리스크</div>
-          <div style={{
-            ...sideCard(theme),
-            fontSize: 11.5, color: theme.text, lineHeight: 1.55,
-          }}>
-            {trust?.narrative || "Trust Score 측정 후 자동 분석된 리스크 요약이 표시됩니다."}
-          </div>
-        </section>
-
+        {/* 가로 리사이즈 핸들 (좌측 터서리) */}
+        <div
+          onMouseDown={startRightResize}
+          title="드래그해서 전략 요약 영역 폭 조절"
+          style={{
+            position: "absolute", top: 0, left: 0, width: 6, height: "100%",
+            cursor: "col-resize", zIndex: 10,
+            background: "transparent",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "linear-gradient(to right, rgba(186,230,253,0.7), rgba(186,230,253,0))"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+        />
+        {summarySections}
       </aside>
+      )}
     </div>
 
     <NewStrategyModal

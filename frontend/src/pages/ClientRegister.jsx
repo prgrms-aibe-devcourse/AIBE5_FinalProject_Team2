@@ -170,7 +170,7 @@ function ClientRegister() {
       setUserRole("client");
       clearSignupFormData();
       alert(data.message);
-      navigate("/client_home");
+      navigate("/home");
     } catch (error) {
       const msg = error?.response?.data?.message || "서버와 통신 중 오류가 발생했습니다.";
       console.error("Signup error:", error);

@@ -554,7 +554,7 @@ export default function DeveloperLab() {
   const logEndRef = useRef(null);
   const timerRefs = useRef([]);
 
-  useEffect(() => { logEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [logLines]);
+  useEffect(() => { if (logLines.length > 0) logEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [logLines]);
 
   // ── 워크스페이스 로드 (마운트 시) ──
   useEffect(() => {

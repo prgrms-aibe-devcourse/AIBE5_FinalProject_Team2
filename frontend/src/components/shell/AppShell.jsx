@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useLocation } from "react-router-dom";
 import LeftSidebar from "./LeftSidebar";
 import TopBar from "./TopBar";
 import RightChatDock from "./RightChatDock";
@@ -14,8 +13,6 @@ import Footer from "../ui/Footer";
  * - 우측 도크 채팅 (TopBar 의 AI 버튼이 토글, vscode 처럼 화면 분할)
  */
 export default function AppShell({ children, hideChat = false }) {
-  const loc = useLocation();
-  const isDeveloperPage = loc.pathname === "/alpha/developer" || loc.pathname.startsWith("/alpha/developer/");
   const [chatOpen, setChatOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [chatWidth, setChatWidth] = useState(() => {
@@ -53,7 +50,7 @@ export default function AppShell({ children, hideChat = false }) {
         transition: "margin-left 0.18s ease, margin-right 0.18s ease",
       }}>
         {children}
-        {!isDeveloperPage && <Footer />}
+        <Footer />
       </main>
       {!hideChat && (
         <RightChatDock

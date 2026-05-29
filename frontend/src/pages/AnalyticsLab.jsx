@@ -105,7 +105,7 @@ export default function AnalyticsLab() {
     <div style={{ minHeight: "100vh", background: "#F9FAFB", fontFamily: FONT }}>
       <Header_client />
       <main style={{ maxWidth: 1100, margin: "0 auto", padding: "30px 20px 80px" }}>
-        <button onClick={() => navigate("/client_home")} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 13, cursor: "pointer", padding: 0 }}>‹ 홈으로</button>
+        <button onClick={() => navigate("/home")} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 13, cursor: "pointer", padding: 0 }}>‹ 홈으로</button>
         <h1 style={{ fontSize: 26, fontWeight: 900, color: "#0F2C52", margin: "8px 0 4px" }}>
           Alpha-Helix 분석 랩
         </h1>

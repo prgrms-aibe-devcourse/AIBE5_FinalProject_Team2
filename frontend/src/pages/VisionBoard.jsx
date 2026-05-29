@@ -1,238 +1,478 @@
 import { useState, useEffect, useRef } from "react";
-import { Plus, X, Upload, Sparkles, Trash2, Move } from "lucide-react";
-import { useTheme } from "../alpha/ThemeContext";
+import { Image as ImageIcon, Type, Trash2, Sparkles, Save, HelpCircle } from "lucide-react";
 
-/**
- * VisionBoard — 사용자의 "투자 비전 / 라이프 목표" 콜라주.
- * 이미지/메모 카드를 자유롭게 추가 → 본인 비전을 시각화.
- * 데이터는 localStorage("alpha.visionBoard")에 저장 (서버 연동은 추후).
- */
-
-const STORAGE = "alpha.visionBoard";
+const STORAGE = "alpha.visionBoard.v2";
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const CANVAS_W = 2800;
+const CANVAS_H = 1800;
 
-function loadItems() {
-  try {
-    const raw = localStorage.getItem(STORAGE);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch (_) { return []; }
+const MEMO_COLORS = [
+  "#FEF9C3", "#DBEAFE", "#DCFCE7", "#FCE7F3",
+  "#EDE9FE", "#FFF7ED", "#FFEDD5", "#F0FDF4",
+];
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(STORAGE) || "[]"); } catch { return []; }
+}
+function save(items) {
+  try { localStorage.setItem(STORAGE, JSON.stringify(items)); } catch {}
 }
 
-function saveItems(items) {
-  try { localStorage.setItem(STORAGE, JSON.stringify(items)); } catch (_) {}
-}
+let _id = Date.now();
+const uid = () => ++_id;
 
 export default function VisionBoard() {
-  const { theme } = useTheme();
-  const [items, setItems] = useState(loadItems);
-  const [hovered, setHovered] = useState(null);
-  const [adding, setAdding] = useState(null); // "image" | "memo" | null
-  const [memoText, setMemoText] = useState("");
-  const fileRef = useRef(null);
+  const [items, setItems]         = useState(load);
+  const [selected, setSelected]   = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [showText, setShowText]   = useState(false);
+  const [newText, setNewText]     = useState("");
+  const [newColor, setNewColor]   = useState(MEMO_COLORS[0]);
+  const [dirty, setDirty]         = useState(false);
+  const [savedAnim, setSavedAnim] = useState(false);
 
-  useEffect(() => { saveItems(items); }, [items]);
+  const fileRef    = useRef(null);
+  const canvasRef  = useRef(null);
+  const itemsRef   = useRef(items);
+  const dragging   = useRef(null); // { id, startX, startY, origX, origY }
+  const resizing   = useRef(null); // { id, startX, startY, origW, origH }
 
+  useEffect(() => { itemsRef.current = items; }, [items]);
+
+  // items가 초기 로드 이후에 바뀔 때만 dirty 표시
+  const isFirst = useRef(true);
+  useEffect(() => {
+    if (isFirst.current) { isFirst.current = false; return; }
+    setDirty(true);
+  }, [items]);
+
+  const handleSave = () => {
+    save(itemsRef.current);
+    setDirty(false);
+    setSavedAnim(true);
+    setTimeout(() => setSavedAnim(false), 1800);
+  };
+
+  /* ── 전역 마우스 핸들러 ── */
+  useEffect(() => {
+    const onMove = (e) => {
+      if (dragging.current) {
+        const { id, startX, startY, origX, origY } = dragging.current;
+        setItems(prev => prev.map(x =>
+          x.id === id
+            ? { ...x, x: Math.max(0, origX + e.clientX - startX), y: Math.max(0, origY + e.clientY - startY) }
+            : x
+        ));
+      }
+      if (resizing.current) {
+        const { id, startX, startY, origW, origH } = resizing.current;
+        const item = itemsRef.current.find(x => x.id === id);
+        setItems(prev => prev.map(x =>
+          x.id === id ? {
+            ...x,
+            w: Math.max(100, origW + e.clientX - startX),
+            ...(item?.type === "text" ? { h: Math.max(60, origH + e.clientY - startY) } : {}),
+          } : x
+        ));
+      }
+    };
+    const onUp = () => { dragging.current = null; resizing.current = null; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  /* ── 이미지 추가 ── */
   const addImage = (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (f.size > 4 * 1024 * 1024) {
-      alert("이미지는 4MB 이하만 가능합니다.");
-      return;
-    }
+    if (f.size > 5 * 1024 * 1024) { alert("이미지는 5MB 이하만 가능합니다."); return; }
     const reader = new FileReader();
     reader.onload = () => {
-      setItems(prev => [
-        { id: Date.now(), type: "image", src: reader.result, caption: "" },
-        ...prev,
-      ]);
-      setAdding(null);
+      const id = uid();
+      setItems(prev => [...prev, {
+        id, type: "image", src: reader.result, caption: "",
+        x: 120 + Math.random() * 500, y: 80 + Math.random() * 350, w: 240,
+      }]);
+      setSelected(id);
     };
     reader.readAsDataURL(f);
     e.target.value = "";
   };
 
-  const addMemo = () => {
-    const text = memoText.trim();
+  /* ── 텍스트 추가 ── */
+  const addText = () => {
+    const text = newText.trim();
     if (!text) return;
-    setItems(prev => [
-      { id: Date.now(), type: "memo", text, color: pickColor() },
-      ...prev,
-    ]);
-    setMemoText("");
-    setAdding(null);
+    const id = uid();
+    setItems(prev => [...prev, {
+      id, type: "text", text, color: newColor,
+      x: 140 + Math.random() * 450, y: 100 + Math.random() * 350, w: 210, h: 130,
+    }]);
+    setSelected(id);
+    setNewText("");
+    setShowText(false);
   };
 
-  const removeItem = (id) => setItems(prev => prev.filter(x => x.id !== id));
-  const updateCaption = (id, caption) =>
-    setItems(prev => prev.map(x => x.id === id ? { ...x, caption } : x));
+  /* ── 삭제 ── */
+  const remove = (id) => { setItems(prev => prev.filter(x => x.id !== id)); setSelected(null); };
+
+  /* ── 드래그 시작 ── */
+  const onStickerDown = (e, id) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    if (editingId === id) return; // 편집 중엔 드래그 안 함
+    const item = itemsRef.current.find(x => x.id === id);
+    if (!item) return;
+    setSelected(id);
+    // 선택 아이템을 맨 위로
+    setItems(prev => { const it = prev.find(x => x.id === id); return [...prev.filter(x => x.id !== id), it]; });
+    dragging.current = { id, startX: e.clientX, startY: e.clientY, origX: item.x, origY: item.y };
+  };
+
+  /* ── 리사이즈 시작 ── */
+  const onResizeDown = (e, id) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const item = itemsRef.current.find(x => x.id === id);
+    if (!item) return;
+    resizing.current = { id, startX: e.clientX, startY: e.clientY, origW: item.w, origH: item.h ?? 130 };
+  };
+
+  /* ── 캔버스 클릭 (선택 해제) ── */
+  const onCanvasClick = (e) => {
+    if (e.target === canvasRef.current) { setSelected(null); setEditingId(null); }
+  };
+
+  const updateText    = (id, text)    => setItems(prev => prev.map(x => x.id === id ? { ...x, text }    : x));
+  const updateCaption = (id, caption) => setItems(prev => prev.map(x => x.id === id ? { ...x, caption } : x));
 
   return (
-    <div style={{
-      padding: "36px 40px 80px",
-      background: "#F8FAFC",
-      minHeight: "calc(100vh - 44px)",
-      fontFamily: F,
-      color: "#0F172A",
-    }}>
-      {/* 헤더 */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 32 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 44px)", fontFamily: F, overflow: "hidden" }}>
+
+      {/* ── 툴바 ── */}
+      <div style={{
+        background: "white", borderBottom: "1px solid #E2E8F0",
+        padding: "9px 20px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0,
+        boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+      }}>
+        {/* 타이틀 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 8 }}>
           <div style={{
-            width: 54, height: 54, borderRadius: 17, flexShrink: 0,
-            background: "linear-gradient(135deg,#60a5fa 0%,#6366f1 100%)",
+            width: 28, height: 28, borderRadius: 8,
+            background: "linear-gradient(135deg,#60a5fa,#6366f1)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 6px 20px rgba(99,102,241,0.32)",
+            flexShrink: 0,
           }}>
-            <Sparkles size={24} color="white" strokeWidth={2.2} />
+            <Sparkles size={14} color="white" />
           </div>
-          <div>
-            <h1 style={{
-              margin: 0, fontSize: 26, fontWeight: 800, lineHeight: 1.15,
-              background: "linear-gradient(90deg,#3b82f6 0%,#6366f1 100%)",
-              WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-            }}>
-              비전 보드
-            </h1>
-            <p style={{ margin: "5px 0 0", fontSize: 13, color: "#64748B", fontWeight: 500 }}>
-              나의 투자 여정 · 자유 · 라이프 목표를 시각화해보세요
-            </p>
-          </div>
+          <span style={{
+            fontSize: 15, fontWeight: 800,
+            background: "linear-gradient(90deg,#3b82f6,#6366f1)",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+            whiteSpace: "nowrap",
+          }}>비전 보드</span>
+          <span style={{ fontSize: 12, color: "#94A3B8", fontWeight: 400, whiteSpace: "nowrap" }}>
+            — 투자 자유를 꿈꾸는 당신의 비전을 시각화하세요. 목표하는 삶, 가고 싶은 곳, 이루고 싶은 것들을 자유롭게 붙여보세요.
+          </span>
         </div>
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={() => fileRef.current?.click()} style={btnPrimary}>
-            <Upload size={15} /> 이미지 추가
-          </button>
-          <button onClick={() => setAdding(adding === "memo" ? null : "memo")} style={btnSecondary}>
-            <Plus size={15} /> 메모 추가
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={addImage} />
+        <div style={{ width: 1, height: 22, background: "#E2E8F0", margin: "0 4px" }} />
+
+        <Btn onClick={() => fileRef.current?.click()} icon={<ImageIcon size={13} />} label="이미지" primary />
+        <Btn
+          onClick={() => { setShowText(v => !v); setNewText(""); }}
+          icon={<Type size={13} />}
+          label="텍스트"
+          active={showText}
+        />
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={addImage} />
+
+        {/* 사용 힌트 — 물음표 호버 툴팁 */}
+        <HintTooltip />
+
+        {selected && (
+          <>
+            <div style={{ width: 1, height: 22, background: "#E2E8F0", margin: "0 4px" }} />
+            <Btn onClick={() => remove(selected)} icon={<Trash2 size={13} />} label="삭제" danger />
+          </>
+        )}
+
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {/* 미저장 / 저장 완료 표시 */}
+          {savedAnim && (
+            <span style={{ fontSize: 12, color: "#22c55e", fontWeight: 600 }}>✓ 저장됨</span>
+          )}
+          {!savedAnim && dirty && (
+            <span style={{ fontSize: 12, color: "#f59e0b", fontWeight: 600 }}>● 저장되지 않은 변경사항</span>
+          )}
+          {!savedAnim && !dirty && items.length > 0 && (
+            <span style={{ fontSize: 12, color: "#94A3B8" }}>{items.length}개 스티커</span>
+          )}
+          <Btn
+            onClick={handleSave}
+            icon={<Save size={13} />}
+            label="저장"
+            primary
+            disabled={!dirty}
+          />
         </div>
       </div>
 
-      {/* 메모 입력 */}
-      {adding === "memo" && (
+      {/* ── 텍스트 입력 바 ── */}
+      {showText && (
         <div style={{
-          marginBottom: 24, padding: 16, borderRadius: 14,
-          background: "linear-gradient(135deg,#FEF9C3 0%,#FFEDD5 100%)",
-          border: "1px solid #FCD34D",
-          boxShadow: "0 4px 16px rgba(252,211,77,0.2)",
+          background: "#F8FAFC", borderBottom: "1px solid #E2E8F0",
+          padding: "10px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
         }}>
-          <textarea
-            value={memoText}
-            onChange={e => setMemoText(e.target.value)}
-            placeholder="예: 5년 안에 월 500만원 현금흐름 달성 🚀"
+          <input
             autoFocus
-            rows={3}
+            value={newText}
+            onChange={e => setNewText(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") addText(); if (e.key === "Escape") setShowText(false); }}
+            placeholder="텍스트 내용 입력 후 Enter..."
             style={{
-              width: "100%", padding: 12, borderRadius: 8,
-              border: "1px solid #E5E7EB", fontSize: 14,
-              fontFamily: F, resize: "vertical", outline: "none",
+              flex: 1, padding: "8px 12px", borderRadius: 8, fontFamily: F,
+              border: "1.5px solid #C7D2FE", fontSize: 14, outline: "none",
             }}
+            onFocus={e => e.target.style.borderColor = "#6366f1"}
+            onBlur={e => e.target.style.borderColor = "#C7D2FE"}
           />
-          <div style={{ display: "flex", gap: 8, marginTop: 10, justifyContent: "flex-end" }}>
-            <button onClick={() => { setAdding(null); setMemoText(""); }} style={btnGhost}>취소</button>
-            <button onClick={addMemo} disabled={!memoText.trim()} style={{ ...btnPrimary, opacity: memoText.trim() ? 1 : 0.5 }}>
-              메모 추가
-            </button>
+          {/* 색상 팔레트 */}
+          <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+            {MEMO_COLORS.map(c => (
+              <button key={c} onClick={() => setNewColor(c)} style={{
+                width: 20, height: 20, borderRadius: "50%", background: c, border: "none",
+                cursor: "pointer", outline: newColor === c ? "2px solid #6366f1" : "none",
+                outlineOffset: 2, flexShrink: 0,
+              }} />
+            ))}
           </div>
+          <Btn onClick={addText} label="추가" primary disabled={!newText.trim()} />
+          <Btn onClick={() => setShowText(false)} label="취소" />
         </div>
       )}
 
-      {/* 빈 상태 */}
-      {items.length === 0 ? (
-        <div style={{
-          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          padding: "100px 0", gap: 20,
-        }}>
-          <div style={{
-            width: 100, height: 100, borderRadius: 28,
-            background: "linear-gradient(135deg,#EFF6FF 0%,#FDF2F8 100%)",
-            border: "1.5px solid rgba(168,139,250,0.2)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 48,
-          }}>
-            🎯
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#0F172A", marginBottom: 8 }}>
-              아직 비전 보드가 비어있어요
+      {/* ── 캔버스 ── */}
+      <div style={{ flex: 1, overflow: "auto", background: "#DDE1E9", position: "relative" }}>
+        <div
+          ref={canvasRef}
+          onClick={onCanvasClick}
+          style={{
+            position: "relative",
+            width: CANVAS_W, height: CANVAS_H,
+            backgroundImage: "radial-gradient(circle, rgba(0,0,0,0.12) 1px, transparent 1px)",
+            backgroundSize: "30px 30px",
+            userSelect: "none",
+          }}
+        >
+          {/* 빈 상태 힌트 */}
+          {items.length === 0 && (
+            <div style={{
+              position: "absolute", top: "38%", left: "50%",
+              transform: "translate(-50%,-50%)",
+              textAlign: "center", pointerEvents: "none",
+            }}>
+              <div style={{ fontSize: 64, marginBottom: 16 }}>🎯</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: "#94A3B8", marginBottom: 8 }}>
+                비전 보드가 비어있어요
+              </div>
+              <div style={{ fontSize: 14, color: "#94A3B8", lineHeight: 1.7 }}>
+                위 툴바에서 이미지나 텍스트를 추가해보세요<br />
+                드래그로 자유롭게 배치하고, 모서리를 당겨 크기를 조절할 수 있어요
+              </div>
             </div>
-            <div style={{ fontSize: 14, color: "#94A3B8", lineHeight: 1.6, maxWidth: 420 }}>
-              이미지나 메모를 추가해서 당신의 투자 자유 비전을 시각화해보세요.<br/>
-              여행지, 집, 자동차, 목표 금액 등 영감을 주는 이미지들을 모아두면 좋아요.
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))",
-          gap: 16,
-        }}>
-          {items.map(it => (
-            <div
-              key={it.id}
-              onMouseEnter={() => setHovered(it.id)}
-              onMouseLeave={() => setHovered(null)}
-              style={{
-                position: "relative",
-                borderRadius: 16,
-                overflow: "hidden",
-                background: it.type === "memo" ? it.color : "white",
-                border: "1px solid #E5E7EB",
-                boxShadow: hovered === it.id
-                  ? "0 12px 32px rgba(0,0,0,0.16)"
-                  : "0 2px 10px rgba(0,0,0,0.06)",
-                transform: hovered === it.id ? "translateY(-3px)" : "none",
-                transition: "transform 0.18s, box-shadow 0.18s",
-                minHeight: it.type === "memo" ? 160 : "auto",
-                display: "flex", flexDirection: "column",
-              }}
-            >
-              {it.type === "image" ? (
-                <>
-                  <img src={it.src} alt={it.caption || "vision"}
-                    style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", display: "block" }} />
-                  <input
-                    value={it.caption}
-                    onChange={e => updateCaption(it.id, e.target.value)}
-                    placeholder="캡션 추가..."
-                    style={{
-                      border: "none", padding: "10px 12px", fontSize: 13, color: "#0F172A",
-                      fontFamily: F, outline: "none", background: "white", borderTop: "1px solid #F1F5F9",
-                    }}
-                  />
-                </>
-              ) : (
-                <div style={{
-                  padding: 18, fontSize: 15, lineHeight: 1.55, color: "#1F2937",
-                  fontWeight: 600, fontFamily: F, whiteSpace: "pre-wrap", wordBreak: "break-word",
-                  flex: 1, display: "flex", alignItems: "center",
-                }}>
-                  {it.text}
-                </div>
-              )}
+          )}
 
-              {/* 삭제 버튼 */}
-              <button
-                onClick={() => removeItem(it.id)}
-                style={{
-                  position: "absolute", top: 8, right: 8,
-                  width: 30, height: 30, borderRadius: 8, border: "none",
-                  background: hovered === it.id ? "rgba(239,68,68,0.95)" : "rgba(255,255,255,0.85)",
-                  color: hovered === it.id ? "white" : "#94A3B8",
-                  cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                  opacity: hovered === it.id ? 1 : 0,
-                  transition: "opacity 0.15s, background 0.15s",
-                  backdropFilter: "blur(4px)",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-                }}
-              >
-                <Trash2 size={14} />
-              </button>
+          {items.map(it => (
+            <Sticker
+              key={it.id}
+              item={it}
+              selected={selected === it.id}
+              editing={editingId === it.id}
+              onDown={onStickerDown}
+              onResizeDown={onResizeDown}
+              onDoubleClick={() => { if (it.type === "text") { setEditingId(it.id); setSelected(it.id); } }}
+              onBlurEdit={() => setEditingId(null)}
+              onChangeText={updateText}
+              onChangeCaption={updateCaption}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 스티커 컴포넌트 ── */
+function Sticker({ item, selected, editing, onDown, onResizeDown, onDoubleClick, onBlurEdit, onChangeText, onChangeCaption }) {
+  const isImage = item.type === "image";
+
+  return (
+    <div
+      onMouseDown={e => onDown(e, item.id)}
+      onDoubleClick={onDoubleClick}
+      style={{
+        position: "absolute",
+        left: item.x, top: item.y,
+        width: item.w,
+        ...(isImage ? {} : { height: item.h }),
+        cursor: editing ? "text" : "grab",
+        borderRadius: 14,
+        background: isImage ? "white" : item.color,
+        boxShadow: selected
+          ? "0 0 0 2.5px #6366f1, 0 8px 32px rgba(99,102,241,0.28)"
+          : "0 4px 20px rgba(0,0,0,0.18)",
+        overflow: "hidden",
+        zIndex: selected ? 100 : 1,
+        transition: "box-shadow 0.12s",
+      }}
+    >
+      {isImage ? (
+        <>
+          <img
+            src={item.src}
+            alt={item.caption || "vision"}
+            draggable={false}
+            style={{ width: "100%", display: "block", pointerEvents: "none", userSelect: "none" }}
+          />
+          {selected && (
+            <input
+              value={item.caption}
+              onChange={e => onChangeCaption(item.id, e.target.value)}
+              onMouseDown={e => e.stopPropagation()}
+              placeholder="캡션 추가..."
+              style={{
+                width: "100%", border: "none", borderTop: "1px solid #E2E8F0",
+                padding: "8px 10px", fontSize: 12.5, color: "#374151",
+                fontFamily: F, outline: "none", background: "white",
+                boxSizing: "border-box",
+              }}
+            />
+          )}
+        </>
+      ) : (
+        editing ? (
+          <textarea
+            autoFocus
+            value={item.text}
+            onChange={e => onChangeText(item.id, e.target.value)}
+            onMouseDown={e => e.stopPropagation()}
+            onBlur={onBlurEdit}
+            style={{
+              width: "100%", height: "100%", border: "none", resize: "none",
+              padding: "14px 16px", fontSize: 15, fontWeight: 600,
+              color: "#1F2937", fontFamily: F, outline: "none",
+              background: "transparent", boxSizing: "border-box", lineHeight: 1.55,
+            }}
+          />
+        ) : (
+          <div style={{
+            padding: "14px 16px", fontSize: 15, fontWeight: 600, lineHeight: 1.55,
+            color: "#1F2937", whiteSpace: "pre-wrap", wordBreak: "break-word",
+            minHeight: "100%", fontFamily: F,
+          }}>
+            {item.text || <span style={{ color: "#9CA3AF", fontWeight: 400, fontSize: 13 }}>더블클릭해서 편집</span>}
+          </div>
+        )
+      )}
+
+      {/* 리사이즈 핸들 */}
+      {selected && (
+        <div
+          onMouseDown={e => { e.stopPropagation(); onResizeDown(e, item.id); }}
+          style={{
+            position: "absolute", bottom: 0, right: 0,
+            width: 18, height: 18, cursor: "se-resize",
+            background: "#6366f1", borderRadius: "6px 0 14px 0",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 10,
+          }}
+        >
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+            <path d="M1.5 7.5L7.5 1.5M4.5 7.5L7.5 4.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </div>
+      )}
+
+      {/* 선택 표시 점 */}
+      {selected && (
+        <>
+          <Corner top left />
+          <Corner top />
+          <Corner left />
+          <Corner />
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── 선택 모서리 점 ── */
+function Corner({ top, left }) {
+  return (
+    <div style={{
+      position: "absolute",
+      top: top ? -3 : undefined, bottom: !top ? -3 : undefined,
+      left: left ? -3 : undefined, right: !left ? -3 : undefined,
+      width: 7, height: 7, borderRadius: "50%",
+      background: "#6366f1", border: "1.5px solid white",
+      pointerEvents: "none",
+      ...((!top && !left) ? { display: "none" } : {}), // 오른쪽 아래는 리사이즈 핸들이 대신함
+    }} />
+  );
+}
+
+/* ── 버튼 컴포넌트 ── */
+const HINTS = [
+  { icon: "✦", text: "스티커를 드래그해서 자유롭게 이동" },
+  { icon: "⤡", text: "선택 후 오른쪽 아래 핸들을 당겨 크기 조절" },
+  { icon: "✎", text: "텍스트 스티커를 더블클릭하면 내용 편집" },
+  { icon: "🗑", text: "스티커 선택 후 툴바 삭제 버튼으로 제거" },
+];
+
+function HintTooltip() {
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ position: "relative", display: "inline-flex" }}>
+      <div
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+        style={{
+          width: 22, height: 22, borderRadius: "50%",
+          background: "#F1F5F9", border: "1px solid #E2E8F0",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          cursor: "default",
+        }}
+      >
+        <HelpCircle size={13} color="#94A3B8" />
+      </div>
+      {show && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 8px)", left: "50%",
+          transform: "translateX(-50%)",
+          background: "#1E293B", borderRadius: 10,
+          padding: "12px 14px", zIndex: 9999,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
+          minWidth: 230,
+          pointerEvents: "none",
+        }}>
+          {/* 말풍선 화살표 */}
+          <div style={{
+            position: "absolute", top: -5, left: "50%", transform: "translateX(-50%)",
+            width: 10, height: 10, background: "#1E293B",
+            clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
+          }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#94A3B8", letterSpacing: 0.5, marginBottom: 8, textTransform: "uppercase" }}>
+            사용법
+          </div>
+          {HINTS.map(h => (
+            <div key={h.text} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 12, flexShrink: 0, marginTop: 1 }}>{h.icon}</span>
+              <span style={{ fontSize: 12, color: "#CBD5E1", lineHeight: 1.5 }}>{h.text}</span>
             </div>
           ))}
         </div>
@@ -241,35 +481,23 @@ export default function VisionBoard() {
   );
 }
 
-const MEMO_COLORS = [
-  "linear-gradient(135deg,#FEF9C3 0%,#FDE68A 100%)",
-  "linear-gradient(135deg,#DBEAFE 0%,#BFDBFE 100%)",
-  "linear-gradient(135deg,#DCFCE7 0%,#BBF7D0 100%)",
-  "linear-gradient(135deg,#FCE7F3 0%,#FBCFE8 100%)",
-  "linear-gradient(135deg,#EDE9FE 0%,#DDD6FE 100%)",
-  "linear-gradient(135deg,#FFEDD5 0%,#FED7AA 100%)",
-];
-function pickColor() {
-  return MEMO_COLORS[Math.floor(Math.random() * MEMO_COLORS.length)];
+function Btn({ onClick, icon, label, primary, danger, active, disabled }) {
+  const bg = danger ? "#FEE2E2" : primary ? "#6366f1" : active ? "#EEF2FF" : "#F1F5F9";
+  const color = danger ? "#DC2626" : primary ? "white" : active ? "#4f46e5" : "#374151";
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 5,
+        padding: "6px 12px", borderRadius: 7, border: "none",
+        background: bg, color, fontSize: 13, fontWeight: 600,
+        cursor: disabled ? "not-allowed" : "pointer", fontFamily: F,
+        opacity: disabled ? 0.45 : 1, whiteSpace: "nowrap",
+        transition: "background 0.12s",
+      }}
+    >
+      {icon}{label}
+    </button>
+  );
 }
-
-const btnPrimary = {
-  display: "inline-flex", alignItems: "center", gap: 6,
-  padding: "10px 16px", borderRadius: 10, border: "none",
-  background: "linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #6366f1 100%)",
-  color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer",
-  boxShadow: "0 3px 12px rgba(99,102,241,0.28)",
-};
-
-const btnSecondary = {
-  display: "inline-flex", alignItems: "center", gap: 6,
-  padding: "10px 16px", borderRadius: 10, border: "none",
-  background: "#DBEAFE", color: "#1e3a5f", fontWeight: 600, fontSize: 13, cursor: "pointer",
-};
-
-const btnGhost = {
-  display: "inline-flex", alignItems: "center", gap: 6,
-  padding: "10px 16px", borderRadius: 10,
-  background: "white", color: "#374151",
-  border: "1px solid #E5E7EB", fontWeight: 600, fontSize: 13, cursor: "pointer",
-};
