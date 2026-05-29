@@ -156,19 +156,6 @@ npm run dev
 
 ---
 
-## � 변경 이력
-
-### 2026-05-21
-- **구독 플랜 다층화**: STANDARD(9,900원) / PREMIUM(19,900원) 플랜 추가. `SubscriptionController` VALID_PLANS Map으로 금액 위변조 방지.
-- **Toss 키 쌍 수정**: 클라이언트 키(`test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq`)와 시크릿 키(`test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R`)를 동일 계정 공식 docs 테스트 키 쌍으로 통일 (이전 키 불일치로 Toss 서버 500 발생하던 버그 수정).
-- **결제 모드 명확화**: 현재 `test_` 키 = 샌드박스 (카카오페이 포함 모든 결제수단이 가상 결제, 실제 청구 없음). 라이브 전환 시 `live_` 키로 교체 필요.
-- **`/me` 엔드포인트**: DB `Tier.PRO` 단일값을 `amountKrw` 기반으로 STANDARD/PREMIUM 분리 표시.
-- **SubscriptionSuccess** 페이지: 플랜명 동적 표시, 실패 시 모달 재오픈 이벤트.
-- **index.html**: v1 SDK 블로킹 선로드로 v1/v2 전역 충돌 해결.
-- **Regime v2**: `high_vol_unstable`이 상승장까지 덮어쓰던 오분류 수정. `bull_volatile` 상태 분리, MA200 slope를 EWM span=10으로 민감도 개선, vol_high 임계값 75th percentile로 조정.
-
----
-
 ## �👥 팀
 
 AIBE5 — Team2 (Alpha-Helix)
