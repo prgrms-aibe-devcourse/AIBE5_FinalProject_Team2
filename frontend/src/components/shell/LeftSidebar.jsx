@@ -28,7 +28,6 @@ const THEME_PRESETS = [
 const TABS = [
   { key: "home",      label: "홈 (워크스페이스)",       Icon: Home,           route: "/workhome" },
   { key: "config",    label: "전략 카드",                Icon: Layers,         route: "/alpha" },
-  { key: "chat",      label: "AI 대화",                  Icon: MessageSquare,  tab: "chat",     sub: true },
   { key: "report",    label: "백테스트 리포트",          Icon: BarChart3,      tab: "report",   sub: true },
   { key: "regime",    label: "Regime 분석",             Icon: Activity,       tab: "regime",   sub: true },
   { key: "trust",     label: "Trust Score",             Icon: ShieldCheck,    tab: "trust",    sub: true },
@@ -45,7 +44,6 @@ const TABS = [
 ];
 
 const WS_SUBMENUS = [
-  { key: "chat",     label: "AI 대화",        Icon: MessageSquare },
   { key: "config",   label: "전략 카드",      Icon: Layers },
   { key: "report",   label: "백테스트",       Icon: BarChart3 },
   { key: "regime",   label: "Regime",         Icon: Activity },

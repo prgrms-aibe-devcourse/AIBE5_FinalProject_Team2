@@ -39,6 +39,9 @@ export function LanguageProvider({ children }) {
     }
     if (val === undefined) return key;
 
+    // Return arrays as-is (e.g. calendar.months, calendar.weekdays)
+    if (Array.isArray(val)) return val;
+
     // Interpolate {variable} placeholders
     return String(val).replace(/\{(\w+)\}/g, (_, name) =>
       vars[name] !== undefined ? vars[name] : `{${name}}`

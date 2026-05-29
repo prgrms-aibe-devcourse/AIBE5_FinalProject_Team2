@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGoogleLogin } from "@react-oauth/google";
 import useStore from "../store/useStore";
 import { authApi } from "../api";
-import { Phone, Mail, AtSign, Lock, Eye, EyeOff, Building2, UserSearch, HelpCircle } from "lucide-react";
-import mainLogo from "../assets/main_logo.png";
-import homeBg from "../assets/home.png";
+import { Phone, Mail, User, Lock, Eye, EyeOff, Building2, UserSearch } from "lucide-react";
+import bannerVideo from "../assets/배너후보.mp4";
 import { useLanguage } from "../i18n/LanguageContext";
 
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
@@ -61,6 +60,11 @@ function Signup() {
   const { loginUser, loginType, setLogin, setUsername, setUser, setUserRole, signupFormData, setSignupFormData, clearSignupFormData } = useStore();
   const googleEmail = loginType === "google" ? loginUser : "";
 
+  const videoRef = useRef(null);
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = 0.55;
+  }, []);
+
   const [form, setFormRaw] = useState(() => signupFormData || {
     idEmail: googleEmail || "",
     phone: "",
@@ -100,21 +104,6 @@ function Signup() {
     },
     onError: () => alert(t("login.googleFail")),
   });
-
-  const handleKakaoSignup = () => {
-    const kakaoClientId = import.meta.env.VITE_KAKAO_REST_KEY;
-    if (!kakaoClientId) { alert("VITE_KAKAO_REST_KEY가 .env에 없습니다."); return; }
-    const redirectUri = `${window.location.origin}/oauth/kakao/callback`;
-    const state = crypto.randomUUID();
-    sessionStorage.setItem("kakao_oauth_state", state);
-    window.location.assign(
-      "https://kauth.kakao.com/oauth/authorize" +
-      `?client_id=${kakaoClientId}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&response_type=code` +
-      `&state=${encodeURIComponent(state)}`
-    );
-  };
 
   const isValid = !!(
     form.idEmail.trim() &&
@@ -179,38 +168,34 @@ function Signup() {
   );
 
   return (
-    <div style={{ minHeight: "100vh", fontFamily: F }}>
-      {/* 블러 배경 */}
+    <div style={{ minHeight: "100vh", fontFamily: F, position: "relative" }}>
+      {/* 배경 비디오 (블러) */}
+      <video
+        ref={videoRef}
+        src={bannerVideo}
+        autoPlay
+        loop
+        muted
+        playsInline
+        style={{
+          position: "fixed", inset: 0, zIndex: 0,
+          width: "100%", height: "100%",
+          objectFit: "cover",
+          filter: "blur(12px) brightness(0.6)",
+          transform: "scale(1.05)",
+        }}
+      />
+      {/* 다크 그라디언트 오버레이 */}
       <div style={{
-        position: "fixed", inset: 0, zIndex: 0,
-        backgroundImage: `url(${homeBg})`,
-        backgroundSize: "cover", backgroundPosition: "center",
-        filter: "blur(20px) brightness(0.80) saturate(1.1)",
-        transform: "scale(1.1)",
+        position: "fixed", inset: 0, zIndex: 1,
+        background: "linear-gradient(to bottom, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.55) 100%)",
       }} />
-      <div style={{ position: "fixed", inset: 0, zIndex: 0, backgroundColor: "rgba(220,230,248,0.35)" }} />
-
-      {/* 상단 헤더 */}
-      <div style={{
-        position: "fixed", top: 0, left: 0, right: 0, zIndex: 20,
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "16px 28px",
-      }}>
-        <div onClick={() => navigate("/")} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-          <img src={mainLogo} alt="Alpha-Helix" style={{ height: 28, objectFit: "contain", filter: "drop-shadow(0 1px 6px rgba(0,0,0,0.22))" }} />
-          <span style={{ fontSize: 18, fontWeight: 800, color: "#ffffff", fontFamily: F, textShadow: "0 1px 4px rgba(0,0,0,0.25)" }}>Alpha-Helix</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.90)", fontFamily: F, textShadow: "0 1px 4px rgba(0,0,0,0.25)" }}>Help Center</span>
-          <HelpCircle size={18} color="rgba(255,255,255,0.85)" />
-        </div>
-      </div>
 
       {/* 카드 */}
       <div style={{
-        position: "relative", zIndex: 1,
+        position: "relative", zIndex: 2,
         display: "flex", justifyContent: "center", alignItems: "flex-start",
-        minHeight: "100vh", padding: "88px 20px 64px",
+        minHeight: "100vh", padding: "40px 20px 64px",
       }}>
         <div style={{
           backgroundColor: "white", borderRadius: 24,
@@ -219,8 +204,14 @@ function Signup() {
           width: "100%", maxWidth: 560,
         }}>
           {/* 타이틀 */}
-          <h2 style={{ fontSize: 26, fontWeight: 800, color: "#0F172A", margin: "0 0 4px", fontFamily: F }}>{t("signup.title")}</h2>
-          <p style={{ fontSize: 13, color: "#94A3B8", margin: "0 0 20px", fontFamily: F }}>{t("signup.welcome")}</p>
+          <h2 style={{ fontSize: 26, fontWeight: 800, color: "#0F172A", margin: "0 0 4px", fontFamily: F, textAlign: "center" }}>
+            <span style={{
+              background: "linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #6366f1 100%)",
+              WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}>Alpha-Helix</span>{" "}{t("signup.title")}
+          </h2>
+          <p style={{ fontSize: 13, color: "#94A3B8", margin: "0 0 20px", fontFamily: F, textAlign: "center" }}>{t("signup.welcome")}</p>
 
           {/* SNS 간편 시작 */}
           <div style={{ marginBottom: 20 }}>
@@ -230,21 +221,9 @@ function Signup() {
               <button onClick={() => googleSignup()} title="google" style={{ width: 46, height: 46, borderRadius: "50%", border: "1.5px solid #E5E7EB", background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, transition: "box-shadow 0.15s" }} onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.12)"} onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
                 <svg width="22" height="22" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59a14.5 14.5 0 0 1 0-9.18l-7.98-6.19a24.0 24.0 0 0 0 0 21.56l7.98-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
               </button>
-              {/* Kakao */}
-              <button onClick={handleKakaoSignup} title="kakao" style={{ width: 46, height: 46, borderRadius: "50%", border: "none", background: "#FFE812", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, transition: "box-shadow 0.15s" }} onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.12)"} onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
-                <svg width="22" height="22" viewBox="0 0 48 48"><rect width="48" height="48" rx="24" fill="#FFE812"/><path fill="#3C1E1E" d="M24 12c-8.84 0-16 5.55-16 12.4 0 4.42 2.94 8.3 7.36 10.5l-1.5 5.56c-.1.37.33.67.65.46l6.5-4.3c.98.14 1.97.21 2.99.21 8.84 0 16-5.55 16-12.4S32.84 12 24 12z"/></svg>
-              </button>
               {/* GitHub */}
               <button onClick={() => alert(t("login.githubAlert"))} title="github" style={{ width: 46, height: 46, borderRadius: "50%", border: "none", background: "#24292F", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, transition: "box-shadow 0.15s" }} onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.20)"} onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
                 <svg width="22" height="22" viewBox="0 0 48 48" fill="white"><path d="M24 2C11.95 2 2 11.95 2 24c0 9.73 6.31 17.97 15.06 20.88 1.1.2 1.5-.48 1.5-1.06 0-.52-.02-1.9-.03-3.73-6.13 1.33-7.42-2.96-7.42-2.96-1-2.55-2.45-3.23-2.45-3.23-2-.37.15-.36.15-.36 2.22.16 3.39 2.28 3.39 2.28 1.97 3.37 5.16 2.4 6.42 1.83.2-1.42.77-2.4 1.4-2.95-4.9-.56-10.05-2.45-10.05-10.9 0-2.41.86-4.38 2.27-5.92-.23-.56-.98-2.8.22-5.83 0 0 1.85-.59 6.06 2.26a21.07 21.07 0 0 1 11.08 0c4.2-2.85 6.05-2.26 6.05-2.26 1.2 3.03.45 5.27.22 5.83 1.42 1.54 2.27 3.51 2.27 5.92 0 8.47-5.16 10.34-10.08 10.88.79.68 1.5 2.03 1.5 4.1 0 2.96-.03 5.35-.03 6.07 0 .59.4 1.27 1.52 1.06C39.69 41.97 46 33.73 46 24 46 11.95 36.05 2 24 2z"/></svg>
-              </button>
-              {/* Facebook */}
-              <button onClick={() => alert("Facebook 로그인 API 연결 예정")} title="facebook" style={{ width: 46, height: 46, borderRadius: "50%", border: "none", background: "#1877F2", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, transition: "box-shadow 0.15s" }} onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.20)"} onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
-                <svg width="22" height="22" viewBox="0 0 48 48" fill="white"><path d="M24 2C11.95 2 2 11.95 2 24s9.95 22 22 22 22-9.95 22-22S36.05 2 24 2zm3.17 22h-2.17v8h-3v-8h-2v-3h2v-1.75C22 18.98 23.07 17 25.75 17H28v3h-1.55c-.83 0-1.28.4-1.28 1.15V21h3l-.5 3z"/></svg>
-              </button>
-              {/* Naver */}
-              <button onClick={() => alert("네이버 로그인 API 연결 예정")} title="naver" style={{ width: 46, height: 46, borderRadius: "50%", border: "none", background: "#03C75A", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, transition: "box-shadow 0.15s" }} onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.20)"} onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
-                <svg width="22" height="22" viewBox="0 0 48 48" fill="white"><rect width="48" height="48" rx="24" fill="#03C75A"/><path fill="white" d="M28.3 24.6 19.3 12h-5.3v24h5.7V23.4L28.7 36H34V12h-5.7z"/></svg>
               </button>
             </div>
             {/* 구분선 */}
@@ -257,9 +236,9 @@ function Signup() {
 
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
 
-            {/* ID Email */}
+            {/* 이메일 아이디 */}
             <div>
-              <LBL>ID Email *</LBL>
+              <LBL>이메일 아이디 *</LBL>
               <InputIcon
                 icon={Mail}
                 type="email"
@@ -294,10 +273,10 @@ function Signup() {
                 onChange={v => set("extraEmail", v)} />
             </div>
 
-            {/* 아이디 */}
+            {/* 닉네임 */}
             <div>
               <LBL>{t("signup.userId")}</LBL>
-              <InputIcon icon={AtSign} placeholder={t("signup.userIdPlaceholder")} value={form.username}
+              <InputIcon icon={User} placeholder={t("signup.userIdPlaceholder")} value={form.username}
                 onChange={v => set("username", v)} />
             </div>
 
@@ -396,9 +375,9 @@ function Signup() {
           </button>
 
           <p style={{ textAlign: "center", fontSize: 13, color: "#64748B", marginTop: 16, fontFamily: F }}>
-            Already have an account?{" "}
+            이미 계정이 있나요?{" "}
             <span onClick={() => navigate("/login")}
-              style={{ color: "#3B82F6", fontWeight: 700, cursor: "pointer" }}>Sign In</span>
+              style={{ color: "#3B82F6", fontWeight: 700, cursor: "pointer" }}>로그인</span>
           </p>
         </div>
       </div>

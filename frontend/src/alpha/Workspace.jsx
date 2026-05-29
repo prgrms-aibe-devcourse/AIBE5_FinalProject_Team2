@@ -9,9 +9,7 @@ import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import {
   getWorkspace, runBacktest,
   listWorkspaces,
-  getMySlogan,
 } from "./alphaApi";
-import ChatPanel from "./tabs/ChatPanel";
 import ConfigPanel from "./tabs/ConfigPanel";
 import ReportPanel from "./tabs/ReportPanel";
 import RegimePanel from "./tabs/RegimePanel";
@@ -63,7 +61,6 @@ export default function Workspace() {
   const [ws, setWs] = useState(null);
   const [err, setErr] = useState(null);
   const [siblings, setSiblings] = useState([]); // 좌측 사이드바: 다른 워크스페이스 리스트
-  const [userSlogan, setUserSlogan] = useState("");
   const [creating, setCreating] = useState(false);
   const [runningBT, setRunningBT] = useState(false);
   const [newStrategyOpen, setNewStrategyOpen] = useState(false);
@@ -107,8 +104,6 @@ export default function Workspace() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { reload(); }, [id]);
 
-  // user-level 슬로건 (워크스페이스 이름과 별개)
-  useEffect(() => { getMySlogan().then(setUserSlogan).catch(() => {}); }, []);
 
   // Alpha Ezer 라이브 패치 후 자동 리로드
   useEffect(() => {
@@ -258,6 +253,9 @@ export default function Workspace() {
 
   return (
     <>
+    <style>{`
+      @keyframes wsfade { from { opacity: 0; } to { opacity: 1; } }
+    `}</style>
     <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", height: "100vh", background: theme.bg }}>
       {/* ============================== 왼쪽 사이드바 ============================== */}
       <aside style={{
@@ -269,16 +267,9 @@ export default function Workspace() {
           display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 600, padding: 0, alignSelf: "flex-start",
         }}><ChevronLeft size={14} /> 워크스페이스 목록</button>
 
-        {/* 슬로건 (user-level: 투자 최종 목표) — 워크스페이스 이름과는 별개 */}
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: theme.textMuted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>슬로건</div>
-          <div style={{ fontSize: 13, color: theme.text, lineHeight: 1.45 }}>
-            {userSlogan || <span style={{ color: theme.textMuted, fontStyle: "italic" }}>홈에서 슬로건 설정</span>}
-          </div>
-        </div>
 
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: theme.textMuted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>Strategies</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: theme.textMuted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>전략 목록</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {siblings.map(s => {
               const active = String(s.id) === String(id);
@@ -333,7 +324,7 @@ export default function Workspace() {
       </aside>
 
       {/* ============================== 가운데 본문 ============================== */}
-      <main style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <main key={id} style={{ display: "flex", flexDirection: "column", overflow: "hidden", animation: "wsfade 0.25s ease" }}>
         {/* 상단: 전략 이름 + 액션 */}
         <div style={{
           padding: "18px 28px", borderBottom: `1px solid ${theme.panelBorder}`,

@@ -9,9 +9,6 @@ export const updateWorkspaceName = (id, name) => api.patch(`/alpha/workspaces/${
 export const updateWorkspaceStatus = (id, status) => api.patch(`/alpha/workspaces/${id}/status`, { status }).then(r => r.data);
 export const updateGoalProfile   = (id, patch) => api.patch(`/alpha/workspaces/${id}/goal-profile`, patch).then(r => r.data);
 
-// User-level slogan (투자 최종 목표) — 워크스페이스 이름과는 별개
-export const getMySlogan         = () => api.get(`/users/me/slogan`).then(r => r.data?.slogan || "");
-export const updateMySlogan      = (slogan) => api.patch(`/users/me/slogan`, { slogan }).then(r => r.data?.slogan || "");
 /** brokerAccountId: number | null */
 export const linkWorkspaceBroker = (id, brokerAccountId) =>
   api.patch(`/alpha/workspaces/${id}/broker-account`, { brokerAccountId }).then(r => r.data);
@@ -102,6 +99,12 @@ export const compareWorkspaceRefs    = (id, base, head) =>
   api.get(`/alpha/workspaces/${id}/git/compare`, { params: { base, head } }).then(r => r.data);
 export const pushWorkspaceFiles      = (id, body) =>
   api.post(`/alpha/workspaces/${id}/git/push`, body).then(r => r.data);
+export const pullWorkspaceFile       = (id, path = "main.py") =>
+  api.get(`/alpha/workspaces/${id}/git/file`, { params: { path } }).then(r => r.data);
+export const deleteWorkspaceFile     = (id, path, message) =>
+  api.delete(`/alpha/workspaces/${id}/git/file`, { params: { path, message } }).then(r => r.data);
+export const getWorkspaceFileTree    = (id, branch) =>
+  api.get(`/alpha/workspaces/${id}/git/tree`, branch ? { params: { branch } } : {}).then(r => r.data);
 export const createWorkspacePr       = (id, body) =>
   api.post(`/alpha/workspaces/${id}/git/pr`, body).then(r => r.data);
 

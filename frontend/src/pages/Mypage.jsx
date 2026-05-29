@@ -1,11 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Camera, ChevronDown, CheckCircle2, Info, UserCircle } from "lucide-react";
-import Header_partner from "../components/Header_partner";
-import Header_client from "../components/Header_client";
 import useStore from "../store/useStore";
 import partnerDefault from "../assets/hero_default.png";
-import clientDefault from "../assets/hero_check.png";
+import clientDefault from "../assets/heli_face.png";
 import { bankApi } from "../api/bank.api";
 import { profileApi } from "../api/profile.api";
 import { paymentMethodsApi } from "../api/paymentMethods.api";
@@ -1224,6 +1222,8 @@ function Mypage() {
         // user 객체 업데이트 (DB에서 가져온 최신 데이터)
         const updatedUser = {
           ...user,
+          email: data.email || user?.email,
+          username: data.username || user?.username,
           phone: data.phone || user?.phone,
           birthDate: data.birthDate || user?.birthDate,
           region: data.region || user?.region,
@@ -1267,7 +1267,8 @@ function Mypage() {
   // userInfo를 user 객체에서 동적으로 생성 (저장 후에도 업데이트된 값 반영)
   const userInfo = {
     name:        user?.name        || loginUser?.name        || "랄라릴",
-    email:       user?.email       || loginUser?.email       || "",
+    loginEmail:  user?.email       || loginUser?.email       || "",
+    nickname:    user?.username    || storeUsername          || "",
     gender:      user?.gender      || loginUser?.gender      || "남성",
     role:        user?.role        || loginUser?.role        || (isPartner ? "파트너" : "클라이언트"),
     partnerType: partnerProfile?.partnerType || user?.partnerType || "개인",
@@ -1296,36 +1297,30 @@ function Mypage() {
       try {
         // 빈 문자열 필드 제거 (백엔드 파싱 에러 방지)
         const cleanValue = (val) => (val && val.trim() !== "" ? val : undefined);
-        
-        // gender 변환 (한글 → 영문 Enum)
-        const genderEnum = toEnglishGender(form.gender);
-        console.log("🔄 성별 변환:", form.gender, "→", genderEnum);
-        
+
         const payload = {
+          email: cleanValue(form.loginEmail),
+          username: cleanValue(form.nickname),
           phone: cleanValue(form.contact),
-          birthDate: cleanValue(form.birthdate),  // birthDate로 보냄
-          gender: genderEnum,  // 변환된 Enum 값
-          contactEmail: cleanValue(form.email),
+          birthDate: cleanValue(form.birthdate),
           profileImageUrl: heroPreview || cleanValue(form.heroImage),
           githubNickname: cleanValue(form.githubNickname),
         };
 
-        // undefined 필드 제거 (gender는 항상 유지)
         Object.keys(payload).forEach(key => {
-          if (payload[key] === undefined && key !== 'gender') delete payload[key];
+          if (payload[key] === undefined) delete payload[key];
         });
 
         console.log("📤 저장 요청 payload:", payload);
         const response = await profileApi.updateBasicInfo(payload);
         console.log("📥 백엔드 응답:", response);
         
-        // 백엔드에서 반환된 데이터로 로컬 상태 업데이트 (옵션: response.data 사용 가능)
         const updatedUser = {
           ...user,
+          email: form.loginEmail || user?.email,
+          username: form.nickname || user?.username,
           phone: form.contact,
           birthDate: form.birthdate,
-          gender: form.gender,
-          contactEmail: form.email,
           heroImage: heroPreview || form.heroImage,
           githubNickname: form.githubNickname,
           githubUsername: form.githubNickname,
@@ -1475,38 +1470,30 @@ function Mypage() {
                   </div>
                 </div>
 
-                {/* 아이디 — 회원가입 시 확정, 수정 불가 */}
+                {/* 아이디 (이메일) */}
                 <div>
                   <label style={LABEL_STYLE}>{t("myPage.fields.username")}<span style={{ color:"#EF4444" }}>*</span></label>
-                  <div style={{ ...READONLY_STYLE, display:"flex", alignItems:"center", justifyContent:"space-between", background:"#F8FAFC", color:"#64748B" }}>
-                    <span>@{user?.username || storeUsername || (typeof window !== 'undefined' ? localStorage.getItem('username') : null) || "—"}</span>
-                    <span style={{ fontSize:10, color:"#94A3B8", fontWeight:600, letterSpacing:"0.05em" }}>{t("myPage.fixedLabel")}</span>
-                  </div>
+                  <input
+                    value={isEditing ? form.loginEmail : userInfo.loginEmail}
+                    onChange={e => handleChange("loginEmail", e.target.value)}
+                    readOnly={!isEditing}
+                    type="email"
+                    style={isEditing ? FIELD_STYLE : READONLY_STYLE}
+                    placeholder="이메일을 입력하세요"
+                  />
                 </div>
 
-                {/* 성별 */}
+                {/* 닉네임 */}
                 <div>
-                  <label style={LABEL_STYLE}>{t("myPage.fields.gender")}</label>
-                  <div style={{ display:"flex", gap:8 }}>
-                    {[
-                      { v:"남성", l:t("myPage.fields.male") },
-                      { v:"여성", l:t("myPage.fields.female") },
-                    ].map(({v,l})=>{
-                      const sel=(isEditing?form.gender:userInfo.gender)===v;
-                      return (
-                        <button key={v} onClick={()=>isEditing&&handleChange("gender",v)}
-                          style={{ flex:1, padding:"12px 0", borderRadius:12,
-                            border: sel?"2px solid #60A5FA":"1.5px solid #E5E7EB",
-                            background: sel?"linear-gradient(135deg,#EFF6FF,#DBEAFE)":"white",
-                            fontSize:14, fontWeight:sel?700:500,
-                            color:sel?"#2563EB":"#6B7280",
-                            cursor:isEditing?"pointer":"default",
-                            fontFamily:BASE_FONT, transition:"all 0.15s" }}>
-                          {l}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <label style={LABEL_STYLE}>닉네임</label>
+                  <input
+                    value={isEditing ? form.nickname : userInfo.nickname}
+                    onChange={e => handleChange("nickname", e.target.value)}
+                    readOnly={!isEditing}
+                    style={isEditing ? FIELD_STYLE : READONLY_STYLE}
+                    placeholder="닉네임을 입력하세요"
+                    maxLength={50}
+                  />
                 </div>
 
                 {/* 생년월일 */}
