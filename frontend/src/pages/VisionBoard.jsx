@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { Image as ImageIcon, Type, Trash2, Sparkles, Save, HelpCircle } from "lucide-react";
+import { Image as ImageIcon, Type, Trash2, Save, HelpCircle, Smile } from "lucide-react";
+import StickerPickerModal from "./VisionBoard.StickerPickerModal";
 
 const STORAGE = "alpha.visionBoard.v2";
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
@@ -26,6 +27,7 @@ export default function VisionBoard() {
   const [selected, setSelected]   = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [showText, setShowText]   = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [newText, setNewText]     = useState("");
   const [newColor, setNewColor]   = useState(MEMO_COLORS[0]);
   const [dirty, setDirty]         = useState(false);
@@ -162,12 +164,12 @@ export default function VisionBoard() {
         {/* 타이틀 */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 8 }}>
           <div style={{
-            width: 28, height: 28, borderRadius: 8,
-            background: "linear-gradient(135deg,#60a5fa,#6366f1)",
+            width: 32, height: 32, borderRadius: 10,
+            background: "linear-gradient(135deg,#fbcfe8 0%,#e9d5ff 50%,#c7d2fe 100%)",
             display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
+            flexShrink: 0, fontSize: 18,
           }}>
-            <Sparkles size={14} color="white" />
+            🖼️
           </div>
           <span style={{
             fontSize: 15, fontWeight: 800,
@@ -175,7 +177,7 @@ export default function VisionBoard() {
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
             whiteSpace: "nowrap",
           }}>비전 보드</span>
-          <span style={{ fontSize: 12, color: "#94A3B8", fontWeight: 400, whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 12.5, color: "#475569", fontWeight: 500, whiteSpace: "nowrap" }}>
             — 투자 자유를 꿈꾸는 당신의 비전을 시각화하세요. 목표하는 삶, 가고 싶은 곳, 이루고 싶은 것들을 자유롭게 붙여보세요.
           </span>
         </div>
@@ -183,12 +185,36 @@ export default function VisionBoard() {
         <div style={{ width: 1, height: 22, background: "#E2E8F0", margin: "0 4px" }} />
 
         <Btn onClick={() => fileRef.current?.click()} icon={<ImageIcon size={13} />} label="이미지" primary />
-        <Btn
+        <button
           onClick={() => { setShowText(v => !v); setNewText(""); }}
-          icon={<Type size={13} />}
-          label="텍스트"
-          active={showText}
-        />
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "6px 12px", borderRadius: 7,
+            border: showText ? "1px solid #fb923c" : "1px solid #fde68a",
+            background: "linear-gradient(135deg,#fef9c3 0%,#fef3c7 100%)",
+            color: "#c2410c", fontSize: 13, fontWeight: 700,
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            boxShadow: showText ? "0 0 0 2px rgba(251,146,60,0.2)" : "0 1px 3px rgba(202,138,4,0.15)",
+            transition: "background 0.12s, border-color 0.12s",
+          }}
+        >
+          <Type size={13} /> 텍스트
+        </button>
+        <button
+          onClick={() => setShowStickerPicker(true)}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "6px 12px", borderRadius: 7, border: "none",
+            background: "linear-gradient(135deg,#fce7f3 0%,#fbcfe8 35%,#e9d5ff 70%,#ddd6fe 100%)",
+            color: "#7c3aed", fontSize: 13, fontWeight: 700,
+            cursor: "pointer", fontFamily: F,
+            boxShadow: "0 1px 4px rgba(192,132,252,0.25)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          <Smile size={13} /> 스티커
+        </button>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={addImage} />
 
         {/* 사용 힌트 — 물음표 호버 툴팁 */}
@@ -281,8 +307,8 @@ export default function VisionBoard() {
                 비전 보드가 비어있어요
               </div>
               <div style={{ fontSize: 14, color: "#94A3B8", lineHeight: 1.7 }}>
-                위 툴바에서 이미지나 텍스트를 추가해보세요<br />
-                드래그로 자유롭게 배치하고, 모서리를 당겨 크기를 조절할 수 있어요
+                위 툴바에서 이미지·텍스트·스티커를 추가해보세요<br />
+                드래그로 자유롭게 배치하고, 우측 아래 핸들을 당겨 크기를 조절할 수 있어요
               </div>
             </div>
           )}
@@ -303,6 +329,23 @@ export default function VisionBoard() {
           ))}
         </div>
       </div>
+
+      {/* 스티커 픽커 모달 — 이모지/이미지 추가 */}
+      {showStickerPicker && (
+        <StickerPickerModal
+          onClose={() => setShowStickerPicker(false)}
+          onPick={(sticker) => {
+            const id = uid();
+            setItems(prev => [...prev, {
+              id, type: "image", src: sticker.src, caption: "",
+              x: 200 + Math.random() * 400, y: 120 + Math.random() * 300,
+              w: sticker.w || 180,
+            }]);
+            setSelected(id);
+            setShowStickerPicker(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -429,8 +472,8 @@ function Corner({ top, left }) {
 /* ── 버튼 컴포넌트 ── */
 const HINTS = [
   { icon: "✦", text: "스티커를 드래그해서 자유롭게 이동" },
-  { icon: "⤡", text: "선택 후 오른쪽 아래 핸들을 당겨 크기 조절" },
-  { icon: "✎", text: "텍스트 스티커를 더블클릭하면 내용 편집" },
+  { icon: "⤡", text: "선택 후 우측 아래 핸들을 당겨 크기 조절" },
+  { icon: "✎", text: "텍스트 더블 클릭 후 글 내용 편집" },
   { icon: "🗑", text: "스티커 선택 후 툴바 삭제 버튼으로 제거" },
 ];
 
@@ -454,25 +497,26 @@ function HintTooltip() {
         <div style={{
           position: "absolute", top: "calc(100% + 8px)", left: "50%",
           transform: "translateX(-50%)",
-          background: "#1E293B", borderRadius: 10,
-          padding: "12px 14px", zIndex: 9999,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.22)",
-          minWidth: 230,
+          background: "#ffffff", borderRadius: 12,
+          padding: "14px 18px", zIndex: 9999,
+          boxShadow: "0 8px 28px rgba(99,102,241,0.18), 0 0 0 1px #E0E7FF",
+          width: 340,
           pointerEvents: "none",
         }}>
           {/* 말풍선 화살표 */}
           <div style={{
-            position: "absolute", top: -5, left: "50%", transform: "translateX(-50%)",
-            width: 10, height: 10, background: "#1E293B",
-            clipPath: "polygon(50% 0%, 0% 100%, 100% 100%)",
+            position: "absolute", top: -6, left: "50%",
+            width: 12, height: 12, background: "#ffffff",
+            borderLeft: "1px solid #E0E7FF", borderTop: "1px solid #E0E7FF",
+            transform: "translateX(-50%) rotate(45deg)",
           }} />
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#94A3B8", letterSpacing: 0.5, marginBottom: 8, textTransform: "uppercase" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", letterSpacing: 0.6, marginBottom: 10, textTransform: "uppercase" }}>
             사용법
           </div>
           {HINTS.map(h => (
-            <div key={h.text} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 12, flexShrink: 0, marginTop: 1 }}>{h.icon}</span>
-              <span style={{ fontSize: 12, color: "#CBD5E1", lineHeight: 1.5 }}>{h.text}</span>
+            <div key={h.text} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8, whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: 13, flexShrink: 0, marginTop: 1, color: "#6366f1" }}>{h.icon}</span>
+              <span style={{ fontSize: 12.5, color: "#334155", lineHeight: 1.5 }}>{h.text}</span>
             </div>
           ))}
         </div>
