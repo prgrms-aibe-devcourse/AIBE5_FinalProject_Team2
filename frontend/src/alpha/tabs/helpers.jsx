@@ -34,14 +34,26 @@ export function Json({ value, theme }) {
   );
 }
 
-export function Stat({ label, value, unit = "", theme, positive, negative }) {
+export function Stat({ label, value, unit = "", theme, positive, negative, hint }) {
   const v = typeof value === "number" ? value.toFixed(2) : (value ?? "—");
   let color = theme.text;
   if (positive && typeof value === "number" && value > 0) color = theme.success;
   if (negative && typeof value === "number" && value < 0) color = theme.danger;
   return (
     <div style={{ padding: 10, background: theme.codeBg, borderRadius: 8 }}>
-      <div style={{ fontSize: 11, color: theme.textMuted }}>{label}</div>
+      <div style={{ fontSize: 11, color: theme.textMuted, display: "flex", alignItems: "center", gap: 3, marginBottom: 2 }}>
+        {label}
+        {hint && (
+          <span
+            title={hint}
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 14, height: 14, borderRadius: "50%",
+              background: "#22c55e", color: "white",
+              fontSize: 8, fontWeight: 900, cursor: "help", flexShrink: 0,
+            }}>!</span>
+        )}
+      </div>
       <div style={{ fontSize: 18, fontWeight: 800, color }}>{v}{unit}</div>
     </div>
   );
@@ -419,14 +431,253 @@ export function TrustDetailsCard({ details, theme }) {
           <div style={box}>
             <div style={{ fontWeight: 700, color: theme.text, marginBottom: 6 }}>📐 통계</div>
             <div style={k}><HelpLabel hint="일별 수익률 평균이 0과 다른지 검정한 t-통계량 (절댓값 2 이상이면 유의)" theme={theme}>t-statistic</HelpLabel></div>
-            <div style={v}>{num(st.t_stat ?? st.t_statistic)}</div>
-            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="유의확률 (낮을수록 우연이 아님)" theme={theme}>p-value</HelpLabel></div>
-            <div style={v}>{num(st.p_value, 4)}</div>
+            <div style={v}>{num(st.t_stat ?? st.t_statistic ?? st.tstat)}</div>
+            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="PSR(확률적 Sharpe Ratio) — 수익이 우연이 아닐 확률. 높을수록 실력에 의한 수익" theme={theme}>PSR (SR>0 확률)</HelpLabel></div>
+            <div style={v}>{st.psr_zero != null ? `${(st.psr_zero * 100).toFixed(1)}%` : "-"}</div>
             <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="표본 수 (거래일 수)" theme={theme}>표본 수</HelpLabel></div>
-            <div style={v}>{st.n_samples ?? st.n ?? "-"}</div>
+            <div style={v}>{st.n_samples ?? st.n ?? st.data_points ?? "-"}</div>
+            {st.detail && <div style={{ marginTop: 8, fontSize: 11, color: theme.textMuted, lineHeight: 1.5 }}>{st.detail}</div>}
+          </div>
+        )}
+        {wf && wf.detail && !wf.oos_sharpe && (
+          <div style={box}>
+            <div style={{ fontWeight: 700, color: theme.text, marginBottom: 6 }}>📝 Walk-Forward 상세</div>
+            <div style={{ fontSize: 11, color: theme.textMuted, lineHeight: 1.6 }}>{wf.detail}</div>
           </div>
         )}
       </div>
     </Card>
+  );
+}
+
+// ──────────────────────────────────────────────
+// 레짐 색상 상수 (백엔드와 동일하게 유지)
+// ──────────────────────────────────────────────
+export const REGIME_COLORS = {
+  bull_quiet: "#22c55e",
+  bull_volatile: "#86efac",
+  bear: "#ef4444",
+  sideways: "#94a3b8",
+  high_vol_unstable: "#f97316",
+};
+
+const REGIME_KO = {
+  bull_quiet: "상승장(안정)",
+  bull_volatile: "상승장(불안정)",
+  bear: "하락장",
+  sideways: "횡보장",
+  high_vol_unstable: "고변동성 불안정장",
+};
+
+/**
+ * 레짐 타임라인 차트 — SVG 기반
+ * timeline: [{date, regime, close}] (백엔드 regime_timeline 필드)
+ */
+export function RegimeTimelineChart({ timeline, theme, height = 220, ticker }) {
+  const [hoverIdx, setHoverIdx] = useState(null);
+
+  if (!timeline || timeline.length < 5) {
+    return <p style={{ fontSize: 12, color: theme.textMuted, fontStyle: "italic" }}>타임라인 데이터가 없습니다.</p>;
+  }
+
+  const W = 720, H = height, PADL = 52, PADR = 16, PADT = 16, PADB = 32;
+  const N = timeline.length;
+
+  const closes = timeline.map((p) => p.close).filter((v) => v != null && isFinite(v));
+  let yMin = Math.min(...closes), yMax = Math.max(...closes);
+  const yPad = (yMax - yMin) * 0.06 || 1;
+  yMin -= yPad; yMax += yPad;
+
+  const xAt = (i) => PADL + (i / Math.max(1, N - 1)) * (W - PADL - PADR);
+  const yAt = (val) => PADT + (1 - (val - yMin) / (yMax - yMin)) * (H - PADT - PADB);
+
+  // 연속 같은 레짐 구간 → 배경 직사각형 세그먼트
+  const segments = [];
+  let segStart = 0;
+  for (let i = 1; i <= N; i++) {
+    if (i === N || timeline[i]?.regime !== timeline[segStart]?.regime) {
+      segments.push({ start: segStart, end: i - 1, regime: timeline[segStart]?.regime });
+      segStart = i;
+    }
+  }
+
+  // 가격선 SVG path
+  const linePath = timeline
+    .map((p, i) =>
+      p.close != null ? `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.close).toFixed(1)}` : ""
+    )
+    .filter(Boolean)
+    .join(" ");
+
+  const xTicks = Array.from({ length: 5 }, (_, k) => Math.round((k * (N - 1)) / 4));
+  const yTicks = 4;
+  const segW = (W - PADL - PADR) / Math.max(1, N - 1);
+
+  const onMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const rel = ((e.clientX - rect.left) / rect.width) * W;
+    const i = Math.round(((rel - PADL) / (W - PADL - PADR)) * (N - 1));
+    setHoverIdx(Math.max(0, Math.min(N - 1, i)));
+  };
+
+  const fmt = (val) =>
+    val >= 1000 ? val.toLocaleString("en-US", { maximumFractionDigits: 0 }) : val?.toFixed(2);
+
+  const usedRegimes = [...new Set(timeline.map((p) => p.regime).filter(Boolean))];
+  const hoverPt = hoverIdx != null ? timeline[hoverIdx] : null;
+
+  return (
+    <div style={{ position: "relative" }}>
+      {ticker && (
+        <div style={{ fontSize: 11, color: theme.textMuted, marginBottom: 4 }}>
+          분석 티커: <b style={{ color: theme.text }}>{ticker}</b> · 분석 기준: MA200 + Vol60
+        </div>
+      )}
+      <div style={{ overflowX: "auto" }}>
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          width="100%"
+          height={H}
+          onMouseMove={onMove}
+          onMouseLeave={() => setHoverIdx(null)}
+          style={{ cursor: "crosshair", display: "block" }}
+        >
+          {/* 레짐별 배경 밴드 */}
+          {segments.map((seg, idx) => {
+            const x1 = xAt(seg.start);
+            const x2 = xAt(seg.end) + segW;
+            const color = REGIME_COLORS[seg.regime] || "#94a3b8";
+            return (
+              <rect
+                key={idx}
+                x={x1}
+                y={PADT}
+                width={Math.max(1, x2 - x1)}
+                height={H - PADT - PADB}
+                fill={color}
+                opacity={0.18}
+              />
+            );
+          })}
+
+          {/* Y축 그리드 */}
+          {Array.from({ length: yTicks + 1 }, (_, k) => {
+            const val = yMin + ((yMax - yMin) * k) / yTicks;
+            const y = yAt(val);
+            return (
+              <g key={k}>
+                <line
+                  x1={PADL}
+                  x2={W - PADR}
+                  y1={y}
+                  y2={y}
+                  stroke={theme?.panelBorder || "#e2e8f0"}
+                  strokeWidth={0.5}
+                />
+                <text x={PADL - 6} y={y + 3} textAnchor="end" fontSize={10} fill={theme?.textMuted}>
+                  {fmt(val)}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* X축 라벨 */}
+          {xTicks.map((i) => (
+            <text
+              key={i}
+              x={xAt(i)}
+              y={H - 10}
+              textAnchor="middle"
+              fontSize={10}
+              fill={theme?.textMuted}
+            >
+              {timeline[i]?.date?.slice(0, 7)}
+            </text>
+          ))}
+
+          {/* 가격선 */}
+          <path d={linePath} fill="none" stroke="#3b82f6" strokeWidth={1.8} opacity={0.9} />
+
+          {/* 호버 수직선 */}
+          {hoverIdx != null && (
+            <line
+              x1={xAt(hoverIdx)}
+              x2={xAt(hoverIdx)}
+              y1={PADT}
+              y2={H - PADB}
+              stroke={theme?.accent || "#3b82f6"}
+              strokeDasharray="3 3"
+              strokeWidth={1}
+              opacity={0.7}
+            />
+          )}
+          {hoverPt?.close != null && hoverIdx != null && (
+            <circle
+              cx={xAt(hoverIdx)}
+              cy={yAt(hoverPt.close)}
+              r={3.5}
+              fill="#3b82f6"
+              stroke="white"
+              strokeWidth={1.5}
+            />
+          )}
+        </svg>
+      </div>
+
+      {/* 호버 툴팁 */}
+      {hoverPt && hoverIdx != null && (
+        <div
+          style={{
+            position: "absolute",
+            top: 24,
+            right: 10,
+            padding: "6px 10px",
+            borderRadius: 8,
+            background: "rgba(15,23,42,0.92)",
+            color: "white",
+            fontSize: 11,
+            pointerEvents: "none",
+            lineHeight: 1.7,
+            zIndex: 10,
+          }}
+        >
+          <div style={{ fontWeight: 700 }}>{hoverPt.date}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 2,
+                background: REGIME_COLORS[hoverPt.regime] || "#94a3b8",
+                display: "inline-block",
+              }}
+            />
+            {REGIME_KO[hoverPt.regime] || hoverPt.regime}
+          </div>
+          {hoverPt.close != null && <div>종가: {fmt(hoverPt.close)}</div>}
+        </div>
+      )}
+
+      {/* 범례 */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+        {usedRegimes.map((r) => (
+          <span
+            key={r}
+            style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: theme?.text }}
+          >
+            <span
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: 3,
+                background: REGIME_COLORS[r] || "#94a3b8",
+                flexShrink: 0,
+              }}
+            />
+            {REGIME_KO[r] || r}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }

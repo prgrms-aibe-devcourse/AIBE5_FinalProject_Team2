@@ -459,45 +459,14 @@ export default function ChatPanel({ id, ws, onChange }) {
             </div>
           );
         })}
-        {messages.filter(m => m.role === "user").length === 0 && (
+        {messages.filter(m => m.role === "user").length === 0 && messages.length > 0 && (
           <div style={{
-            margin: "20px auto", padding: 20, maxWidth: 600,
-            background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 50%, #e0e7ff 100%)",
-            border: "2px solid #3b82f6",
-            borderRadius: 16, textAlign: "left",
-            boxShadow: "0 4px 16px rgba(59,130,246,0.15)",
+            margin: "16px auto 4px", padding: "10px 14px", maxWidth: 520,
+            background: "#F0F9FF", border: "1px solid #BAE6FD",
+            borderRadius: 10, textAlign: "left",
+            fontSize: 12, color: "#0c4a6e", lineHeight: 1.55,
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 800, color: "#1e3a8a", marginBottom: 10 }}>
-              <span style={{ fontSize: 22 }}>⭐</span>
-              <span>한 번에 끝내기 — 예시 양식 자동 채우기</span>
-            </div>
-            <div style={{ fontSize: 13, color: "#1e40af", marginBottom: 14, lineHeight: 1.6 }}>
-              아래 버튼을 누르면 <b>8가지 질문에 대한 예시 답변</b>이 입력창에 자동으로 채워집니다.<br />
-              그대로 전송하거나 원하는 값으로 수정한 뒤 보내면 바로 Goal Profile이 생성됩니다.
-            </div>
-            <button onClick={() => {
-              setText(
-                "⭐ 한 번에 답변드릴게요\n" +
-                "1) 목표: 5년 안에 월 300만원 현금흐름 만들기\n" +
-                "2) 투자기간(년): 5\n" +
-                "3) 초기 투자금(원): 500000000\n" +
-                "4) 월 적립금(원): 1000000\n" +
-                "5) 투자성향(보수적/중립/공격적): 중립\n" +
-                "6) MDD 허용(%): 25\n" +
-                "7) 관심자산(예: QQQ, SCHD): SPY, QQQ, SCHD, GLD\n" +
-                "8) 전략방향(추세추종/평균회귀/모멘텀/변동성조절/무한매수/잘모름): 추세추종 + 변동성조절\n" +
-                "9) 하루 최대 매수 한도(원): 2000000\n" +
-                "10) 하루 최대 매도 한도(원): 2000000"
-              );
-            }} style={{
-              padding: "12px 20px", borderRadius: 10, border: "none", cursor: "pointer",
-              background: "linear-gradient(135deg,#60a5fa 0%,#3b82f6 50%,#6366f1 100%)",
-              color: "white", fontWeight: 700, fontSize: 14,
-              display: "inline-flex", alignItems: "center", gap: 8,
-              boxShadow: "0 2px 8px rgba(59,130,246,0.4)",
-            }}>
-              <span style={{ fontSize: 18 }}>⭐</span> 예시 양식 입력창에 채우기
-            </button>
+            💡 처음이라면 <b>전략 카드 탭</b>의 「⭐ 예시 양식 입력창에 채우기」 버튼을 눌러보세요.
           </div>
         )}
         <div ref={endRef} />

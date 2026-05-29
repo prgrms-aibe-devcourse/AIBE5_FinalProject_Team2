@@ -358,7 +358,7 @@ function BrokerLimitsCard({ theme }) {
 }
 
 // ─── ConfigPanel (default export) ────────────────────────────────────
-export default function ConfigPanel({ id, ws, onChange, setTab }) {
+export default function ConfigPanel({ id, ws, onChange, setTab, topSummary }) {
   const { theme } = useTheme();
   const [busy, setBusy] = useState(false);
   const [btBusy, setBtBusy] = useState(false);
@@ -438,11 +438,14 @@ export default function ConfigPanel({ id, ws, onChange, setTab }) {
           </button>
         }
       />
+
+      {topSummary}
+
       <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr 1fr" }}>
         <Card title="Goal Profile (사용자 목표 구조화)" theme={theme}>
           {ws.goalProfile
             ? <GoalProfileSummary profile={ws.goalProfile} theme={theme} wsId={id} onChange={onChange} />
-            : <Empty msg="AI Chat에서 8가지 항목(목표/기간/초기금/적립금/성향/MDD/자산/방향)을 채워주세요" theme={theme} />}
+            : <Empty msg="오른쪽 Heli 대화창에서 8가지 항목(목표/기간/초기금/적립금/성향/MDD/자산/방향)을 채워주세요" theme={theme} />}
         </Card>
         <Card title="Strategy 후보 (선택 → 백테스트)" theme={theme}>
           {candidates.length === 0 ? (

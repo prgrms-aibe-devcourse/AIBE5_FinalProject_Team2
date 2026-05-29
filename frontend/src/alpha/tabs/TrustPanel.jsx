@@ -4,14 +4,24 @@ import { runTrust } from "../alphaApi";
 import { Play } from "lucide-react";
 import { PanelHeader, Card, SubScoreBar, Empty, TrustDetailsCard, primaryBtn } from "./helpers";
 
+const PERIOD_OPTIONS = [
+  { value: "5y", label: "5년" },
+  { value: "10y", label: "10년 (권장)" },
+  { value: "15y", label: "15년" },
+  { value: "20y", label: "20년" },
+  { value: "25y", label: "25년" },
+  { value: "30y", label: "30년 (최대)" },
+];
+
 export default function TrustPanel({ id, ws, onChange }) {
   const { theme } = useTheme();
   const [busy, setBusy] = useState(false);
+  const [period, setPeriod] = useState("10y");
   const trust = ws.lastTrust;
   const onRun = async () => {
     if (busy) return;
     setBusy(true);
-    try { await runTrust(id); onChange(); }
+    try { await runTrust(id, { period }); onChange(); }
     catch (e) { alert("Trust 계산 실패: " + (e?.response?.data?.error || e.message)); }
     finally { setBusy(false); }
   };
@@ -23,9 +33,25 @@ export default function TrustPanel({ id, ws, onChange }) {
         description="Walk-Forward + Regime + Parameter Stability + Statistical Confidence를 종합한 0~100 점수."
         theme={theme}
         action={
-          <button onClick={onRun} disabled={busy} style={primaryBtn(theme, busy)}>
-            <Play size={14} /> {busy ? "계산 중… (~30초)" : "Trust Score 계산"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <select
+              value={period}
+              onChange={e => setPeriod(e.target.value)}
+              disabled={busy}
+              style={{
+                padding: "6px 10px", borderRadius: 8, fontSize: 13,
+                border: `1px solid ${theme.panelBorder}`,
+                background: theme.cardBg, color: theme.text, cursor: "pointer",
+              }}
+            >
+              {PERIOD_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <button onClick={onRun} disabled={busy} style={primaryBtn(theme, busy)}>
+              <Play size={14} /> {busy ? "계산 중… (~1분)" : "Trust Score 계산"}
+            </button>
+          </div>
         }
       />
       {!trust && <Empty msg="Walk-Forward + Regime + Parameter Stability + Statistical Confidence를 종합한 0~100 점수" theme={theme} />}

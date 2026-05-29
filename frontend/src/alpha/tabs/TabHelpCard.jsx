@@ -27,10 +27,6 @@ export default function TabHelpCard({ tab, theme }) {
       title: "📜 Decision Log 가이드",
       body: "사용자 입력·LLM 응답·자동 실행 결과가 시간순으로 쌓입니다. 어떤 결정이 언제 됐는지 추적용으로 쓰세요.",
     },
-    briefing: {
-      title: "✨ Living Briefing 가이드",
-      body: "오늘의 시장 상황과 내 전략의 매수/매도 시그널을 자연어로 받아봅니다. 주식 시장 열린 날 갱신.",
-    },
   };
   const tip = TIPS[tab] || TIPS.chat;
   return (
