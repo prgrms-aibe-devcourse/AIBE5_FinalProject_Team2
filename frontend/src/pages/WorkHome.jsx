@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, TrendingUp, Sparkles, ArrowRight, Pencil, Check, X, ShieldCheck, Activity } from "lucide-react";
-import { listWorkspaces, getWorkspace, runBriefing, getMySlogan, updateMySlogan } from "../alpha/alphaApi";
+import { Plus, TrendingUp, Sparkles, ArrowRight, Pencil, Check, X, Layers } from "lucide-react";
+import { listWorkspaces, getWorkspace, runBriefing, createWorkspace } from "../alpha/alphaApi";
 import { useTheme } from "../alpha/ThemeContext";
 
 /**
@@ -70,33 +70,36 @@ export default function WorkHome() {
   const [slogan, setSlogan] = useState("");
   const [editGoal, setEditGoal] = useState(false);
   const [draft, setDraft] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createModalName, setCreateModalName] = useState("");
+  const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    getMySlogan().then(setSlogan).catch(() => {});
-  }, []);
 
   const startEdit = () => {
     setDraft(slogan || firstGoal || "");
     setEditGoal(true);
   };
-  const saveEdit = async () => {
+  const saveEdit = () => {
     const next = draft.trim();
-    setSaving(true);
-    try {
-      const saved = await updateMySlogan(next);
-      setSlogan(saved);
-    } catch (e) {
-      alert("저장 실패: " + (e?.response?.data?.error || e.message));
-    } finally {
-      setSaving(false);
-      setEditGoal(false);
-    }
+    setSlogan(next);
+    setEditGoal(false);
   };
 
-  // 워크스페이스 생성은 /alpha 페이지의 + 새 워크스페이스 흐름과 동일하게 맞춤:
-  // /alpha 로 이동 + ?new=1 쿼리로 자동 prompt 열림 (WorkspaceList 에서 처리)
-  const onNewWs = () => nav("/alpha?new=1");
+  const onNewWs = () => { setCreateModalName(""); setCreateModalOpen(true); };
+
+  const onConfirmCreate = async () => {
+    if (!createModalName.trim()) return;
+    setCreateModalOpen(false);
+    setCreating(true);
+    try {
+      const w = await createWorkspace(createModalName.trim());
+      nav(`/alpha/w/${w.id}`);
+    } catch (e) {
+      alert("생성 실패: " + (e?.response?.data?.error || e.message));
+    } finally {
+      setCreating(false);
+    }
+  };
 
   return (
     <div style={{
@@ -153,7 +156,7 @@ export default function WorkHome() {
                   value={draft}
                   onChange={e => setDraft(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditGoal(false); }}
-                  disabled={saving}
+                  disabled={false}
                   style={{
                     flex: 1, padding: "6px 10px", borderRadius: 8,
                     border: "1px solid #CBD5E1", fontSize: 16, color: "#0F172A",
@@ -161,10 +164,10 @@ export default function WorkHome() {
                   }}
                   autoFocus
                 />
-                <button onClick={saveEdit} disabled={saving} title="저장" style={iconBtn("#10B981")}>
+                <button onClick={saveEdit} disabled={false} title="저장" style={iconBtn("#10B981")}>
                   <Check size={14} />
                 </button>
-                <button onClick={() => setEditGoal(false)} disabled={saving} title="취소" style={iconBtn("#94A3B8")}>
+                <button onClick={() => setEditGoal(false)} disabled={false} title="취소" style={iconBtn("#94A3B8")}>
                   <X size={14} />
                 </button>
               </>
@@ -236,7 +239,7 @@ export default function WorkHome() {
           onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.05)"}
           onMouseLeave={e => e.currentTarget.style.filter = "none"}
         >
-          <Plus size={15} /> New Strategy Workspace
+          <Plus size={15} /> 새 워크스페이스
         </button>
       </div>
 
@@ -251,7 +254,7 @@ export default function WorkHome() {
         )}
         {!err && !loading && strategies.length === 0 && (
           <div style={{ gridColumn: "1/-1", padding: 28, background: "#F8FAFC", border: "1px dashed #CBD5E1", borderRadius: 12, textAlign: "center", color: "#64748B", fontSize: 14 }}>
-            아직 전략 워크스페이스가 없습니다. 오른쪽 위 <b>+ New Strategy Workspace</b> 버튼으로 시작해보세요.
+            아직 전략 워크스페이스가 없습니다. 오른쪽 위 <b>+ 새 워크스페이스</b> 버튼으로 시작해보세요.
           </div>
         )}
         {loading && strategies.length === 0 && (
@@ -315,6 +318,85 @@ export default function WorkHome() {
           );
         })}
       </div>
+
+      {/* 새 워크스페이스 생성 모달 */}
+      {createModalOpen && (
+        <div onClick={() => setCreateModalOpen(false)} style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 3000,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "white", borderRadius: 20, width: "100%", maxWidth: 460,
+            boxShadow: "0 24px 64px rgba(0,0,0,0.22)", overflow: "hidden",
+          }}>
+            <div style={{
+              padding: "24px 28px 20px",
+              background: "linear-gradient(135deg,#eff6ff 0%,#e0e7ff 100%)",
+              borderBottom: "1px solid #E2E8F0",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                <div style={{
+                  width: 44, height: 44, borderRadius: 14, flexShrink: 0,
+                  background: "linear-gradient(135deg,#60a5fa,#6366f1)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: "0 4px 12px rgba(99,102,241,0.3)",
+                }}>
+                  <Layers size={20} color="white" />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1e3a8a", fontFamily: F }}>새 워크스페이스</h2>
+                  <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569", fontFamily: F }}>삶의 목표를 투자 전략으로 변환합니다</p>
+                </div>
+              </div>
+              <button onClick={() => setCreateModalOpen(false)} style={{
+                width: 30, height: 30, borderRadius: "50%", border: "1px solid #C7D2FE",
+                background: "white", cursor: "pointer", display: "flex",
+                alignItems: "center", justifyContent: "center", color: "#475569", flexShrink: 0,
+              }}><X size={14} /></button>
+            </div>
+            <div style={{ padding: "24px 28px" }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 8, fontFamily: F }}>
+                워크스페이스 이름
+              </label>
+              <input
+                autoFocus
+                value={createModalName}
+                onChange={e => setCreateModalName(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") onConfirmCreate(); if (e.key === "Escape") setCreateModalOpen(false); }}
+                placeholder="예: 5년 후 월 300만원 현금흐름"
+                style={{
+                  width: "100%", padding: "12px 14px", borderRadius: 10,
+                  border: "1.5px solid #C7D2FE", fontSize: 14, outline: "none",
+                  boxSizing: "border-box", color: "#0F172A", fontFamily: F,
+                  transition: "border-color 0.15s",
+                }}
+                onFocus={e => e.target.style.borderColor = "#6366f1"}
+                onBlur={e => e.target.style.borderColor = "#C7D2FE"}
+              />
+              <p style={{ margin: "10px 0 0", fontSize: 12, color: "#94A3B8", lineHeight: 1.6, fontFamily: F }}>
+                이름은 나중에 AI와 대화하면서 자동으로 목표에 맞게 구체화됩니다.
+              </p>
+            </div>
+            <div style={{ padding: "0 28px 24px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setCreateModalOpen(false)} style={{
+                padding: "10px 20px", borderRadius: 10,
+                border: "1px solid #E2E8F0", background: "white", color: "#374151",
+                fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: F,
+              }}>취소</button>
+              <button onClick={onConfirmCreate} disabled={!createModalName.trim()} style={{
+                padding: "10px 20px", borderRadius: 10, border: "none",
+                background: createModalName.trim()
+                  ? "linear-gradient(135deg,#60a5fa 0%,#3b82f6 50%,#6366f1 100%)"
+                  : "#E2E8F0",
+                color: createModalName.trim() ? "white" : "#94A3B8",
+                fontSize: 13, fontWeight: 700, fontFamily: F,
+                cursor: createModalName.trim() ? "pointer" : "not-allowed",
+              }}>워크스페이스 생성</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -272,24 +272,6 @@ const useStore = create(
       interestedProjectIds: [],   // 숫자 배열 (Set 대신 직렬화 가능한 배열로 유지)
       interestedPartnerIds: [],
 
-      // 서버에서 찜 목록 로드 (로그인 상태일 때만 호출; 실패 시 로컬 값 유지)
-      loadInterests: async () => {
-        // 로그인 여부는 dbId(비민감 식별자)로 판단 — 실제 인증은 쿠키 기반.
-        const dbId = typeof window !== 'undefined' ? localStorage.getItem('dbId') : null;
-        if (!dbId) return;  // 비로그인 → 로컬 persist 값만 사용
-        try {
-          const [projIds, partnerIds] = await Promise.all([
-            interestsApi.myProjects(),
-            interestsApi.myPartners(),
-          ]);
-          set({
-            interestedProjectIds: Array.isArray(projIds) ? projIds : [],
-            interestedPartnerIds: Array.isArray(partnerIds) ? partnerIds : [],
-          });
-        } catch {
-          // 네트워크 실패 — 로컬 값 유지, 덮어쓰기 안 함
-        }
-      },
 
       // 프로젝트 찜 토글
       // - UI 상태는 즉시 반영 + localStorage persist로 새로고침해도 유지

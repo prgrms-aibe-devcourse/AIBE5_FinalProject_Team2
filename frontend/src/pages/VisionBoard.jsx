@@ -4,9 +4,6 @@ import StickerPickerModal from "./VisionBoard.StickerPickerModal";
 
 const STORAGE = "alpha.visionBoard.v2";
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-const CANVAS_W = 2800;
-const CANVAS_H = 1800;
-
 const MEMO_COLORS = [
   "#FEF9C3", "#DBEAFE", "#DCFCE7", "#FCE7F3",
   "#EDE9FE", "#FFF7ED", "#FFEDD5", "#F0FDF4",
@@ -283,13 +280,13 @@ export default function VisionBoard() {
       )}
 
       {/* ── 캔버스 ── */}
-      <div style={{ flex: 1, overflow: "auto", background: "#DDE1E9", position: "relative" }}>
+      <div style={{ flex: 1, overflow: "hidden", background: "#DDE1E9", position: "relative" }}>
         <div
           ref={canvasRef}
           onClick={onCanvasClick}
           style={{
             position: "relative",
-            width: CANVAS_W, height: CANVAS_H,
+            width: "100%", height: "100%",
             backgroundImage: "radial-gradient(circle, rgba(0,0,0,0.12) 1px, transparent 1px)",
             backgroundSize: "30px 30px",
             userSelect: "none",

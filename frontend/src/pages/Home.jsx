@@ -103,11 +103,6 @@ const FEATURE_TABS = [
   },
 ];
 
-const PROJECTS_IMAGES = [
-  "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=600&q=80",
-  "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=600&q=80",
-  "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&q=80",
-];
 const PROJECTS_TAGS = [
   ["#SMA Cross", "#백테스트", "#KIS"],
   ["#RSI", "#TrustScore", "#Regime"],
@@ -418,22 +413,11 @@ export default function Home() {
                 onMouseEnter={() => setHoveredProject(i)}
                 onMouseLeave={() => setHoveredProject(null)}
               >
-                <div style={{ position: "relative", height: 188, overflow: "hidden" }}>
-                  <img src={PROJECTS_IMAGES[i]} alt={proj.title} style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform 0.3s", transform: hoveredProject === i ? "scale(1.04)" : "scale(1)" }} />
-                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.25) 100%)" }} />
-                  <span style={{
-                    position: "absolute", top: 12, left: 12,
-                    padding: "4px 10px", borderRadius: 5,
-                    background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)",
-                    color: "white", fontSize: 11, fontWeight: 600,
-                    border: "1px solid rgba(255,255,255,0.12)",
-                  }}>{proj.badge}</span>
-                </div>
                 <div style={{ padding: "18px 20px 22px" }}>
                   <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 8, fontFamily: BASE_FONT, lineHeight: 1.4 }}>{proj.title}</h3>
                   <p style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.75, marginBottom: 14 }}>{proj.desc}</p>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {PROJECTS_TAGS[i].map(tag => (
+                    {[...proj.badge.split(" "), ...PROJECTS_TAGS[i]].map(tag => (
                       <span key={tag} style={{
                         fontSize: 11, color: "#4f46e5", fontWeight: 600,
                         background: "#EEF2FF", borderRadius: 4, padding: "2px 8px",

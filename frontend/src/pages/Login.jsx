@@ -75,13 +75,10 @@ function Login() {
       setUser({ username: data.username, email: data.email, dbId: data.userId, userType: data.userType, githubUsername: data.githubUsername || "" });
       setUsername(data.username); // top-level username (단일 진실 소스 — 모든 페이지/Stream Chat 공통)
       setDbId(data.userId);       // top-level dbId (백엔드 API 용 PK)
-      // 서버에서 프로필 상세 + 관심목록 로드 (실패해도 로그인 흐름은 진행)
+      // 서버에서 프로필 상세 로드 (실패해도 로그인 흐름은 진행)
       try {
         const s = useStore.getState();
-        await Promise.all([
-          s.loadProfileDetailFromServer?.(roleLc),
-          s.loadInterests?.(),
-        ]);
+        await s.loadProfileDetailFromServer?.(roleLc);
       } catch { /* noop */ }
       alert(data.message);
       handleAfterLogin(roleLc);
@@ -191,7 +188,7 @@ function Login() {
       "https://github.com/login/oauth/authorize" +
       `?client_id=${clientId}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&scope=user:email` +
+      `&scope=user:email%20repo` +
       `&state=${encodeURIComponent(state)}`;
     window.location.assign(githubAuthUrl);
   };
@@ -378,15 +375,20 @@ function Login() {
           {/* 로그인하기 버튼 */}
           <button
             onClick={login}
+            disabled={!email.trim() || !pw.trim()}
             style={{
               width: "100%", height: 56, borderRadius: 14, border: "none",
-              backgroundColor: "#B0B0B0", color: "white",
-              fontSize: 16, fontWeight: 800, cursor: "pointer",
-              fontFamily: BASE_FONT, transition: "background-color 0.2s",
+              background: email.trim() && pw.trim()
+                ? "linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #6366f1 100%)"
+                : "#B0B0B0",
+              color: "white",
+              fontSize: 16, fontWeight: 800,
+              cursor: email.trim() && pw.trim() ? "pointer" : "not-allowed",
+              fontFamily: BASE_FONT, transition: "opacity 0.2s",
               marginBottom: 14,
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#999")}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#B0B0B0")}
+            onMouseEnter={(e) => { if (email.trim() && pw.trim()) e.currentTarget.style.opacity = "0.88"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
           >
             {t("login.loginBtn")}
           </button>
