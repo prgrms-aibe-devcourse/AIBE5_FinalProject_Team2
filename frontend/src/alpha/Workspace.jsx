@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   MessageSquare, Layers, BarChart3, Activity, ShieldCheck,
-  ScrollText, Sparkles, Play, ChevronLeft, RefreshCw,
+  ScrollText, Play, ChevronLeft, RefreshCw,
   AlertTriangle, FileText,
 } from "lucide-react";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
@@ -17,18 +17,15 @@ import ReportPanel from "./tabs/ReportPanel";
 import RegimePanel from "./tabs/RegimePanel";
 import TrustPanel from "./tabs/TrustPanel";
 import LogPanel from "./tabs/LogPanel";
-import BriefingPanel from "./tabs/BriefingPanel";
 import TabHelpCard from "./tabs/TabHelpCard";
 
-// 메인 탭(상단 가운데) — 좌측 네비 항목과 일치하도록 전체 포함
+// 메인 탭(상단 가운데) — AI 대화 탭은 우측 Heli 패널로 상시 노출되어 제거
 const TABS = [
-  { key: "chat",     label: "AI 대화",         Icon: MessageSquare },
   { key: "config",   label: "전략 카드",        Icon: Layers },
   { key: "report",   label: "Backtest",          Icon: BarChart3 },
   { key: "regime",   label: "Regime",            Icon: Activity },
   { key: "trust",    label: "Trust Score",       Icon: ShieldCheck },
   { key: "log",      label: "Decision Log",      Icon: ScrollText },
-  { key: "briefing", label: "Living Briefing",   Icon: Sparkles },
 ];
 
 // 우측 패널의 "전략 요약"용: strategyConfig에서 자산 추출
@@ -61,7 +58,7 @@ export default function Workspace() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get("tab") || "chat";
+  const tab = searchParams.get("tab") || "config";
   const setTab = (t) => setSearchParams({ tab: t }, { replace: true });
   const [ws, setWs] = useState(null);
   const [err, setErr] = useState(null);
@@ -75,7 +72,7 @@ export default function Workspace() {
   // 우측 전략 요약 패널 가로 폭 (드래그로 조절)
   const [rightW, setRightW] = useState(() => {
     const v = Number(localStorage.getItem("alpha.rightPanelWidth"));
-    return Number.isFinite(v) && v >= 220 && v <= 640 ? v : 300;
+    return Number.isFinite(v) && v >= 280 && v <= 720 ? v : 380;
   });
   useEffect(() => { localStorage.setItem("alpha.rightPanelWidth", String(rightW)); }, [rightW]);
   const startRightResize = (e) => {
@@ -84,7 +81,7 @@ export default function Workspace() {
     const startW = rightW;
     const onMove = (ev) => {
       // 좌측으로 이동 = 패널 넓어짐 (drag left = wider)
-      const next = Math.min(640, Math.max(220, startW - (ev.clientX - startX)));
+      const next = Math.min(720, Math.max(280, startW - (ev.clientX - startX)));
       setRightW(next);
     };
     const onUp = () => {
@@ -100,6 +97,12 @@ export default function Workspace() {
   };
 
   useEffect(() => { localStorage.setItem("alpha.lastWsId", id); }, [id]);
+
+  // Heli 대화창(RightChatDock)이 현재 어떤 탭에 있는지 알 수 있도록 브로드캐스트
+  useEffect(() => {
+    localStorage.setItem("alpha.activeTab", tab);
+    window.dispatchEvent(new CustomEvent("alpha:tabChanged", { detail: { tab } }));
+  }, [tab]);
   const reload = () => getWorkspace(id).then(setWs).catch(e => setErr(e.message));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { reload(); }, [id]);
@@ -184,98 +187,78 @@ export default function Workspace() {
   const regimeText = ws.lastRegime?.current_label || ws.lastRegime?.label || "정상 (Normal)";
   const isHighVol = /high.*vol|위험|warning|⚡/i.test(regimeText);
 
-  // Trust Score 탭일 때는 우측 패널을 좌측 사이드바 하단으로 이동 (메인 영역 가독성 ↑)
-  const isTrust = tab === "trust";
-
-  const summarySections = (
-    <>
-      {/* 전략 요약 */}
-      <section>
-        <div style={sideTitle(theme)}>전략 요약</div>
-        <div style={sideCard(theme)}>
-          <div style={{ fontSize: 13.5, fontWeight: 800, color: theme.text, marginBottom: 4 }}>{template}</div>
-          <div style={{ fontSize: 11.5, color: theme.textMuted, marginBottom: 10, lineHeight: 1.45 }}>{goalSummary}</div>
-          <div style={{ fontSize: 11, color: theme.textMuted }}>자산</div>
-          <div style={{ fontSize: 12.5, color: theme.text, marginTop: 3, fontWeight: 600 }}>
-            {assets.length > 0 ? assets.join(" / ") : "—"}
-          </div>
-          <div style={{ marginTop: 10, display: "inline-block", padding: "3px 10px", borderRadius: 999, background: theme.accentSoft, color: theme.accent, fontSize: 11, fontWeight: 700 }}>
+  // Strategy Card 탭 상단 가로 요약 바 (기존 우측 4구역을 컴팩트하게 재구성)
+  const topSummaryBar = (
+    <div style={{
+      display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10,
+      marginBottom: 18,
+    }}>
+      <div style={topCard(theme)}>
+        <div style={topCardLabel(theme)}>전략</div>
+        <div style={{ fontSize: 13.5, fontWeight: 800, color: theme.text, marginTop: 2, marginBottom: 4, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {template}
+        </div>
+        <div style={{ fontSize: 11, color: theme.textMuted, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          {goalSummary}
+        </div>
+        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span style={{ padding: "2px 8px", borderRadius: 999, background: theme.accentSoft, color: theme.accent, fontSize: 10.5, fontWeight: 700 }}>
             {STATUS_LABEL[ws.status] || ws.status}
-          </div>
-        </div>
-      </section>
-
-      {/* 현재 REGIME */}
-      <section>
-        <div style={sideTitle(theme)}>현재 REGIME</div>
-        <div style={{
-          ...sideCard(theme),
-          background: isHighVol ? "#FEF9C3" : "#F1F5F9",
-          border: `1px solid ${isHighVol ? "#FDE68A" : theme.panelBorder}`,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 800, color: isHighVol ? "#92400E" : theme.text }}>
-            <AlertTriangle size={14} /> {regimeText}
-          </div>
-          <div style={{ fontSize: 11.5, color: isHighVol ? "#92400E" : theme.textMuted, marginTop: 4 }}>
-            {isHighVol ? "Risk-off 조건 모니터링 중" : "Regime 탭에서 분석 실행"}
-          </div>
-        </div>
-      </section>
-
-      {/* TRUST SCORE */}
-      <section>
-        <div style={sideTitle(theme)}>TRUST SCORE</div>
-        <div style={sideCard(theme)}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 4, marginBottom: 8 }}>
-            <span style={{ fontSize: 36, fontWeight: 900, color: theme.text, lineHeight: 1 }}>
-              {trustScore != null ? trustScore : "—"}
+          </span>
+          {assets.length > 0 && (
+            <span style={{ fontSize: 11, color: theme.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {assets.slice(0, 3).join(" / ")}{assets.length > 3 ? ` +${assets.length - 3}` : ""}
             </span>
-            <span style={{ fontSize: 12, color: theme.textMuted }}>/ 100</span>
-          </div>
-          {trustScore == null && (
-            <button onClick={() => setTab("trust")} style={{
-              width: "100%", padding: "7px 10px", borderRadius: 8, border: `1px solid ${theme.panelBorder}`,
-              background: "white", color: theme.text, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
-            }}>Trust Score 측정하기</button>
           )}
-          {Object.entries(subScores).map(([k, v]) => {
-            const KO = {
-              generalization: "Generalization",
-              regime_robustness: "Regime",
-              parameter_stability: "Param Stability",
-              risk_control: "Risk Control",
-              statistical_confidence: "Stat Confidence",
-            };
-            return (
-              <div key={k} style={{ marginTop: 8 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: theme.text, marginBottom: 3 }}>
-                  <span>{KO[k] || k}</span><b>{v}</b>
-                </div>
-                <div style={{ height: 4, background: "#E5E7EB", borderRadius: 2, overflow: "hidden" }}>
-                  <div style={{ width: `${v}%`, height: "100%", background: theme.accent }} />
-                </div>
-              </div>
-            );
-          })}
         </div>
-      </section>
+      </div>
 
-      {/* 주요 리스크 */}
-      <section>
-        <div style={sideTitle(theme)}>주요 리스크</div>
-        <div style={{
-          ...sideCard(theme),
-          fontSize: 11.5, color: theme.text, lineHeight: 1.55,
-        }}>
+      <div style={{
+        ...topCard(theme),
+        background: isHighVol ? "#FEF9C3" : topCard(theme).background,
+        borderColor: isHighVol ? "#FDE68A" : topCard(theme).borderColor,
+      }}>
+        <div style={topCardLabel(theme)}>현재 REGIME</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 13, fontWeight: 800, color: isHighVol ? "#92400E" : theme.text }}>
+          <AlertTriangle size={14} /> {regimeText}
+        </div>
+        <div style={{ fontSize: 11, color: isHighVol ? "#92400E" : theme.textMuted, marginTop: 6 }}>
+          {isHighVol ? "Risk-off 조건 모니터링 중" : "Regime 탭에서 분석 실행"}
+        </div>
+      </div>
+
+      <div style={topCard(theme)}>
+        <div style={topCardLabel(theme)}>TRUST SCORE</div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 4 }}>
+          <span style={{ fontSize: 26, fontWeight: 900, color: theme.text, lineHeight: 1 }}>
+            {trustScore != null ? trustScore : "—"}
+          </span>
+          <span style={{ fontSize: 11, color: theme.textMuted }}>/ 100</span>
+        </div>
+        {trustScore == null ? (
+          <button onClick={() => setTab("trust")} style={{
+            marginTop: 8, width: "100%", padding: "5px 8px", borderRadius: 6, border: `1px solid ${theme.panelBorder}`,
+            background: "white", color: theme.text, fontSize: 11, fontWeight: 600, cursor: "pointer",
+          }}>측정하기</button>
+        ) : (
+          <div style={{ marginTop: 6, fontSize: 10.5, color: theme.textMuted }}>
+            세부 점수는 Trust 탭에서 확인
+          </div>
+        )}
+      </div>
+
+      <div style={topCard(theme)}>
+        <div style={topCardLabel(theme)}>주요 리스크</div>
+        <div style={{ fontSize: 11.5, color: theme.text, marginTop: 4, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
           {trust?.narrative || "Trust Score 측정 후 자동 분석된 리스크 요약이 표시됩니다."}
         </div>
-      </section>
-    </>
+      </div>
+    </div>
   );
 
   return (
     <>
-    <div style={{ display: "grid", gridTemplateColumns: isTrust ? "240px 1fr" : `240px 1fr ${rightW}px`, height: "100vh", background: theme.bg }}>
+    <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", height: "100vh", background: theme.bg }}>
       {/* ============================== 왼쪽 사이드바 ============================== */}
       <aside style={{
         borderRight: `1px solid ${theme.panelBorder}`, background: theme.panel,
@@ -347,13 +330,6 @@ export default function Workspace() {
 
         {/* 탭별 도움말 — 이미지의 파란 안내 창을 여기로 이동 */}
         <TabHelpCard tab={tab} theme={theme} />
-
-        {/* Trust Score 탭일 때만 좌측 하단에 전략 요약 노출 (메인 영역 확장) */}
-        {isTrust && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 4 }}>
-            {summarySections}
-          </div>
-        )}
       </aside>
 
       {/* ============================== 가운데 본문 ============================== */}
@@ -412,46 +388,18 @@ export default function Workspace() {
           })}
         </div>
 
-        {/* 본문 — chat 탭은 자체 스크롤 처리(중첩 스크롤 방지) */}
+        {/* 본문 */}
         <div style={{
-          flex: 1,
-          overflow: tab === "chat" ? "hidden" : "auto",
-          padding: tab === "chat" ? 0 : "28px 32px 64px",
-          minHeight: 0,
-          background: tab === "chat" ? undefined : "#F8FAFC",
+          flex: 1, overflow: "auto", padding: "28px 32px 64px",
+          minHeight: 0, background: "#F8FAFC",
         }}>
-          {tab === "chat"     && <ChatPanel id={id} ws={ws} onChange={reload} />}
-          {tab === "config"   && <ConfigPanel id={id} ws={ws} onChange={reload} setTab={setTab} />}
+          {tab === "config"   && <ConfigPanel id={id} ws={ws} onChange={reload} setTab={setTab} topSummary={topSummaryBar} />}
           {tab === "report"   && <ReportPanel id={id} ws={ws} onChange={reload} />}
           {tab === "regime"   && <RegimePanel id={id} ws={ws} onChange={reload} />}
           {tab === "trust"    && <TrustPanel id={id} ws={ws} onChange={reload} />}
           {tab === "log"      && <LogPanel id={id} ws={ws} />}
-          {tab === "briefing" && <BriefingPanel id={id} ws={ws} />}
         </div>
       </main>
-
-      {/* ============================== 오른쪽 패널 (Trust Score 탭에서는 숨김) ============================== */}
-      {!isTrust && (
-      <aside style={{
-        borderLeft: `1px solid ${theme.panelBorder}`, background: theme.panel,
-        padding: "18px 16px", display: "flex", flexDirection: "column", gap: 14, overflow: "auto",
-        position: "relative",
-      }}>
-        {/* 가로 리사이즈 핸들 (좌측 터서리) */}
-        <div
-          onMouseDown={startRightResize}
-          title="드래그해서 전략 요약 영역 폭 조절"
-          style={{
-            position: "absolute", top: 0, left: 0, width: 6, height: "100%",
-            cursor: "col-resize", zIndex: 10,
-            background: "transparent",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "linear-gradient(to right, rgba(186,230,253,0.7), rgba(186,230,253,0))"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-        />
-        {summarySections}
-      </aside>
-      )}
     </div>
 
     <NewStrategyModal
@@ -466,7 +414,22 @@ export default function Workspace() {
   );
 }
 
-// 우측 사이드 패널 스타일 헬퍼
+// Strategy Card 탭 상단 가로 요약 바 스타일 헬퍼
+function topCard(theme) {
+  return {
+    background: "white", border: `1px solid ${theme.panelBorder}`, borderRadius: 12,
+    padding: "10px 12px", borderColor: theme.panelBorder,
+    minHeight: 92, display: "flex", flexDirection: "column",
+  };
+}
+function topCardLabel(theme) {
+  return {
+    fontSize: 10.5, fontWeight: 800, color: theme.textMuted,
+    letterSpacing: 0.6, textTransform: "uppercase",
+  };
+}
+
+// 우측 사이드 패널 스타일 헬퍼 (현재는 미사용 — 추후 재활용 가능)
 function sideTitle(theme) {
   return { fontSize: 11, fontWeight: 800, color: theme.textMuted, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 6 };
 }

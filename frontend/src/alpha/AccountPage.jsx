@@ -81,7 +81,7 @@ export default function AccountPage() {
               margin: 0, fontSize: 26, fontWeight: 800, lineHeight: 1.15,
               background: "linear-gradient(90deg,#3b82f6 0%,#6366f1 100%)",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-            }}>계좌 관리 (KIS)</h1>
+            }}>계좌 관리</h1>
             <p style={{ margin: "5px 0 0", fontSize: 13, color: "#64748B", fontWeight: 500 }}>
               모의계좌로 충분히 검증한 뒤 실전계좌를 연결하세요. 두 환경을 동시에 등록·운영할 수 있습니다.
             </p>
@@ -89,27 +89,72 @@ export default function AccountPage() {
         </div>
       </div>
 
-      {/* 브로커 선택 탭 */}
-      <div className="broker-tabs" style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+      {/* 브로커 탭 + 컨텐츠 패널 (브라우저 탭처럼 하나로 묶임) */}
+      <div className="broker-tabs" style={{ display: "flex", gap: 4, marginBottom: 0, paddingLeft: 4 }}>
         {[
-          { id: "KIS",     label: "🏦 한국투자증권 (KIS)",  color: "#3b82f6" },
-          { id: "BINANCE", label: "🇺🇸 Binance.US (미국)",   color: "#F0B90B" },
-        ].map(({ id, label, color }) => {
+          { id: "KIS",     label: "한국투자증권",  sub: "KIS · 국내",            icon: "🏦",  accent: "linear-gradient(135deg,#60a5fa,#6366f1)" },
+          { id: "BINANCE", label: "Binance.US",   sub: "Binance · 미국 크립토",  icon: "🇺🇸", accent: "linear-gradient(135deg,#fbbf24,#f59e0b)" },
+        ].map(({ id, label, sub, icon, accent }) => {
           const active = brokerType === id;
           const hasAny = accounts.some(a => a.brokerType === id);
           return (
             <button key={id} onClick={() => { setBrokerType(id); setMsg(null); }}
               style={{
-                padding: "10px 20px", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer",
-                background: active ? color : theme.card,
-                color: active ? "white" : theme.text,
-                border: `1px solid ${active ? "transparent" : theme.border}`,
+                flex: "0 1 320px", padding: "14px 18px",
+                borderTopLeftRadius: 14, borderTopRightRadius: 14,
+                borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
+                cursor: "pointer",
+                background: active ? "white" : "rgba(241,245,249,0.7)",
+                border: "1px solid #E2E8F0",
+                borderBottom: active ? "1px solid white" : "1px solid #E2E8F0",
+                marginBottom: -1,
+                boxShadow: active ? "0 -2px 8px rgba(15,23,42,0.04)" : "none",
+                display: "flex", alignItems: "center", gap: 12, textAlign: "left",
+                position: "relative", zIndex: active ? 2 : 1,
+                transition: "background 0.15s",
               }}>
-              {label} {hasAny && <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.85 }}>● 등록됨</span>}
+              <div style={{
+                width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+                background: active ? accent : "rgba(148,163,184,0.18)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 18,
+                boxShadow: active ? "0 3px 10px rgba(99,102,241,0.28)" : "none",
+                transition: "background 0.15s",
+              }}>{icon}</div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{
+                  fontSize: 14.5, fontWeight: 800,
+                  color: active ? "#0f172a" : "#64748B",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}>
+                  {label}
+                  {hasAny && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 700,
+                      padding: "2px 7px", borderRadius: 99,
+                      background: "#DCFCE7", color: "#15803D",
+                    }}>● 등록됨</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11.5, color: active ? "#64748B" : "#94A3B8", marginTop: 2, fontWeight: 500 }}>
+                  {sub}
+                </div>
+              </div>
             </button>
           );
         })}
       </div>
+
+      {/* 브로커 탭 컨텐츠 패널 */}
+      <div style={{
+        background: "white",
+        border: "1px solid #E2E8F0",
+        borderRadius: 16,
+        borderTopLeftRadius: brokerType === "KIS" ? 0 : 16,
+        padding: "22px 24px 26px",
+        boxShadow: "0 4px 18px rgba(15,23,42,0.05)",
+        position: "relative", zIndex: 1,
+      }}>
 
       {/* 환경 탭 */}
       <div className="env-tabs" style={{ display: "flex", gap: 8, marginBottom: 18 }}>
@@ -122,7 +167,7 @@ export default function AccountPage() {
                 padding: "10px 18px", borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: "pointer",
                 background: active
                   ? (e === "REAL" ? "linear-gradient(135deg,#ef4444,#dc2626)" : "linear-gradient(135deg,#60a5fa,#3b82f6)")
-                  : theme.card,
+                  : "#F8FAFC",
                 color: active ? "white" : theme.text,
                 border: `1px solid ${active ? "transparent" : theme.border}`,
               }}>
@@ -148,6 +193,7 @@ export default function AccountPage() {
           : (brokerType === "BINANCE"
               ? <BinanceRegister theme={theme} env={env} reload={reload} setMsg={setMsg} />
               : <AccountRegister theme={theme} env={env} accounts={accounts} reload={reload} setMsg={setMsg} />)}
+      </div>
     </div>
   );
 }

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Trash2, ArrowRight, MessageSquare, Star, BookOpen, ChevronRight, Zap, TrendingUp, Bitcoin, Layers, X } from "lucide-react";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
-import { listWorkspaces, createWorkspace, deleteWorkspace } from "./alphaApi";
+import { listWorkspaces, createWorkspace, deleteWorkspace, updateWorkspaceStatus } from "./alphaApi";
 
 const PRIMARY_KEY = "alpha.primaryWsId";
 
@@ -85,6 +85,18 @@ export default function WorkspaceList() {
 
   const onDelete = (id, name) => setDeleteTarget({ id, name });
 
+  const onToggleLive = async (w) => {
+    const next = w.status === "LIVE" ? "TESTED" : "LIVE";
+    // 낙관적 업데이트
+    setItems(prev => (prev || []).map(it => it.id === w.id ? { ...it, status: next } : it));
+    try {
+      await updateWorkspaceStatus(w.id, next);
+    } catch (e) {
+      alert("상태 변경 실패: " + (e?.response?.data?.error || e.message));
+      load();
+    }
+  };
+
   const onConfirmDelete = async () => {
     if (!deleteTarget) return;
     try { await deleteWorkspace(deleteTarget.id); load(); }
@@ -94,6 +106,12 @@ export default function WorkspaceList() {
 
   return (
     <div style={{ padding: "36px 40px 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
+      <style>{`
+        @keyframes liveBlink {
+          0%, 100% { opacity: 1; }
+          50%      { opacity: 0.35; }
+        }
+      `}</style>
       {/* 헤더 */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 32, flexWrap: "wrap", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
@@ -222,16 +240,55 @@ export default function WorkspaceList() {
               {/* 액션 버튼 */}
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                 <button
+                  onClick={() => onToggleLive(w)}
+                  title={w.status === "LIVE" ? "LIVE 해제" : "LIVE로 전환"}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 6,
+                    padding: "7px 12px", borderRadius: 8,
+                    background: w.status === "LIVE"
+                      ? "linear-gradient(135deg,#86efac 0%,#22c55e 100%)"
+                      : "#F0FDF4",
+                    color: w.status === "LIVE" ? "white" : "#16A34A",
+                    border: w.status === "LIVE" ? "none" : "1px solid #BBF7D0",
+                    fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                    boxShadow: w.status === "LIVE" ? "0 2px 8px rgba(34,197,94,0.30)" : "none",
+                  }}>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: "50%",
+                    background: w.status === "LIVE" ? "white" : "#22C55E",
+                    boxShadow: w.status === "LIVE"
+                      ? "0 0 0 2px rgba(255,255,255,0.45)"
+                      : "0 0 0 2px rgba(34,197,94,0.20)",
+                    animation: w.status === "LIVE" ? "liveBlink 1.4s ease-in-out infinite" : "none",
+                    display: "inline-block",
+                  }} />
+                  LIVE
+                </button>
+                <button
                   onClick={() => setPrimary(w.id)}
                   title={isPrimary ? "대표 전략" : "대표로 선택"}
                   style={{
-                    display: "inline-flex", alignItems: "center", gap: 5,
+                    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
+                    minWidth: 92,
                     padding: "7px 12px", borderRadius: 8,
-                    background: isPrimary ? "#10B981" : "#F1F5F9",
-                    color: isPrimary ? "white" : "#64748B",
-                    border: "none", fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                    background: isPrimary
+                      ? "linear-gradient(135deg,#fde68a 0%,#f59e0b 100%)"
+                      : "white",
+                    color: isPrimary ? "white" : "#475569",
+                    border: isPrimary ? "none" : "1px solid #E2E8F0",
+                    fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                    boxShadow: isPrimary ? "0 2px 8px rgba(245,158,11,0.30)" : "none",
                   }}>
-                  <Star size={12} fill={isPrimary ? "white" : "none"} />
+                  {/* 통통한 별 SVG — 선택 시 노란 채움, 비선택 시 노란 외곽선만 */}
+                  <svg width="14" height="14" viewBox="0 0 24 24" style={{ display: "block" }}>
+                    <path
+                      d="M12 2.5l2.95 5.98 6.6.96-4.78 4.65 1.13 6.57L12 17.55l-5.9 3.11 1.13-6.57L2.45 9.44l6.6-.96L12 2.5z"
+                      fill={isPrimary ? "#FFFFFF" : "none"}
+                      stroke={isPrimary ? "#FFFFFF" : "#F59E0B"}
+                      strokeWidth="2"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                   {isPrimary ? "대표" : "대표 선택"}
                 </button>
                 <button onClick={e => {

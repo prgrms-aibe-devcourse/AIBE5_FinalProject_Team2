@@ -132,6 +132,19 @@ function ConnectForm({ onConnect, onDisconnect, username }) {
           <div style={{ fontSize: 10.5, color: "#64748b", marginBottom: 4 }}>
             토큰 발급: github.com → Settings → Developer settings → Personal access tokens (classic) → scope: <code>repo</code>
           </div>
+          <div style={{
+            fontSize: 10.5, color: "#93c5fd",
+            background: "rgba(59,130,246,0.08)",
+            border: "1px solid rgba(59,130,246,0.25)",
+            borderRadius: 6, padding: "6px 8px", marginBottom: 8, lineHeight: 1.5,
+          }}>
+            ⓘ GitHub 계정이 없다면{" "}
+            <a href="https://github.com/signup" target="_blank" rel="noopener noreferrer"
+               style={{ color: "#60a5fa", textDecoration: "underline" }}>
+              github.com
+            </a>
+            에서 먼저 가입해주세요. 우리 서비스 가입 이메일과 GitHub 이메일은 같지 않아도 됩니다.
+          </div>
           <input
             type="password" value={token} onChange={e => setToken(e.target.value)}
             placeholder="ghp_xxxxxxxxxxxx" disabled={busy}

@@ -4,10 +4,11 @@ import Editor from "@monaco-editor/react";
 import {
   Play, Rocket, Terminal, BarChart3, Code2, Loader, Save,
   FolderOpen, Database, FileCode, ChevronDown, ChevronRight, X,
-  ShoppingCart, AlertCircle, CheckCircle2,
+  ShoppingCart, AlertCircle, CheckCircle2, GitBranch,
 } from "lucide-react";
 import { useTheme } from "./ThemeContext";
-import { getWorkspace, runBacktest, runRegime, runTrust, saveCode, queueOrders } from "./alphaApi";
+import { getWorkspace, listWorkspaces, runBacktest, runRegime, runTrust, saveCode, queueOrders } from "./alphaApi";
+import GitPanel from "./GitPanel";
 
 // ── 코드 생성 유틸 ─────────────────────────────────────────────────────────────
 function generateCodeFromConfig(cfg) {
@@ -470,11 +471,13 @@ export default function DeveloperLab() {
   const [wsLoading, setWsLoading] = useState(true);
   const [btResult, setBtResult] = useState(null);
   const [queueMsg, setQueueMsg] = useState(null);
+  const [wsList, setWsList] = useState([]);
+  const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
+  const wsDropdownRef = useRef(null);
 
   // ── 에디터 상태 ──
   const [fileContents, setFileContents] = useState({ main: PLACEHOLDER_CODE });
   const [strategyName, setStrategyName] = useState("AlphaHelix Developer");
-  const [editingName, setEditingName] = useState(false);
 
   // ── IDE 탭 상태 ──
   const [openTabs, setOpenTabs] = useState([
@@ -556,14 +559,15 @@ export default function DeveloperLab() {
 
   useEffect(() => { if (logLines.length > 0) logEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [logLines]);
 
-  // ── 워크스페이스 로드 (마운트 시) ──
-  useEffect(() => {
-    const id = localStorage.getItem("alpha.lastWsId");
-    if (!id) { setWsLoading(false); return; }
+  // ── 워크스페이스 로드 ──
+  const loadWorkspace = useCallback((id) => {
+    setWsLoading(true);
     setWsId(id);
+    localStorage.setItem("alpha.lastWsId", id);
     getWorkspace(id)
       .then(data => {
         setStrategyName(data.name || "AlphaHelix Strategy");
+        setBtResult(null);
         if (data.codeJson) {
           try { setFileContents(JSON.parse(data.codeJson)); } catch { /* 파싱 실패 시 무시 */ }
         } else if (data.strategyConfig) {
@@ -573,10 +577,40 @@ export default function DeveloperLab() {
           setFileContents({ main: code });
         }
       })
-      .catch(() => { /* 네트워크 오류 시 placeholder 유지 */ })
+      .catch(() => {})
       .finally(() => setWsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const id = localStorage.getItem("alpha.lastWsId");
+    if (id) loadWorkspace(id);
+    else setWsLoading(false);
+    listWorkspaces().then(r => setWsList(Array.isArray(r) ? r : (r?.content || []))).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Heli 라이브 패치 후 에디터 코드 자동 갱신
+  useEffect(() => {
+    const onReload = (e) => {
+      const patchedId = e?.detail?.wsId ? Number(e.detail.wsId) : null;
+      if (!patchedId || patchedId === Number(wsId)) {
+        const targetId = patchedId || wsId;
+        if (targetId) loadWorkspace(targetId);
+      }
+    };
+    window.addEventListener("alphaWorkspaceReload", onReload);
+    return () => window.removeEventListener("alphaWorkspaceReload", onReload);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsId]);
+
+  // 드롭다운 외부 클릭 시 닫기
+  useEffect(() => {
+    if (!wsDropdownOpen) return;
+    const handler = (e) => { if (wsDropdownRef.current && !wsDropdownRef.current.contains(e.target)) setWsDropdownOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [wsDropdownOpen]);
 
   // ── 탭 관리 ──
   const openFile = useCallback((fileKey) => {
@@ -697,19 +731,49 @@ export default function DeveloperLab() {
         borderBottom:"1px solid rgba(255,255,255,0.08)",
       }}>
         <Code2 size={14} color="#60a5fa" style={{flexShrink:0}}/>
-        {editingName ? (
-          <input autoFocus value={strategyName}
-            onChange={e=>setStrategyName(e.target.value)}
-            onBlur={()=>setEditingName(false)}
-            onKeyDown={e=>e.key==="Enter"&&setEditingName(false)}
-            style={{background:"transparent",border:"none",borderBottom:"1px solid #60a5fa",
-              color:"white",fontSize:13,fontWeight:700,outline:"none",width:240,padding:"1px 0"}}/>
-        ):(
-          <span onClick={()=>setEditingName(true)}
-            style={{fontSize:13,fontWeight:700,color:"white",cursor:"text",
-              maxWidth:280,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
-            title="클릭하여 전략명 수정">{strategyName}</span>
-        )}
+        {/* 전략명 + 전략 전환 드롭다운 */}
+        <div ref={wsDropdownRef} style={{position:"relative",display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:13,fontWeight:700,color:"white",
+              maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {strategyName}
+          </span>
+          {wsList.length > 1 && (
+            <button
+              onClick={() => setWsDropdownOpen(o => !o)}
+              title="전략 전환"
+              style={{display:"flex",alignItems:"center",padding:"2px 4px",borderRadius:4,
+                background:"transparent",border:"1px solid rgba(255,255,255,0.12)",
+                color:"#9CA3AF",cursor:"pointer",flexShrink:0}}
+            >
+              <ChevronDown size={12} color={wsDropdownOpen ? "#60a5fa" : "#9CA3AF"} />
+            </button>
+          )}
+          {wsDropdownOpen && (
+            <div style={{
+              position:"absolute",top:"calc(100% + 6px)",left:0,zIndex:200,
+              background:"#1e2433",border:"1px solid rgba(255,255,255,0.12)",
+              borderRadius:8,padding:4,minWidth:200,
+              boxShadow:"0 8px 24px rgba(0,0,0,0.5)",
+            }}>
+              {wsList.map(ws => (
+                <button key={ws.id}
+                  onClick={() => { loadWorkspace(ws.id); setWsDropdownOpen(false); }}
+                  style={{
+                    display:"block",width:"100%",textAlign:"left",
+                    padding:"7px 10px",borderRadius:5,border:"none",
+                    background: ws.id === wsId ? "rgba(96,165,250,0.15)" : "transparent",
+                    color: ws.id === wsId ? "#60a5fa" : "#D1D5DB",
+                    fontSize:12,fontWeight: ws.id === wsId ? 700 : 400,cursor:"pointer",
+                  }}
+                  onMouseEnter={e => { if (ws.id !== wsId) e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+                  onMouseLeave={e => { if (ws.id !== wsId) e.currentTarget.style.background = "transparent"; }}
+                >
+                  {ws.name || `전략 #${ws.id}`}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <span style={{fontSize:9,padding:"1px 7px",borderRadius:999,
           background:"rgba(99,102,241,0.2)",color:"#a5b4fc",fontWeight:700,flexShrink:0}}>
           Expert Mode
@@ -775,19 +839,19 @@ export default function DeveloperLab() {
           paddingTop:6, gap:2,
         }}>
           {[
-            { icon:<FolderOpen size={15}/>, title:"파일 탐색기",   act: sidePanel==="explorer", fn: ()=>setSidePanel(p=>p==="explorer"?null:"explorer") },
-            { icon:<FileCode size={15}/>,   title:"코드만 보기",   act: sidePanel===null,        fn: ()=>setSidePanel(null) },
-            { icon:<Database size={15}/>,   title:"데이터 탐색기", act: sidePanel==="data",     fn: ()=>setSidePanel(p=>p==="data"?null:"data") },
-            { icon:<BarChart3 size={15}/>,  title:"백테스트 결과", act: openTabs.some(t=>t.type==="report")&&activeTab?.type==="report",
+            { icon:<FolderOpen size={20}/>, title:"파일 탐색기",   act: sidePanel==="explorer", fn: ()=>setSidePanel(p=>p==="explorer"?null:"explorer") },
+            { icon:<FileCode size={20}/>,   title:"코드만 보기",   act: sidePanel===null,        fn: ()=>setSidePanel(null) },
+            { icon:<Database size={20}/>,   title:"데이터 탐색기", act: sidePanel==="data",     fn: ()=>setSidePanel(p=>p==="data"?null:"data") },
+            { icon:<GitBranch size={20}/>,  title:"GitHub 연결",   act: sidePanel==="git",      fn: ()=>setSidePanel(p=>p==="git"?null:"git") },
+            { icon:<BarChart3 size={20}/>,  title:"백테스트 결과", act: openTabs.some(t=>t.type==="report")&&activeTab?.type==="report",
               fn: ()=>{ const t=openTabs.find(tt=>tt.type==="report"); if(t) setActiveTabId(t.id); else handleRunBacktest(); } },
-            { icon:<Terminal size={15}/>,   title:"콘솔 / 터미널", act: false,                   fn: ()=>logEndRef.current?.scrollIntoView({behavior:"smooth"}) },
+            { icon:<Terminal size={20}/>,   title:"콘솔 / 터미널", act: false,                   fn: ()=>logEndRef.current?.scrollIntoView({behavior:"smooth"}) },
           ].map((b,i)=>(
             <button key={i} title={b.title} onClick={b.fn} style={{
-              width:30, height:30, borderRadius:6, border:"none",
+              width:36, height:36, borderRadius:6, border:"none",
               background: b.act ? "rgba(96,165,250,0.12)" : "transparent",
               color: b.act ? "#60a5fa" : "#4B5563",
               cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
-              borderLeft: b.act ? "2px solid #60a5fa" : "2px solid transparent",
               transition:"color 0.12s, background 0.12s",
             }}
             onMouseEnter={e=>{e.currentTarget.style.color="#9CA3AF"; e.currentTarget.style.background="rgba(255,255,255,0.05)";}}
@@ -816,16 +880,18 @@ export default function DeveloperLab() {
               onMouseEnter={e=>e.currentTarget.style.background="rgba(96,165,250,0.35)"}
               onMouseLeave={e=>e.currentTarget.style.background="transparent"}
             />
-            {/* 패널 헤더 */}
-            <div style={{
-              padding:"8px 12px", fontSize:9, fontWeight:700, color:"#4B5563",
-              letterSpacing:"0.08em", textTransform:"uppercase", flexShrink:0,
-              borderBottom:"1px solid rgba(255,255,255,0.05)",
-            }}>
-              {sidePanel==="explorer" ? "탐색기" : "데이터 브라우저"}
-            </div>
+            {/* 패널 헤더 (Git 패널은 자체 헤더 사용) */}
+            {sidePanel!=="git" && (
+              <div style={{
+                padding:"8px 12px", fontSize:9, fontWeight:700, color:"#4B5563",
+                letterSpacing:"0.08em", textTransform:"uppercase", flexShrink:0,
+                borderBottom:"1px solid rgba(255,255,255,0.05)",
+              }}>
+                {sidePanel==="explorer" ? "탐색기" : "데이터 브라우저"}
+              </div>
+            )}
 
-            <div ref={sidePanelScrollRef} style={{flex:1, overflow:"auto"}}>
+            <div ref={sidePanelScrollRef} style={{flex:1, overflow:"auto", display:sidePanel==="git"?"flex":"block", flexDirection:"column"}}>
 
               {/* ── Explorer ── */}
               {sidePanel==="explorer" && (
@@ -917,6 +983,17 @@ export default function DeveloperLab() {
                     </div>
                   ))}
                 </div>
+              )}
+
+              {/* ── Git Panel ── */}
+              {sidePanel==="git" && (
+                <GitPanel workspaceId={wsId} onOpenCommit={(c) => {
+                  const tabId = `tab_commit_${c.sha}`;
+                  setOpenTabs(prev => prev.find(t=>t.id===tabId) ? prev : [
+                    ...prev, { id:tabId, name:c.sha?.slice(0,7), type:"commit", commit:c }
+                  ]);
+                  setActiveTabId(tabId);
+                }} />
               )}
             </div>
           </div>
