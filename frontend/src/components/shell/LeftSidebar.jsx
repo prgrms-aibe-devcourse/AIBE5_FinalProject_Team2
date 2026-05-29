@@ -33,7 +33,6 @@ const TABS = [
   { key: "regime",    label: "Regime 분석",             Icon: Activity,       tab: "regime",   sub: true },
   { key: "trust",     label: "Trust Score",             Icon: ShieldCheck,    tab: "trust",    sub: true },
   { key: "log",       label: "Decision Log",            Icon: ScrollText,     tab: "log",      sub: true },
-  { key: "briefing",  label: "Living Briefing",         Icon: Sparkles,       tab: "briefing", sub: true },
   { key: "developer",    label: "Developer Studio",  Icon: Laptop,         route: "/alpha/developer" },
   { key: "dev_explorer", label: "파일 탐색기",          Icon: FolderOpen,     route: "/alpha/developer", devPanel: "explorer", devSub: true },
   { key: "dev_code",     label: "코드 편집기",          Icon: FileCode,       route: "/alpha/developer", devPanel: "code",     devSub: true },
@@ -52,7 +51,6 @@ const WS_SUBMENUS = [
   { key: "regime",   label: "Regime",         Icon: Activity },
   { key: "trust",    label: "Trust Score",    Icon: ShieldCheck },
   { key: "log",      label: "Decision Log",   Icon: ScrollText },
-  { key: "briefing", label: "Living Briefing", Icon: Sparkles },
 ];
 
 const DEV_SUBMENUS = [
@@ -276,7 +274,6 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
               const rect = devBtnRef.current?.getBoundingClientRect();
               if (rect) setDevBtnTop(rect.top);
               nav("/alpha/developer");
-              setDevMenuOpen(true);
             }}
           >
             {(devMenuOpen || inDeveloper) && <ActiveIndicator />}

@@ -54,7 +54,7 @@ export default function ReportPanel({ id, ws, onChange }) {
               <option value="2y">최근 2년</option>
               <option value="5y">최근 5년</option>
               <option value="10y">최근 10년</option>
-              <option value="max">최대 (yfinance 기본)</option>
+              <option value="max">최대 (가능한 최장)</option>
             </select>
             <button onClick={onRun} disabled={!ws.strategyConfig || busy} style={primaryBtn(theme, busy)}>
               <Play size={14} /> {busy ? "실행 중…" : "백테스트 실행"}
@@ -66,14 +66,14 @@ export default function ReportPanel({ id, ws, onChange }) {
       {bt && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 16 }}>
-            <Stat label="총 수익률" value={bt.stats?.total_return_pct} unit="%" theme={theme} positive />
-            <Stat label="연환산 수익" value={bt.stats?.annualized_return_pct} unit="%" theme={theme} />
-            <Stat label="MDD" value={bt.stats?.max_drawdown_pct} unit="%" theme={theme} negative />
-            <Stat label="Sharpe" value={bt.stats?.sharpe} theme={theme} />
-            <Stat label="Sortino" value={bt.stats?.sortino} theme={theme} />
-            <Stat label="Calmar" value={bt.stats?.calmar} theme={theme} />
-            <Stat label="승률" value={bt.stats?.win_rate_pct} unit="%" theme={theme} />
-            <Stat label="거래 수" value={bt.stats?.trades} unit="회" theme={theme} />
+            <Stat label="총 수익률" value={bt.stats?.total_return_pct} unit="%" theme={theme} positive hint="백테스트 전체 기간의 누적 수익률입니다. 매수 후 보유 대비 전략의 성과를 보여줍니다." />
+            <Stat label="연환산 수익" value={bt.stats?.annualized_return_pct} unit="%" theme={theme} hint="CAGR — 1년 단위로 환산했을 때의 평균 수익률. 기간이 달라도 비교 가능한 표준 지표입니다." />
+            <Stat label="MDD" value={bt.stats?.max_drawdown_pct} unit="%" theme={theme} negative hint="Maximum Drawdown — 고점 대비 최대 낙폭. 이 전략을 가장 불운한 타이밍에 매수했을 때 겪을 수 있는 최대 손실입니다." />
+            <Stat label="Sharpe" value={bt.stats?.sharpe} theme={theme} hint="수익률 ÷ 변동성 × √252. 1.0 이상이면 양호, 2.0 이상이면 우수. 리스크 대비 수익 효율성을 측정합니다." />
+            <Stat label="Sortino" value={bt.stats?.sortino} theme={theme} hint="Sharpe와 유사하지만 하락 변동성만 페널티로 계산합니다. 상승 변동성은 좋은 것이므로 Sharpe보다 투자자에게 유리한 평가 방식입니다." />
+            <Stat label="Calmar" value={bt.stats?.calmar ?? bt.risk_metrics?.calmar} theme={theme} hint="연환산 수익 ÷ |MDD|. 낙폭 대비 수익 효율성. 값이 클수록 손실 위험 대비 수익이 좋은 전략입니다." />
+            <Stat label="승률" value={bt.stats?.win_rate_pct} unit="%" theme={theme} hint="전체 거래일 중 수익이 발생한 날의 비율입니다. 50% 이상이면 절반 이상의 날에 수익이 났다는 의미입니다." />
+            <Stat label="거래 수" value={bt.stats?.trades} unit="회" theme={theme} hint="백테스트 기간 동안 발생한 총 매매 횟수입니다. 너무 많으면 거래 비용이 과도해질 수 있습니다." />
           </div>
           {trendSeries && (
             <Card title="📈 에쿼티 추세 & 이동평균선" theme={theme}>
@@ -87,12 +87,12 @@ export default function ReportPanel({ id, ws, onChange }) {
           {bt.risk_metrics && (
             <Card title="📐 위험지표 상세 (QuantStats)" theme={theme}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10 }}>
-                <Stat label="CAGR" value={bt.risk_metrics.cagr_pct} unit="%" theme={theme} />
-                <Stat label="변동성" value={bt.risk_metrics.volatility_pct} unit="%" theme={theme} />
-                <Stat label="VaR(95%)" value={bt.risk_metrics.var_95} unit="%" theme={theme} />
-                <Stat label="CVaR(95%)" value={bt.risk_metrics.cvar_95} unit="%" theme={theme} />
-                <Stat label="최고일" value={bt.risk_metrics.best_day} unit="%" theme={theme} />
-                <Stat label="최악일" value={bt.risk_metrics.worst_day} unit="%" theme={theme} />
+                <Stat label="CAGR" value={bt.risk_metrics.cagr_pct} unit="%" theme={theme} hint="Compound Annual Growth Rate — QuantStats로 계산한 복리 연환산 수익률입니다." />
+                <Stat label="변동성" value={bt.risk_metrics.volatility_pct} unit="%" theme={theme} hint="연환산 변동성. 일별 수익률의 표준편차 × √252. 높을수록 자산 가치의 등락이 크다는 의미입니다." />
+                <Stat label="VaR(95%)" value={bt.risk_metrics.var_95_pct} unit="%" theme={theme} hint="Value at Risk — 95% 신뢰수준에서 하루에 발생 가능한 최대 손실. 예: -2%면 95% 확률로 하루 손실이 2% 이내." />
+                <Stat label="CVaR(95%)" value={bt.risk_metrics.cvar_95_pct} unit="%" theme={theme} hint="Conditional VaR (Expected Shortfall) — 최악의 5% 상황에서의 평균 손실. VaR보다 극단적 손실을 더 잘 반영합니다." />
+                <Stat label="최고일" value={bt.risk_metrics.best_day_pct} unit="%" theme={theme} positive hint="백테스트 기간 중 가장 좋았던 하루의 수익률입니다." />
+                <Stat label="최악일" value={bt.risk_metrics.worst_day_pct} unit="%" theme={theme} negative hint="백테스트 기간 중 가장 나빴던 하루의 손실률입니다. 이 수준의 손실을 감당할 수 있는지 확인하세요." />
               </div>
             </Card>
           )}

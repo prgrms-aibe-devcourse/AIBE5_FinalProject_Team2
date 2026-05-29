@@ -10,21 +10,50 @@ import { fetchAiModels } from "../../lib/aiClient";
  *
  * 잠긴 모델 클릭 시 Pro 안내 + /pricing 이동 옵션.
  */
-export default function ModelPicker({ value, onChange, compact = false }) {
+export default function ModelPicker({ value, onChange, compact = false, glass = false }) {
   const [open, setOpen] = useState(false);
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
   const ref = useRef(null);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
 
   useEffect(() => {
     fetchAiModels().then(ms => { setModels(ms); setLoading(false); });
   }, []);
 
   useEffect(() => {
-    const onClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onClick = (e) => {
+      if (ref.current && ref.current.contains(e.target)) return;
+      if (popRef.current && popRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
+
+  // 드롭다운 위치 계산 — 부모 overflow에 안 잘리도록 fixed로 띄움.
+  // 오른쪽 정렬 + 화면 밖으로 넘치면 왼쪽 정렬로 자동 전환.
+  useEffect(() => {
+    if (!open || !btnRef.current) return;
+    const recompute = () => {
+      const r = btnRef.current.getBoundingClientRect();
+      const W = 320; // 드롭다운 너비
+      const margin = 8;
+      let left = r.right - W;            // 기본: 우측 정렬
+      if (left < margin) left = r.left;  // 좁아서 왼쪽으로 빠지면 좌측 정렬
+      if (left + W > window.innerWidth - margin) left = window.innerWidth - W - margin;
+      setPos({ top: r.bottom + 6, left });
+    };
+    recompute();
+    window.addEventListener("scroll", recompute, true);
+    window.addEventListener("resize", recompute);
+    return () => {
+      window.removeEventListener("scroll", recompute, true);
+      window.removeEventListener("resize", recompute);
+    };
+  }, [open]);
 
   const current = models.find(m => m.modelId === value) || models.find(m => m.usable) || models[0];
 
@@ -36,6 +65,7 @@ export default function ModelPicker({ value, onChange, compact = false }) {
   return (
     <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen(o => !o)}
         title={current ? current.displayName : "모델 선택"}
@@ -43,8 +73,10 @@ export default function ModelPicker({ value, onChange, compact = false }) {
           display: "inline-flex", alignItems: "center", gap: 6,
           padding: compact ? "4px 8px" : "6px 12px",
           fontSize: compact ? 11 : 12, fontWeight: 600,
-          background: "#F1F5F9", color: "#0F172A",
-          border: "1px solid #CBD5E1", borderRadius: 8, cursor: "pointer",
+          background: glass ? "transparent" : "#F1F5F9",
+          color: glass ? "rgba(255,255,255,0.9)" : "#0F172A",
+          border: glass ? "none" : "1px solid #CBD5E1",
+          borderRadius: 8, cursor: "pointer",
           maxWidth: 220, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
         }}
       >
@@ -53,10 +85,10 @@ export default function ModelPicker({ value, onChange, compact = false }) {
       </button>
 
       {open && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 6px)", right: 0,
+        <div ref={popRef} style={{
+          position: "fixed", top: pos.top, left: pos.left,
           background: "white", border: "1px solid #E2E8F0", borderRadius: 10,
-          boxShadow: "0 10px 30px rgba(0,0,0,0.12)", width: 320, zIndex: 9999,
+          boxShadow: "0 10px 30px rgba(0,0,0,0.12)", width: 320, zIndex: 100000,
           maxHeight: 420, overflowY: "auto",
         }}>
           <div style={{ padding: "10px 14px", borderBottom: "1px solid #F1F5F9", fontSize: 11, color: "#64748B" }}>

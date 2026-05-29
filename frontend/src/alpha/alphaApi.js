@@ -6,6 +6,7 @@ export const createWorkspace     = (name) => api.post("/alpha/workspaces", { nam
 export const getWorkspace        = (id) => api.get(`/alpha/workspaces/${id}`).then(r => r.data);
 export const deleteWorkspace     = (id) => api.delete(`/alpha/workspaces/${id}`);
 export const updateWorkspaceName = (id, name) => api.patch(`/alpha/workspaces/${id}`, { name }).then(r => r.data);
+export const updateWorkspaceStatus = (id, status) => api.patch(`/alpha/workspaces/${id}/status`, { status }).then(r => r.data);
 export const updateGoalProfile   = (id, patch) => api.patch(`/alpha/workspaces/${id}/goal-profile`, patch).then(r => r.data);
 
 // User-level slogan (투자 최종 목표) — 워크스페이스 이름과는 별개
@@ -29,8 +30,8 @@ export const runBacktest         = (id, period, customParams) => {
   }
   return api.post(`/alpha/workspaces/${id}/backtest`, null, period ? { params: { period } } : undefined).then(r => r.data);
 };
-export const runRegime           = (id, options) => api.post(`/alpha/workspaces/${id}/regime`, options || {}).then(r => r.data);
-export const runTrust            = (id, options) => api.post(`/alpha/workspaces/${id}/trust`, options || {}).then(r => r.data);
+export const runRegime           = (id, options) => api.post(`/alpha/workspaces/${id}/regime`, options || {}, { timeout: 120000 }).then(r => r.data);
+export const runTrust            = (id, options) => api.post(`/alpha/workspaces/${id}/trust`, options || {}, { timeout: 120000 }).then(r => r.data);
 export const runBriefing         = (id) => api.post(`/alpha/workspaces/${id}/briefing`).then(r => r.data);
 export const runAutoPipeline     = (id) => api.post(`/alpha/workspaces/${id}/auto-run`).then(r => r.data);
 export const saveCode            = (id, codeJson) =>

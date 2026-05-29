@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useGoogleLogin } from "@react-oauth/google";
 import useStore from "../store/useStore";
+import { authApi } from "../api";
 import { Phone, Mail, AtSign, Lock, Eye, EyeOff, Building2, UserSearch, HelpCircle } from "lucide-react";
 import mainLogo from "../assets/main_logo.png";
 import homeBg from "../assets/home.png";
@@ -57,7 +58,7 @@ function MemberCard({ icon: Icon, label, selected, onClick }) {
 function Signup() {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const { loginUser, loginType, setLogin, setUsername, signupFormData, setSignupFormData } = useStore();
+  const { loginUser, loginType, setLogin, setUsername, setUser, setUserRole, signupFormData, setSignupFormData, clearSignupFormData } = useStore();
   const googleEmail = loginType === "google" ? loginUser : "";
 
   const [form, setFormRaw] = useState(() => signupFormData || {
@@ -125,12 +126,48 @@ function Signup() {
     agreedToTerms
   );
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (!isValid) return;
     setUsername(form.username);
     setSignupFormData({ ...form });
-    // 파트너/클라이언트 구분 폐기 — 모든 사용자는 투자자 등록 흐름으로.
-    navigate("/client_register");
+
+    // 이전에 존재하던 ClientRegister(클라이언트 형태/슬로건) 단계는 제거.
+    // 공통 회원가입 완료 후 바로 로그인 상태로 홈으로.
+    const payload = {
+      email: form.idEmail,
+      phone: form.phone,
+      username: form.username,
+      password: form.pw,
+      userType: "CLIENT",
+      birthDate: form.birthdate || null,
+    };
+
+    try {
+      const data = await authApi.signup(payload);
+      localStorage.removeItem('accessToken');
+      if (data.userId != null) {
+        localStorage.setItem('dbId', String(data.userId));
+        localStorage.setItem('username', data.username ?? '');
+        localStorage.setItem('userType', data.userType ?? '');
+      }
+      setUser({
+        email: data.email,
+        username: data.username,
+        dbId: data.userId,
+        phone: data.phone,
+        birthdate: data.birthDate,
+        role: '클라이언트'
+      });
+      setLogin(data.email, "local");
+      setUserRole("client");
+      clearSignupFormData();
+      if (data.message) alert(data.message);
+      navigate("/home");
+    } catch (error) {
+      const msg = error?.response?.data?.message || "서버와 통신 중 오류가 발생했습니다.";
+      console.error("Signup error:", error);
+      alert(msg);
+    }
   };
 
   const LBL = ({ children }) => (

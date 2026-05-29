@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Camera, MapPin, ChevronDown, CheckCircle2, Info, UserCircle } from "lucide-react";
+import { Camera, ChevronDown, CheckCircle2, Info, UserCircle } from "lucide-react";
 import Header_partner from "../components/Header_partner";
 import Header_client from "../components/Header_client";
 import useStore from "../store/useStore";
@@ -1231,6 +1231,8 @@ function Mypage() {
           taxEmail: data.taxEmail || user?.taxEmail,
           contactEmail: data.contactEmail || user?.contactEmail,
           heroImage: data.profileImageUrl || user?.heroImage,
+          githubUsername: data.githubUsername !== undefined ? data.githubUsername : user?.githubUsername,
+          userType: data.userType || user?.userType,
           serviceField: data.serviceField || user?.serviceField,
           industry: data.industry || user?.industry,
         };
@@ -1270,11 +1272,8 @@ function Mypage() {
     role:        user?.role        || loginUser?.role        || (isPartner ? "파트너" : "클라이언트"),
     partnerType: partnerProfile?.partnerType || user?.partnerType || "개인",
     birthdate:   user?.birthDate   || user?.birthdate   || "",  // birthDate 우선
-    region:      user?.region      || "서울특별시 강남구",
-    taxEmail:    user?.taxEmail    || "",
     contact:     user?.phone       || user?.contact || "",  // phone 우선 매핑
-    serviceField: user?.serviceField || partnerProfile?.serviceField || "",   // 파트너용
-    industry:    user?.industry    || clientProfileDetail?.industry || "",     // 클라이언트용
+    githubNickname: user?.githubNickname || user?.githubUsername || "",
     heroImage:   user?.heroImage   || defaultHero,
   };
 
@@ -1305,20 +1304,11 @@ function Mypage() {
         const payload = {
           phone: cleanValue(form.contact),
           birthDate: cleanValue(form.birthdate),  // birthDate로 보냄
-          region: cleanValue(form.region),
           gender: genderEnum,  // 변환된 Enum 값
-          taxEmail: cleanValue(form.taxEmail),
           contactEmail: cleanValue(form.email),
           profileImageUrl: heroPreview || cleanValue(form.heroImage),
+          githubNickname: cleanValue(form.githubNickname),
         };
-
-        // 파트너인 경우 serviceField 추가
-        if (isPartner) {
-          payload.serviceField = cleanValue(form.serviceField);
-        } else {
-          // 클라이언트인 경우 industry 추가
-          payload.industry = cleanValue(form.industry);
-        }
 
         // undefined 필드 제거 (gender는 항상 유지)
         Object.keys(payload).forEach(key => {
@@ -1330,33 +1320,18 @@ function Mypage() {
         console.log("📥 백엔드 응답:", response);
         
         // 백엔드에서 반환된 데이터로 로컬 상태 업데이트 (옵션: response.data 사용 가능)
-        const updatedUser = { 
-          ...user, 
+        const updatedUser = {
+          ...user,
           phone: form.contact,
           birthDate: form.birthdate,
-          region: form.region,
-          gender: form.gender,  // 이미 한글로 변환된 상태
-          taxEmail: form.taxEmail,
+          gender: form.gender,
           contactEmail: form.email,
           heroImage: heroPreview || form.heroImage,
-          serviceField: form.serviceField,
-          industry: form.industry,
+          githubNickname: form.githubNickname,
+          githubUsername: form.githubNickname,
         };
         setUser(updatedUser);
         
-        // 파트너인 경우 partnerProfile도 업데이트
-        if (isPartner && form.serviceField) {
-          setPartnerProfile({
-            ...partnerProfile,
-            serviceField: form.serviceField
-          });
-        } else if (!isPartner && form.industry) {
-          // 클라이언트인 경우 clientProfileDetail 업데이트
-          setClientProfileDetail({
-            ...clientProfileDetail,
-            industry: form.industry
-          });
-        }
         
         showToast(response?.message || t("myPage.toasts.saved"));
         setIsEditing(false);
@@ -1486,11 +1461,16 @@ function Mypage() {
             <div style={{ padding:"0 28px 28px" }}>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"18px 20px" }}>
 
-                {/* 서비스 형태 — 회원가입 시 확정, 수정 불가 */}
+                {/* 구독 유형 — 현재 구독 플랜 표시 (수정 불가) */}
                 <div>
-                  <label style={LABEL_STYLE}>{t("myPage.fields.serviceType")}<span style={{ color:"#EF4444" }}>*</span></label>
+                  <label style={LABEL_STYLE}>구독 유형</label>
                   <div style={{ ...READONLY_STYLE, display:"flex", alignItems:"center", justifyContent:"space-between", background:"#F8FAFC", color:"#64748B" }}>
-                    <span>{registeredPartnerType}</span>
+                    <span>{(() => {
+                      const ut = (user?.userType || storedUserType || "").toUpperCase();
+                      if (ut === "PREMIUM") return "PREMIUM";
+                      if (ut === "STANDARD" || ut === "PRO") return "STANDARD";
+                      return "FREE";
+                    })()}</span>
                     <span style={{ fontSize:10, color:"#94A3B8", fontWeight:600, letterSpacing:"0.05em" }}>{t("myPage.fixedLabel")}</span>
                   </div>
                 </div>
@@ -1538,29 +1518,6 @@ function Mypage() {
                     disabled={!isEditing} />
                 </div>
 
-                {/* 지역 */}
-                <div>
-                  <label style={LABEL_STYLE}>{t("myPage.fields.region")}</label>
-                  <div style={{ position:"relative" }}>
-                    <MapPin size={15} color="#60A5FA" style={{ position:"absolute", left:14, top:"50%", transform:"translateY(-50%)" }} />
-                    <input value={isEditing?form.region:userInfo.region}
-                      onChange={e=>handleChange("region",e.target.value)}
-                      readOnly={!isEditing}
-                      style={{ ...(isEditing?FIELD_STYLE:READONLY_STYLE), paddingLeft:36 }}
-                      placeholder={t("myPage.fields.regionPlaceholder")} />
-                  </div>
-                </div>
-
-                {/* 세금 이메일 */}
-                <div>
-                  <label style={LABEL_STYLE}>{t("myPage.fields.taxEmail")}</label>
-                  <input value={isEditing?form.taxEmail:userInfo.taxEmail}
-                    onChange={e=>handleChange("taxEmail",e.target.value)}
-                    readOnly={!isEditing} type="email"
-                    style={isEditing?FIELD_STYLE:READONLY_STYLE}
-                    placeholder={t("myPage.fields.taxEmailPlaceholder")} />
-                </div>
-
                 {/* 연락처 */}
                 <div>
                   <label style={LABEL_STYLE}>{t("myPage.fields.contact")}<span style={{ color:"#EF4444" }}>*</span></label>
@@ -1571,31 +1528,14 @@ function Mypage() {
                     placeholder={t("myPage.fields.contactPlaceholder")} />
                 </div>
 
-                {/* 서비스 분야 */}
+                {/* GitHub 닉네임 (선택) */}
                 <div>
-                  <label style={LABEL_STYLE}>{t("myPage.fields.serviceField")}</label>
-                  {(() => {
-                    const FIELD_OPTIONS = ["AI", "커머스", "웹사이트", "디자인/기획", "유지보수", "핀테크", "SaaS", "모바일", "클라우드"];
-                    const fieldKey = isPartner ? "serviceField" : "industry";
-                    const currentVal = isEditing ? form[fieldKey] : userInfo[fieldKey];
-                    return (
-                      <select
-                        value={currentVal || ""}
-                        onChange={e => handleChange(fieldKey, e.target.value)}
-                        disabled={!isEditing}
-                        style={{
-                          ...(isEditing ? FIELD_STYLE : READONLY_STYLE),
-                          appearance: isEditing ? "auto" : "none",
-                          cursor: isEditing ? "pointer" : "default",
-                        }}
-                      >
-                        <option value="">{t("myPage.fields.selectOption")}</option>
-                        {FIELD_OPTIONS.map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    );
-                  })()}
+                  <label style={LABEL_STYLE}>GitHub 닉네임</label>
+                  <input value={isEditing?form.githubNickname:userInfo.githubNickname}
+                    onChange={e=>handleChange("githubNickname",e.target.value)}
+                    readOnly={!isEditing}
+                    style={isEditing?FIELD_STYLE:READONLY_STYLE}
+                    placeholder="GitHub 아이디 (선택)" />
                 </div>
 
               </div>

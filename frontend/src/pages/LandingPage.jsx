@@ -71,7 +71,7 @@ function LandingPage() {
             margin: '0 0 18px',
             animation: 'slideUp 0.8s ease-out both',
           }}>
-            IT Partnership Platform
+            Quant Developer Platform
           </p>
         )}
 

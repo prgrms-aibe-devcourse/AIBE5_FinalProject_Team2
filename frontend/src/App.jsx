@@ -43,6 +43,7 @@ const SubscriptionFail      = lazy(() => import("./pages/SubscriptionFail"));
 const SubscriptionManage    = lazy(() => import("./pages/SubscriptionManage"));
 const Signup                = lazy(() => import("./pages/Signup"));
 const OAuthKakaoCallback    = lazy(() => import("./pages/OAuthKakaoCallback"));
+const OAuthGithubCallback   = lazy(() => import("./pages/OAuthGithubCallback"));
 const Mypage                = lazy(() => import("./pages/Mypage"));
 const Loading               = lazy(() => import("./pages/Loading"));
 const ClientRegister        = lazy(() => import("./pages/ClientRegister"));
@@ -144,6 +145,7 @@ function App() {
         <Route path="/subscription/fail" element={<SubscriptionFail />} />
         <Route path="/signup" element={<WithGoogle><Signup /></WithGoogle>} />
         <Route path="/oauth/kakao/callback" element={<OAuthKakaoCallback />} />
+        <Route path="/oauth/github/callback" element={<OAuthGithubCallback />} />
         <Route path="/loading" element={<Loading />} />
         <Route path="/partner_register" element={<RedirectKeepQuery to="/client_register" />} />
         <Route path="/client_register" element={<ClientRegister />} />

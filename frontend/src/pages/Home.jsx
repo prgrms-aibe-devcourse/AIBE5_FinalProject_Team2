@@ -238,8 +238,8 @@ export default function Home() {
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
             {FLOW_STEPS.map((s, i) => (
-              <Reveal key={i} delay={i * 100}>
-              <div style={{ position: "relative" }}>
+              <Reveal key={i} delay={i * 100} style={{ height: "100%" }}>
+              <div style={{ position: "relative", height: "100%" }}>
                 {/* 연결선 */}
                 {i < FLOW_STEPS.length - 1 && (
                   <div style={{
@@ -256,6 +256,7 @@ export default function Home() {
                   background: "rgba(255,255,255,0.04)", backdropFilter: "blur(10px)",
                   border: "1px solid rgba(255,255,255,0.14)",
                   borderRadius: 14, padding: "28px 22px",
+                  height: "100%", boxSizing: "border-box",
                 }}>
                   <div style={{
                     width: 48, height: 48, borderRadius: 12, marginBottom: 18,
@@ -313,23 +314,31 @@ export default function Home() {
 
           {/* 탭 바 */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", borderBottom: "1.5px solid #E2E8F0", marginBottom: 0 }}>
-            {FEATURE_TABS.map(f => (
+            {FEATURE_TABS.map(f => {
+              const isActive = activeTab === f.key;
+              return (
               <button key={f.key} onClick={() => setActiveTab(f.key)} style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                padding: "13px 12px", border: "none", background: "none",
-                fontSize: 13, fontWeight: activeTab === f.key ? 700 : 500,
-                color: activeTab === f.key ? "#4f46e5" : "#64748b",
+                padding: "13px 12px",
+                border: "none",
+                background: isActive
+                  ? "linear-gradient(135deg, #DBEAFE 0%, #E0E7FF 50%, #EDE9FE 100%)"
+                  : "none",
+                fontSize: 16, fontWeight: isActive ? 700 : 500,
+                color: isActive ? "#4f46e5" : "#64748b",
                 cursor: "pointer", fontFamily: BASE_FONT,
-                borderBottom: activeTab === f.key ? "2px solid #4f46e5" : "2px solid transparent",
-                marginBottom: -1.5, transition: "color 0.15s", whiteSpace: "nowrap",
+                borderBottom: isActive ? "2px solid #818cf8" : "2px solid transparent",
+                borderTopLeftRadius: 8, borderTopRightRadius: 8,
+                marginBottom: -1.5, transition: "color 0.15s, background 0.2s", whiteSpace: "nowrap",
               }}
-                onMouseEnter={e => { if (activeTab !== f.key) e.currentTarget.style.color = "#374151"; }}
-                onMouseLeave={e => { if (activeTab !== f.key) e.currentTarget.style.color = "#64748b"; }}
+                onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = "#374151"; }}
+                onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = "#64748b"; }}
               >
-                <f.Icon size={14} />
+                <f.Icon size={17} />
                 {f.label}
               </button>
-            ))}
+              );
+            })}
           </div>
 
           {/* 탭 콘텐츠 — 글라스 패널 */}
@@ -338,15 +347,15 @@ export default function Home() {
               background: "rgba(255,255,255,0.7)", backdropFilter: "blur(16px)",
               border: "1.5px solid #E2E8F0", borderTop: "none",
               borderRadius: "0 0 16px 16px",
-              padding: "44px 48px",
+              padding: "44px 28px 44px 24px",
               boxShadow: "0 8px 32px rgba(0,0,0,0.06)",
             }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 52 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 0.85fr) minmax(0, 1.15fr)", gap: 36 }}>
                 <div>
                   <h3 style={{ fontSize: 21, fontWeight: 800, color: "#0f172a", marginBottom: 16, fontFamily: BASE_FONT, lineHeight: 1.35 }}>
                     {activeFeature.headline}
                   </h3>
-                  <p style={{ fontSize: 14, color: "#475569", lineHeight: 1.85, margin: 0 }}>
+                  <p style={{ fontSize: 14, color: "#1f2937", lineHeight: 1.85, margin: 0 }}>
                     {activeFeature.body}
                   </p>
                 </div>
@@ -359,7 +368,7 @@ export default function Home() {
                       }}>
                         <Check size={11} color="#4f46e5" strokeWidth={2.5} />
                       </div>
-                      <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.75, margin: 0 }}>{pt}</p>
+                      <p style={{ fontSize: 13, color: "#111827", lineHeight: 1.75, margin: 0 }}>{pt}</p>
                     </div>
                   ))}
                 </div>

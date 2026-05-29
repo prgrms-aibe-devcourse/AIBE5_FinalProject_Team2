@@ -31,5 +31,12 @@ export const authApi = {
    * 네트워크 실패해도 클라이언트 측 정리는 진행해야 하므로 catch하여 swallow.
    */
   logout: () => api.post('/auth/logout').then((r) => r.data).catch(() => null),
+
+  /**
+   * GitHub OAuth 로그인. 인가 코드(code)를 백엔드로 전달하여 access_token 교환 + JWT 발급.
+   * 미가입 이메일은 400 응답 → 호출부에서 회원가입 안내.
+   * @param {{code: string, redirectUri: string}} payload
+   */
+  githubLogin: (payload) => api.post('/auth/github', payload).then((r) => r.data),
 };
 
