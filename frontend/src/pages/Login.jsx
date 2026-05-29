@@ -72,7 +72,7 @@ function Login() {
       const roleLc = data.userType.toLowerCase(); // PARTNER/CLIENT -> partner/client
       setUserRole(roleLc);
       // username 저장 (회원가입 시 입력한 고정 핸들)
-      setUser({ username: data.username, email: data.email, dbId: data.userId });
+      setUser({ username: data.username, email: data.email, dbId: data.userId, userType: data.userType, githubUsername: data.githubUsername || "" });
       setUsername(data.username); // top-level username (단일 진실 소스 — 모든 페이지/Stream Chat 공통)
       setDbId(data.userId);       // top-level dbId (백엔드 API 용 PK)
       // 서버에서 프로필 상세 + 관심목록 로드 (실패해도 로그인 흐름은 진행)
@@ -132,7 +132,7 @@ function Login() {
           setLogin(data.email, "google");
           if (role) setUserRole(role);
           // username 저장 (회원가입 시 입력한 고정 핸들)
-          setUser({ username: data.username, email: data.email, dbId: data.userId });
+          setUser({ username: data.username, email: data.email, dbId: data.userId, userType: data.userType, githubUsername: data.githubUsername || "" });
           setUsername(data.username); // top-level username (단일 진실 소스)
           setDbId(data.userId);       // top-level dbId (백엔드 API 용 PK)
           // 서버에서 프로필 상세 + 관심목록 로드
@@ -181,6 +181,21 @@ function Login() {
     window.location.assign(kakaoAuthUrl);
   };
 
+  const handleGithubLogin = () => {
+    const clientId = import.meta.env.VITE_GITHUB_CLIENT_ID;
+    if (!clientId) { alert("VITE_GITHUB_CLIENT_ID가 .env에 없습니다."); return; }
+    const redirectUri = `${window.location.origin}/oauth/github/callback`;
+    const state = crypto.randomUUID();
+    sessionStorage.setItem("github_oauth_state", state);
+    const githubAuthUrl =
+      "https://github.com/login/oauth/authorize" +
+      `?client_id=${clientId}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&scope=user:email` +
+      `&state=${encodeURIComponent(state)}`;
+    window.location.assign(githubAuthUrl);
+  };
+
   const handleNaverLogin = () => alert(t("login.facebookAlert"));
 
   const SOCIALS = [
@@ -222,7 +237,7 @@ function Login() {
           <path d="M24 2C11.95 2 2 11.95 2 24c0 9.73 6.31 17.97 15.06 20.88 1.1.2 1.5-.48 1.5-1.06 0-.52-.02-1.9-.03-3.73-6.13 1.33-7.42-2.96-7.42-2.96-1-2.55-2.45-3.23-2.45-3.23-2-.37.15-.36.15-.36 2.22.16 3.39 2.28 3.39 2.28 1.97 3.37 5.16 2.4 6.42 1.83.2-1.42.77-2.4 1.4-2.95-4.9-.56-10.05-2.45-10.05-10.9 0-2.41.86-4.38 2.27-5.92-.23-.56-.98-2.8.22-5.83 0 0 1.85-.59 6.06 2.26a21.07 21.07 0 0 1 11.08 0c4.2-2.85 6.05-2.26 6.05-2.26 1.2 3.03.45 5.27.22 5.83 1.42 1.54 2.27 3.51 2.27 5.92 0 8.47-5.16 10.34-10.08 10.88.79.68 1.5 2.03 1.5 4.1 0 2.96-.03 5.35-.03 6.07 0 .59.4 1.27 1.52 1.06C39.69 41.97 46 33.73 46 24 46 11.95 36.05 2 24 2z"/>
         </svg>
       ),
-      onClick: () => alert(t("login.githubAlert")),
+      onClick: handleGithubLogin,
     },
     {
       name: "facebook",
