@@ -205,13 +205,13 @@ export default function WorkHome() {
               ? (briefing.briefing.split(/\n+/).map(s => s.trim().replace(/["""'']/g, "").replace(/,\s*$/, "")).find(l => l.length >= 10) || briefing.briefing.slice(0, 160))
               : (loading ? "브리핑을 불러오는 중…" : "워크스페이스를 생성하고 Trust Score를 한번이라도 실행하면 AI 브리핑이 표시됩니다.")}
           </p>
-          <button onClick={() => strategies[0] && nav(`/alpha/w/${strategies[0].id}?tab=briefing`)}
+          <button onClick={() => nav("/briefing")}
             style={{
               marginLeft: 36, background: "transparent", border: "none",
               color: theme.accent, fontSize: 13, fontWeight: 700,
-              cursor: strategies[0] ? "pointer" : "not-allowed",
+              cursor: "pointer",
               display: "inline-flex", alignItems: "center", gap: 4,
-              padding: 0, opacity: strategies[0] ? 1 : 0.4,
+              padding: 0,
             }}>
             전체 브리핑 보기 <ArrowRight size={14} />
           </button>
