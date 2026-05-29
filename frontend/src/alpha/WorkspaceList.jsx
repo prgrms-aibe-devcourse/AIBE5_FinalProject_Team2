@@ -32,6 +32,7 @@ export default function WorkspaceList() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createModalName, setCreateModalName] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null); // { id, name }
+  const [primaryTarget, setPrimaryTarget] = useState(null); // { id, name } — 대표 설정 확인 모달
   const [primaryId, setPrimaryId] = useState(() => {
     const v = localStorage.getItem(PRIMARY_KEY);
     return v ? Number(v) : null;
@@ -45,6 +46,12 @@ export default function WorkspaceList() {
       localStorage.setItem("alpha.lastWsId", String(id));
       window.dispatchEvent(new CustomEvent("alpha:primary-change", { detail: { id } }));
     } catch (_) {}
+  };
+
+  const onConfirmPrimary = () => {
+    if (!primaryTarget) return;
+    setPrimary(primaryTarget.id);
+    setPrimaryTarget(null);
   };
 
   const load = () => {
@@ -136,7 +143,7 @@ export default function WorkspaceList() {
             </p>
           </div>
         </div>
-        <button onClick={onCreate} disabled={creating}
+        <button onClick={() => onCreate()} disabled={creating}
           style={{
             display: "inline-flex", alignItems: "center", gap: 6,
             padding: "10px 16px", borderRadius: 10,
@@ -167,7 +174,7 @@ export default function WorkspaceList() {
           <p style={{ fontSize: 13, color: theme.textMuted, margin: "0 0 18px" }}>
             "5년 안에 월 300만원 현금흐름" 같은 목표를 입력하면 AI가 전략으로 변환합니다
           </p>
-          <button onClick={onCreate} style={{
+          <button onClick={() => onCreate()} style={{
             padding: "10px 20px", background: theme.accent, color: "white", border: "none",
             borderRadius: 10, fontWeight: 700, cursor: "pointer",
           }}>+ 워크스페이스 시작</button>
@@ -189,48 +196,44 @@ export default function WorkspaceList() {
             return (
           <div key={w.id}
             style={{
-              background: "white",
-              border: isPrimary ? `2px solid #10B981` : `1px solid #E2E8F0`,
+              background: "#ffffff",
+              border: isPrimary ? "none" : "1px solid #E2E8F0",
               borderRadius: 14,
               display: "flex", alignItems: "stretch",
               boxShadow: isPrimary
-                ? "0 4px 20px rgba(16,185,129,0.18)"
+                ? "0 0 15px rgba(251,191,36,0.35), 0 0 40px rgba(251,191,36,0.2), 0 0 80px rgba(251,191,36,0.1)"
                 : "0 2px 8px rgba(0,0,0,0.06)",
               overflow: "hidden",
               transition: "box-shadow 0.15s, transform 0.15s",
             }}
-            onMouseEnter={e => { e.currentTarget.style.boxShadow = isPrimary ? "0 6px 24px rgba(16,185,129,0.25)" : "0 4px 16px rgba(0,0,0,0.10)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
-            onMouseLeave={e => { e.currentTarget.style.boxShadow = isPrimary ? "0 4px 20px rgba(16,185,129,0.18)" : "0 2px 8px rgba(0,0,0,0.06)"; e.currentTarget.style.transform = "translateY(0)"; }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = isPrimary ? "0 0 20px rgba(251,191,36,0.45), 0 0 55px rgba(251,191,36,0.25), 0 0 100px rgba(251,191,36,0.12)" : "0 4px 16px rgba(0,0,0,0.10)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = isPrimary ? "0 0 15px rgba(251,191,36,0.35), 0 0 40px rgba(251,191,36,0.2), 0 0 80px rgba(251,191,36,0.1)" : "0 2px 8px rgba(0,0,0,0.06)"; e.currentTarget.style.transform = "translateY(0)"; }}
           >
             {/* 본문 */}
             <div style={{ flex: 1, minWidth: 0, padding: "16px 18px", display: "flex", alignItems: "center", gap: 14 }}>
               {/* 상태 아이콘 원형 */}
               <div style={{
                 width: 42, height: 42, borderRadius: 12, flexShrink: 0,
-                background: isPrimary ? "#ECFDF5" : sc.bg,
+                background: isPrimary ? "#FEF3C7" : sc.bg,
                 display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "none",
               }}>
-                <Layers size={18} color={isPrimary ? "#047857" : sc.bar} strokeWidth={2.2} />
+                <Layers size={18} color={isPrimary ? "#B45309" : sc.bar} strokeWidth={2.2} />
               </div>
 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 15, fontWeight: 800, color: "#0F172A" }}>{w.name}</span>
-                  {isPrimary && (
-                    <span style={{
-                      fontSize: 10, fontWeight: 800, padding: "2px 8px", borderRadius: 999,
-                      background: "#ECFDF5", color: "#047857", border: "1px solid #A7F3D0",
-                      letterSpacing: 0.3,
-                    }}>★ 대표</span>
-                  )}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{
-                    fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
-                    background: isPrimary ? "#ECFDF5" : sc.bg,
-                    color: isPrimary ? "#047857" : sc.text,
-                    border: `1px solid ${isPrimary ? "#A7F3D0" : sc.bar}22`,
-                  }}>{STATUS_LABEL[w.status] || w.status}</span>
+                  {w.status !== "LIVE" && (
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                      background: isPrimary ? "#FFF8E1" : sc.bg,
+                      color: isPrimary ? "#1C1400" : sc.text,
+                      border: `1px solid ${isPrimary ? "#FFBE0B" : sc.bar}55`,
+                    }}>{STATUS_LABEL[w.status] || w.status}</span>
+                  )}
                   <span style={{ fontSize: 11, color: "#94A3B8" }}>
                     수정 {new Date(w.updatedAt).toLocaleDateString("ko-KR")}
                   </span>
@@ -265,7 +268,7 @@ export default function WorkspaceList() {
                   LIVE
                 </button>
                 <button
-                  onClick={() => setPrimary(w.id)}
+                  onClick={() => { if (!isPrimary) setPrimaryTarget({ id: w.id, name: w.name }); }}
                   title={isPrimary ? "대표 전략" : "대표로 선택"}
                   style={{
                     display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
@@ -332,6 +335,11 @@ export default function WorkspaceList() {
         onConfirm={onConfirmDelete}
         onClose={() => setDeleteTarget(null)}
         theme={theme}
+      />
+      <SetPrimaryModal
+        target={primaryTarget}
+        onConfirm={onConfirmPrimary}
+        onClose={() => setPrimaryTarget(null)}
       />
     </div>
   );
@@ -478,6 +486,70 @@ function DeleteWorkspaceModal({ target, onConfirm, onClose, theme }) {
             color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer",
             boxShadow: "0 3px 10px rgba(239,68,68,0.3)",
           }}>삭제하기</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SetPrimaryModal({ target, onConfirm, onClose }) {
+  if (!target) return null;
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 3000,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "#ffffff", borderRadius: 20, width: "100%", maxWidth: 420,
+        border: "none", overflow: "hidden",
+        boxShadow: "0 0 12px rgba(251,191,36,0.3), 0 0 30px rgba(251,191,36,0.15)",
+      }}>
+        <div style={{
+          padding: "24px 28px 20px",
+          background: "#ffffff",
+          borderBottom: "1px solid #F1F5F9",
+          display: "flex", alignItems: "center", gap: 14,
+        }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 14, flexShrink: 0,
+            background: "#FEF3C7",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Star size={20} color="#B45309" />
+          </div>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0F172A" }}>대표 워크스페이스 설정</h2>
+            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#64748B" }}>홈 화면 브리핑 및 요약에 사용됩니다</p>
+          </div>
+        </div>
+        <div style={{ padding: "24px 28px" }}>
+          <p style={{ margin: 0, fontSize: 14, color: "#374151", lineHeight: 1.7 }}>
+            <b style={{ color: "#111827" }}>"{target.name}"</b>을 대표 워크스페이스로 설정할까요?
+          </p>
+          <div style={{
+            marginTop: 14, padding: "12px 14px", borderRadius: 10,
+            background: "#FFFBEB", border: "1px solid #FDE68A",
+            fontSize: 12.5, color: "#78350F", lineHeight: 1.65,
+          }}>
+            ★ 대표 워크스페이스는 홈 브리핑·오늘의 요약 등에 우선 표시됩니다.
+          </div>
+        </div>
+        <div style={{ padding: "0 28px 24px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{
+            padding: "10px 20px", borderRadius: 10,
+            border: "1px solid #E2E8F0", background: "white", color: "#374151",
+            fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}>취소</button>
+          <button
+            onClick={onConfirm}
+            onMouseEnter={e => e.currentTarget.style.background = "#FEF3C7"}
+            onMouseLeave={e => e.currentTarget.style.background = "#FFFBEB"}
+            style={{
+              padding: "10px 20px", borderRadius: 10,
+              border: "1px solid #FDE68A",
+              background: "#FFFBEB",
+              color: "#92400E", fontSize: 13, fontWeight: 700, cursor: "pointer",
+            }}>대표로 설정</button>
         </div>
       </div>
     </div>

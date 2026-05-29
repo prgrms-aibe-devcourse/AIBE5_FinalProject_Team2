@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Wallet } from "lucide-react";
+import binanceLogo from "../assets/binance.png";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import {
   listBrokerAccounts, upsertBrokerAccount, deleteBrokerAccount,
@@ -90,10 +91,10 @@ export default function AccountPage() {
       </div>
 
       {/* 브로커 탭 + 컨텐츠 패널 (브라우저 탭처럼 하나로 묶임) */}
-      <div className="broker-tabs" style={{ display: "flex", gap: 4, marginBottom: 0, paddingLeft: 4 }}>
+      <div className="broker-tabs" style={{ display: "flex", gap: 4, marginBottom: 0 }}>
         {[
-          { id: "KIS",     label: "한국투자증권",  sub: "KIS · 국내",            icon: "🏦",  accent: "linear-gradient(135deg,#60a5fa,#6366f1)" },
-          { id: "BINANCE", label: "Binance.US",   sub: "Binance · 미국 크립토",  icon: "🇺🇸", accent: "linear-gradient(135deg,#fbbf24,#f59e0b)" },
+          { id: "KIS",     label: "한국투자증권",  sub: "KIS · 국내",            icon: <div style={{ width: 32, height: 32, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src="https://www.google.com/s2/favicons?domain=truefriend.com&sz=64" alt="한국투자증권" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>,  accent: "linear-gradient(135deg,#60a5fa,#6366f1)" },
+          { id: "BINANCE", label: "Binance.US",   sub: "Binance · 미국 크립토",  icon: <img src={binanceLogo} alt="Binance.US" style={{ width: 32, height: 32, objectFit: "contain" }} />, accent: "linear-gradient(135deg,#fbbf24,#f59e0b)" },
         ].map(({ id, label, sub, icon, accent }) => {
           const active = brokerType === id;
           const hasAny = accounts.some(a => a.brokerType === id);
@@ -114,12 +115,8 @@ export default function AccountPage() {
                 transition: "background 0.15s",
               }}>
               <div style={{
-                width: 38, height: 38, borderRadius: 10, flexShrink: 0,
-                background: active ? accent : "rgba(148,163,184,0.18)",
+                flexShrink: 0,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 18,
-                boxShadow: active ? "0 3px 10px rgba(99,102,241,0.28)" : "none",
-                transition: "background 0.15s",
               }}>{icon}</div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{
