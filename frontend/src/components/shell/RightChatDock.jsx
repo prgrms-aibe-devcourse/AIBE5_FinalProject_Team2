@@ -76,6 +76,34 @@ const SYS = `너는 Alpha-Helix의 AI 동료 "Heli(헬리)"야. 차분하고 따
 불확실하면 patch를 만들지 말고 질문으로 답해.
 패치는 즉시 적용되고 화면 상단 바에서 [유지] / [실행 취소] 가능. VS Code Copilot처럼 사용자 승인이 보장돼.`;
 
+// Developer Studio 에디터가 공유한 현재 코드를 Heli 컨텍스트로 만든다.
+// (window.__alphaLiveCode 는 DeveloperLab 이 wsId/fileContents 변경 시 갱신)
+function buildLiveCodeContext() {
+  try {
+    if (typeof window === "undefined") return "";
+    const routeMatch = window.location.pathname.match(/\/alpha\/w\/(\d+)/);
+    const wsId = (routeMatch ? Number(routeMatch[1]) : null)
+      || Number(localStorage.getItem("alpha.lastWsId")) || null;
+    if (!wsId) return "";
+    const live = window.__alphaLiveCode;
+    if (!live || Number(live.wsId) !== wsId || !live.files) return "";
+    const blocks = Object.entries(live.files)
+      .filter(([, v]) => typeof v === "string" && v.trim())
+      .map(([k, v]) => {
+        const code = v.length > 8000 ? v.slice(0, 8000) + "\n# …(생략)…" : v;
+        return `### code.${k}\n\`\`\`python\n${code}\n\`\`\``;
+      });
+    if (!blocks.length) return "";
+    return `\n\n[현재 워크스페이스 코드 — Developer Studio 에디터 기준]\n` +
+      `사용자가 코드 수정을 요청하면 반드시 아래 "현재 코드"를 베이스로 필요한 부분만 바꿔 ` +
+      `파일 전체를 재작성한 결과를 code.<파일명> 패치(value=새 전체 코드)로 반환해. ` +
+      `절대 처음부터 새로 쓰거나 기존 로직을 임의로 지우지 마.\n` +
+      blocks.join("\n\n");
+  } catch {
+    return "";
+  }
+}
+
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 function HeliAvatar({ src, size = 36 }) {
@@ -191,7 +219,7 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
     setLoading(true);
     if (scrollRef.current) setTimeout(() => { scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
     try {
-      const sys = `${SYS}\n${langInstruction(lang)}`;
+      const sys = `${SYS}\n${langInstruction(lang)}${buildLiveCodeContext()}`;
       const reply = await chatWithAI(
         [...messages, { role: "user", content: text }].map(m => ({ role: m.role, text: m.content })),
         sys, model
