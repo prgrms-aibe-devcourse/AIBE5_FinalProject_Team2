@@ -4,7 +4,7 @@ import binanceLogo from "../assets/binance.png";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import {
   listBrokerAccounts, upsertBrokerAccount, deleteBrokerAccount,
-  testBrokerAccount, setBrokerTrading, getPromotionGate,
+  testBrokerAccount, setBrokerTrading, setBrokerAutoExecute, getPromotionGate,
   getBrokerBalance, getBrokerOrdersToday,
   previewBrokerOrder, placeBrokerOrder, getBrokerQuote,
   testBinanceAccount, getBinanceBalance,
@@ -201,6 +201,9 @@ function AccountRegister({ theme, env, accounts = [], reload, setMsg }) {
     appKey: "", appSecret: "", cano: "", acntPrdtCd: "01",
     maxOrderUsd: env === "REAL" ? 100 : 1000,
     dailyOrderUsd: env === "REAL" ? 500 : 5000,
+    // KIS 전용 — 1일 누적 매수/매도 한도 (원화). 기본값: 실전 1천만/3천만, 모의 5천만/3억.
+    dailyBuyKrw:  env === "REAL" ? 10_000_000  : 50_000_000,
+    dailySellKrw: env === "REAL" ? 30_000_000  : 300_000_000,
   });
   const [saving, setSaving] = useState(false);
 
@@ -292,9 +295,17 @@ function AccountRegister({ theme, env, accounts = [], reload, setMsg }) {
           <input type="number" min="0" style={inp(theme)} value={form.maxOrderUsd}
             onChange={e => setForm(f => ({ ...f, maxOrderUsd: Number(e.target.value) }))} />
         </Field>
-        <Field label="일일 누적 한도 (USD)">
+        <Field label="일일 누적 한도 (USD) — Binance 호환">
           <input type="number" min="0" style={inp(theme)} value={form.dailyOrderUsd}
             onChange={e => setForm(f => ({ ...f, dailyOrderUsd: Number(e.target.value) }))} />
+        </Field>
+        <Field label="매수 1일 누적 한도 (원화)">
+          <input type="number" min="0" step="1000000" style={inp(theme)} value={form.dailyBuyKrw}
+            onChange={e => setForm(f => ({ ...f, dailyBuyKrw: Number(e.target.value) }))} />
+        </Field>
+        <Field label="매도 1일 누적 한도 (원화)">
+          <input type="number" min="0" step="1000000" style={inp(theme)} value={form.dailySellKrw}
+            onChange={e => setForm(f => ({ ...f, dailySellKrw: Number(e.target.value) }))} />
         </Field>
         <div style={{ gridColumn: "1 / -1", marginTop: 6 }}>
           <button type="submit" disabled={saving} style={btnPrimary}>
@@ -335,7 +346,15 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
     try {
       const res = await testBrokerAccount(env);
       setMsg({ type: "ok", text: `연결 성공 — USD $${Number(res.cash_usd || 0).toFixed(2)} / KRW ₩${Number(res.cash_krw || 0).toLocaleString("ko-KR")}` });
-      reload(); refresh();
+      // test 응답이 이미 balance 데이터를 전부 가지고 있으니 그대로 박는다.
+      // (별도 refresh() 호출은 또 KIS 4종을 부르므로 EGW00201 재발 위험)
+      setBalance({
+        cash_usd: res.cash_usd,
+        cash_krw: res.cash_krw,
+        positions: res.positions || [],
+        total_market_value_usd: res.total_market_value_usd || 0,
+      });
+      reload();
     } catch (e) {
       const status = e?.response?.status;
       const data = e?.response?.data || {};
@@ -377,6 +396,25 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
       }
     } finally { setBusy(false); }
   };
+  const doToggleAutoExecute = async () => {
+    const turningOn = !acct.autoExecute;
+    if (turningOn && env === "REAL" &&
+        !confirm("⚠️ REAL 자동 체결을 켜면 시그널 발생 시 사람 승인 없이 실제 주문이 자동 실행됩니다.\n(모든 한도·kill-switch는 유지) 계속할까요?")) return;
+    setBusy(true); setMsg(null);
+    try {
+      await setBrokerAutoExecute(env, turningOn);
+      setMsg({ type: "ok", text: turningOn ? "자동 체결 ON" : "자동 체결 OFF" });
+      reload();
+    } catch (e) {
+      const data = e?.response?.data;
+      // REAL 졸업 게이트 미충족 → summary 안내
+      if (data?.summary && data?.requiredTrades) {
+        setMsg({ type: "err", text: `REAL 자동체결 졸업 게이트 미충족 — ${data.summary}` });
+      } else {
+        setMsg({ type: "err", text: "자동체결 변경 실패: " + (data?.error || e.message) });
+      }
+    } finally { setBusy(false); }
+  };
   const doDelete = async () => {
     if (!confirm(`${env} 계좌 등록을 정말 삭제할까요? (KIS 키도 DB에서 제거됩니다)`)) return;
     setBusy(true);
@@ -398,13 +436,22 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
                   tone={acct.lastVerifiedAt ? "ok" : "warn"} theme={theme} />
             <Stat label="매매 스위치" value={acct.tradingEnabled ? "ON" : "OFF"}
                   tone={acct.tradingEnabled ? "ok" : "warn"} theme={theme} />
-            <Stat label="1회 한도" value={`$${acct.maxOrderUsd}`} theme={theme} />
+            <Stat label="자동 체결" value={acct.autoExecute ? "ON" : "OFF"}
+                  tone={acct.autoExecute ? (env === "REAL" ? "warn" : "ok") : "info"} theme={theme} />
+            <Stat label="1회 한도" value={`$${Number(acct.maxOrderUsd || 0).toLocaleString()}`} theme={theme} />
+            <Stat label="매수 1일 한도" value={acct.dailyBuyKrw != null ? `₩${Number(acct.dailyBuyKrw).toLocaleString("ko-KR")}` : "무제한"} theme={theme} />
+            <Stat label="매도 1일 한도" value={acct.dailySellKrw != null ? `₩${Number(acct.dailySellKrw).toLocaleString("ko-KR")}` : "무제한"} theme={theme} />
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={doTest} disabled={busy} style={btnSecondary}>🔌 연결 테스트</button>
             <button onClick={doToggleTrading} disabled={busy || !acct.lastVerifiedAt}
               style={acct.tradingEnabled ? btnDanger : btnPrimary}>
               {acct.tradingEnabled ? "매매 OFF" : "매매 ON"}
+            </button>
+            <button onClick={doToggleAutoExecute} disabled={busy || !acct.tradingEnabled}
+              title={!acct.tradingEnabled ? "먼저 매매 스위치를 켜세요" : (env === "REAL" ? "REAL 은 MOCK 자동매매 2주+20회 졸업 게이트 필요" : "")}
+              style={acct.autoExecute ? btnDanger : btnSecondary}>
+              {acct.autoExecute ? "자동체결 OFF" : "🤖 자동체결 ON"}
             </button>
             <button onClick={doDelete} disabled={busy} style={btnDefault}>삭제</button>
           </div>
