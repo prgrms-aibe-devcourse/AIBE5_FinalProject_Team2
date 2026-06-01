@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   GitBranch, Github, Link2, Unlink, RefreshCw, ExternalLink,
-  GitCommit, AlertCircle, CheckCircle2, Loader, Search,
+  GitCommit, AlertCircle, CheckCircle2, Loader, Search, Filter, Pin, Check,
   Upload, Download, FileCode,
 } from "lucide-react";
 import {
@@ -121,12 +121,12 @@ function Header({ onRefresh, loading, username }) {
       padding: "8px 12px", display: "flex", alignItems: "center", gap: 6,
       borderBottom: "1px solid rgba(255,255,255,0.05)", flexShrink: 0,
     }}>
-      <Github size={14} color="#60a5fa" />
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8" }}>
+      <Github size={16} color="#60a5fa" />
+      <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8" }}>
         Git
       </div>
       {username && (
-        <div style={{ fontSize: 10.5, color: "#64748b", marginLeft: 4 }}>· {username}</div>
+        <div style={{ fontSize: 12.5, color: "#64748b", marginLeft: 4 }}>· {username}</div>
       )}
       <div style={{ flex: 1 }} />
       <button onClick={onRefresh} disabled={loading} title="새로고침"
@@ -215,6 +215,13 @@ function RepoPicker({ workspaceId, onLinked }) {
   const [err, setErr]       = useState(null);
   const [q, setQ]           = useState("");
   const [linking, setLinking] = useState(null);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [sortLatest, setSortLatest] = useState(true);    // PR/업데이트 최신순
+  const [showPublic, setShowPublic] = useState(true);
+  const [showPrivate, setShowPrivate] = useState(true);
+  const [pinned, setPinned] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("alpha.pinnedRepos") || "[]"); } catch { return []; }
+  });
 
   useEffect(() => {
     (async () => {
@@ -227,7 +234,25 @@ function RepoPicker({ workspaceId, onLinked }) {
     })();
   }, []);
 
-  const filtered = repos.filter(r => !q || r.fullName.toLowerCase().includes(q.toLowerCase()));
+  const togglePin = (e, fullName) => {
+    e.stopPropagation();
+    setPinned(prev => {
+      const next = prev.includes(fullName) ? prev.filter(n => n !== fullName) : [...prev, fullName];
+      try { localStorage.setItem("alpha.pinnedRepos", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  // 검색 + 공개/비공개 필터 → 핀 우선 → (최신순 | 이름순) 정렬
+  const visible = repos
+    .filter(r => !q || r.fullName.toLowerCase().includes(q.toLowerCase()))
+    .filter(r => (r.isPrivate ? showPrivate : showPublic));
+  const sorted = [...visible].sort((a, b) => {
+    const pa = pinned.includes(a.fullName), pb = pinned.includes(b.fullName);
+    if (pa !== pb) return pa ? -1 : 1;
+    if (sortLatest) return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+    return a.fullName.localeCompare(b.fullName);
+  });
 
   const link = async (repo) => {
     setLinking(repo.fullName);
@@ -243,40 +268,100 @@ function RepoPicker({ workspaceId, onLinked }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      <div style={{ padding: "10px 12px 6px", fontSize: 11.5, color: "#e2e8f0", fontWeight: 700 }}>
-        이 워크스페이스에 연결할 레포
+      <div style={{ padding: "10px 12px 6px", fontSize: 13.5, color: "#e2e8f0", fontWeight: 700 }}>
+        이 워크스페이스에 연결할 repo
       </div>
-      <div style={{ padding: "0 10px 8px", display: "flex", alignItems: "center", gap: 4 }}>
-        <Search size={12} color="#64748b" />
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="검색"
-          style={{
-            flex: 1, padding: "4px 8px", background: "#0f1117",
-            border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4,
-            color: "#e2e8f0", fontSize: 11, boxSizing: "border-box",
-          }} />
-      </div>
-      <div style={{ flex: 1, overflow: "auto" }}>
-        {filtered.map(r => (
-          <div key={r.fullName} onClick={() => link(r)}
+      <div style={{ padding: "0 10px 8px", position: "relative" }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6, background: "#0f1117",
+          border: "1px solid rgba(255,255,255,0.1)", borderRadius: 7, padding: "2px 5px 2px 9px",
+        }}>
+          <Search size={14} color="#64748b" />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="검색"
             style={{
-              padding: "8px 12px", cursor: linking === r.fullName ? "wait" : "pointer",
-              borderBottom: "1px solid rgba(255,255,255,0.04)",
-              opacity: linking === r.fullName ? 0.5 : 1,
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = "rgba(96,165,250,0.08)"}
-            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "#e2e8f0", fontWeight: 600 }}>
-              {r.isPrivate ? "🔒" : "📂"} {r.fullName}
-            </div>
-            <div style={{ fontSize: 10.5, color: "#64748b", marginTop: 2 }}>
-              {r.defaultBranch} · {r.updatedAt?.slice(0, 10)}
-            </div>
+              flex: 1, padding: "7px 4px", background: "transparent", border: "none", outline: "none",
+              color: "#e2e8f0", fontSize: 13, boxSizing: "border-box",
+            }} />
+          <button onClick={() => setFilterOpen(o => !o)} title="필터"
+            style={{
+              background: filterOpen ? "rgba(96,165,250,0.15)" : "transparent", border: "none",
+              borderRadius: 5, cursor: "pointer", color: filterOpen ? "#60a5fa" : "#64748b",
+              padding: "5px 6px", display: "flex", flexShrink: 0,
+            }}>
+            <Filter size={14} />
+          </button>
+        </div>
+        {filterOpen && (
+          <div style={{
+            position: "absolute", right: 10, top: "100%", zIndex: 20, marginTop: 3,
+            minWidth: 180, background: "#161b22", border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 8, padding: 6, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          }}>
+            <FilterRow label="PR/업데이트 최신순" checked={sortLatest} onClick={() => setSortLatest(v => !v)} />
+            <div style={{ height: 1, background: "rgba(255,255,255,0.06)", margin: "4px 0" }} />
+            <FilterRow label="Public 표시" checked={showPublic} onClick={() => setShowPublic(v => !v)} />
+            <FilterRow label="Private 표시" checked={showPrivate} onClick={() => setShowPrivate(v => !v)} />
           </div>
-        ))}
-        {filtered.length === 0 && (
-          <div style={{ padding: 14, fontSize: 11, color: "#64748b", textAlign: "center" }}>repo 없음</div>
         )}
       </div>
+      <div className="dark-scroll" style={{ flex: 1, overflow: "auto" }}>
+        {sorted.map(r => {
+          const isPinned = pinned.includes(r.fullName);
+          return (
+            <div key={r.fullName} onClick={() => link(r)}
+              style={{
+                padding: "8px 12px", cursor: linking === r.fullName ? "wait" : "pointer",
+                borderBottom: "1px solid rgba(255,255,255,0.04)",
+                opacity: linking === r.fullName ? 0.5 : 1,
+                display: "flex", alignItems: "flex-start", gap: 6,
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "rgba(96,165,250,0.08)"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13.5, color: "#e2e8f0", fontWeight: 600 }}>
+                  {r.isPrivate ? "🔒" : "📂"}
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.fullName}</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 2 }}>
+                  {r.defaultBranch} · {r.updatedAt?.slice(0, 10)}
+                </div>
+              </div>
+              <button onClick={(e) => togglePin(e, r.fullName)} title={isPinned ? "고정 해제" : "상단 고정"}
+                style={{
+                  background: "transparent", border: "none", cursor: "pointer", padding: 3, flexShrink: 0,
+                  color: isPinned ? "#f59e0b" : "#3a424d",
+                }}>
+                <Pin size={13} fill={isPinned ? "#f59e0b" : "none"} />
+              </button>
+            </div>
+          );
+        })}
+        {sorted.length === 0 && (
+          <div style={{ padding: 14, fontSize: 13, color: "#64748b", textAlign: "center" }}>repo 없음</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function FilterRow({ label, checked, onClick }) {
+  return (
+    <div onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",
+        cursor: "pointer", borderRadius: 5, fontSize: 12, color: "#cbd5e1",
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      <span style={{
+        width: 15, height: 15, borderRadius: 4, flexShrink: 0,
+        border: checked ? "none" : "1.5px solid #3a424d",
+        background: checked ? "#60a5fa" : "transparent",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        {checked && <Check size={11} color="#0f1117" strokeWidth={3} />}
+      </span>
+      {label}
     </div>
   );
 }
@@ -397,7 +482,6 @@ function CommitList({
           </div>
         )}
       </div>
-
       {/* 변경된 파일 목록 */}
       {modifiedPaths.length > 0 && (
         <div style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", flexShrink: 0 }}>
@@ -500,7 +584,7 @@ function CommitList({
       </div>
 
       {/* 커밋 히스토리 */}
-      <div style={{ flex: 1, overflow: "auto", marginTop: 8 }}>
+      <div className="dark-scroll" style={{ flex: 1, overflow: "auto", marginTop: 8 }}>
         <div style={{ padding: "6px 12px 2px", fontSize: 10, fontWeight: 700, color: "#4B5563", textTransform: "uppercase", letterSpacing: "0.06em" }}>
           히스토리
         </div>
