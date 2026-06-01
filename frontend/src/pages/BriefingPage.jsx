@@ -27,6 +27,19 @@ function extractKeywords(cfg) {
   return Array.from(out).slice(0, 8);
 }
 
+// 경량 인라인 마크다운: **굵게** → <strong>, `코드` → 강조. (줄바꿈은 pre-wrap 이 유지)
+function MarkdownLite({ text }) {
+  if (!text) return null;
+  const parts = String(text).split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g);
+  return parts.map((p, i) => {
+    const b = p.match(/^\*\*([^*\n]+)\*\*$/);
+    if (b) return <strong key={i} style={{ fontWeight: 800, color: "#0F172A" }}>{b[1]}</strong>;
+    const c = p.match(/^`([^`\n]+)`$/);
+    if (c) return <code key={i} style={{ background: "#E2E8F0", borderRadius: 4, padding: "1px 5px", fontSize: "0.9em" }}>{c[1]}</code>;
+    return <React.Fragment key={i}>{p}</React.Fragment>;
+  });
+}
+
 function cleanBriefing(raw) {
   if (!raw) return raw;
   // 객체면 재귀로 문자열 추출
@@ -244,11 +257,34 @@ export default function BriefingPage() {
                 minHeight: 64,
               }}>
                 {b?.briefing
-                  ? cleanBriefing(b.briefing)
+                  ? <MarkdownLite text={cleanBriefing(b.briefing)} />
                   : b?.error
                     ? <span style={{ color: "#b91c1c" }}>⚠ {b.error}</span>
                     : <span style={{ color: "#94A3B8" }}>{busy ? "AI 매니저가 시장 키워드 기반 브리핑을 작성 중입니다…" : "‘브리핑 생성’ 버튼을 눌러 이 전략의 시장 브리핑을 생성하세요."}</span>}
               </div>
+
+              {Array.isArray(b?.references) && b.references.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 6 }}>
+                    📚 시장국면 분석 근거 · 참고 링크 ({b.references.length})
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {b.references.map((r, i) => (
+                      <a key={i} href={r.url} target="_blank" rel="noopener noreferrer"
+                        style={{
+                          display: "flex", alignItems: "baseline", gap: 7, textDecoration: "none",
+                          padding: "6px 10px", borderRadius: 8, background: "#F1F5F9", border: "1px solid #E2E8F0",
+                        }}>
+                        <span style={{ fontSize: 11, color: "#64748B", flexShrink: 0 }}>{i + 1}.</span>
+                        <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                          <span style={{ fontSize: 12.5, color: "#2563EB", fontWeight: 600 }}>{r.title} ↗</span>
+                          {r.why && <span style={{ fontSize: 11, color: "#64748B", marginTop: 1 }}>{r.why}</span>}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {b?.generatedAt && (
                 <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 8, textAlign: "right" }}>
