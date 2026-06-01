@@ -36,6 +36,11 @@ export const saveCode            = (id, codeJson) =>
 export const queueOrders         = (id) =>
   api.post(`/alpha/workspaces/${id}/queue-orders`).then(r => r.data);
 
+// Developer Studio 데이터셋 — 실제 수집 현황(polygon/binance/...) + OHLCV 미리보기
+export const getDataStatus  = () => api.get("/analytics/data-status").then(r => r.data);
+export const getDataPreview = (symbol, tf = "1d", source, limit = 30) =>
+  api.get("/analytics/data-ohlcv", { params: { symbol, tf, source, limit } }).then(r => r.data);
+
 // Decision Log
 export const fetchDecisionLog    = (id) => api.get(`/alpha/workspaces/${id}/log`).then(r => r.data);
 
@@ -60,6 +65,8 @@ export const upsertBrokerAccount = (body) => api.post("/broker/account", body).t
 export const deleteBrokerAccount = (env, brokerType = "KIS") => api.delete("/broker/account", { params: { env, brokerType } });
 export const testBrokerAccount   = (env) => api.post("/broker/account/test", null, { params: { env } }).then(r => r.data);
 export const setBrokerTrading    = (env, enabled) => api.patch("/broker/account/trading-enabled", { enabled }, { params: { env } }).then(r => r.data);
+/** 자동 체결 ON/OFF. REAL 은 MOCK 졸업 게이트(2주+20회) 통과 필요 — 미충족 시 412 + summary 반환. */
+export const setBrokerAutoExecute = (env, enabled, brokerType = "KIS") => api.patch("/broker/account/auto-execute", { enabled }, { params: { env, brokerType } }).then(r => r.data);
 /** 한도(maxOrderUsd / dailyOrderUsd) 만 부분 수정. body 예: { maxOrderUsd: 200000 } */
 export const patchBrokerLimits   = (env, body) => api.patch("/broker/account/limits", body, { params: { env } }).then(r => r.data);
 export const getPromotionGate    = (env) => api.get("/broker/account/promotion-gate", { params: { env } }).then(r => r.data);

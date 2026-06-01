@@ -9,9 +9,11 @@ import {
 import { useTheme } from "./ThemeContext";
 import {
   getWorkspace, listWorkspaces, runBacktest, runRegime, runTrust, saveCode, queueOrders,
+  getDataStatus, getDataPreview,
   getWorkspaceGitStatus, getWorkspaceFileTree, pullWorkspaceFile, deleteWorkspaceFile,
 } from "./alphaApi";
 import GitPanel from "./GitPanel";
+import TerminalPane from "./TerminalPane";
 import RepoExplorer from "./RepoExplorer";
 
 // ── 언어 감지 ─────────────────────────────────────────────────────────────────
@@ -353,6 +355,50 @@ const DATASETS = [
   },
 ];
 
+// 실제 수집 현황(/api/analytics/data-status)을 데이터셋 카드로 변환.
+// 하드코딩 대신 DB에 실제 적재된 polygon/binance 행 수·종목·기간을 보여준다.
+function buildDatasetsFromStatus(status, fallback) {
+  const stats = (status && status.collection_stats) || [];
+  if (!stats.length) return fallback;
+  const fmt = (n) => Number(n || 0).toLocaleString();
+  const day = (s) => (s ? String(s).slice(0, 10) : "?");
+  const bySrc = {};
+  for (const s of stats) {
+    const src = s.source || "?";
+    const g = bySrc[src] || (bySrc[src] = { rows: 0, symbols: new Set(), tfs: new Set(), oldest: null, latest: null });
+    g.rows += s.total_rows || 0;
+    if (s.symbol) g.symbols.add(s.symbol);
+    if (s.tf) g.tfs.add(s.tf);
+    if (s.oldest && (!g.oldest || s.oldest < g.oldest)) g.oldest = s.oldest;
+    if (s.latest && (!g.latest || s.latest > g.latest)) g.latest = s.latest;
+  }
+  const META = {
+    polygon: { id: "us_daily", name: "US_Stock_Daily", label: "미국 주식 일봉 · Polygon.io" },
+    binance: { id: "crypto",   name: "Crypto_OHLCV",   label: "암호화폐 · Binance" },
+    yfinance:{ id: "yf",       name: "YFinance_Daily",  label: "주식 일봉 · yfinance" },
+    kis:     { id: "kis_ohlcv",name: "KIS_OHLCV",       label: "국내/해외 · KIS" },
+  };
+  const cards = [];
+  for (const [src, g] of Object.entries(bySrc)) {
+    const m = META[src] || { id: src, name: src, label: src };
+    const tfs = [...g.tfs];
+    cards.push({
+      id: m.id, name: m.name, source: src, live: true,
+      symbols: [...g.symbols].sort(),
+      tf: tfs.includes("1d") ? "1d" : (tfs[0] || "1d"),
+      rows: fmt(g.rows),
+      desc: `${m.label} · ${g.symbols.size}종목 · ${tfs.join("/") || "1d"} (${day(g.oldest)}~${day(g.latest)})`,
+      cols: ["ts", "symbol", "open", "high", "low", "close", "volume"],
+      preview: [],
+    });
+  }
+  cards.sort((a, b) => a.name.localeCompare(b.name));
+  // 내 데이터(KIS 실시간) 카드는 fallback 그대로 유지
+  const myKis = (fallback || []).find((d) => d.id === "my_kis");
+  if (myKis) cards.push(myKis);
+  return cards;
+}
+
 // ── SVG 차트 ──────────────────────────────────────────────────────────────────
 function SparkChart({ data, bench = [] }) {
   const [W, H] = [560, 150];
@@ -392,18 +438,49 @@ function MetricCard({label,value,color="#60a5fa"}) {
 }
 
 // ── DataTableView ─────────────────────────────────────────────────────────────
-function DataTableView({ datasetId }) {
-  const ds = DATASETS.find(d=>d.id===datasetId);
+function DataTableView({ datasetId, datasets }) {
+  const list = (datasets && datasets.length) ? datasets : DATASETS;
+  const ds = list.find(d=>d.id===datasetId);
+  const [rows, setRows] = useState(ds?.preview || []);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    if (!ds || !ds.live) { setRows(ds?.preview || []); return; }
+    const sym = ds.symbols && ds.symbols[0];
+    if (!sym) { setRows([]); return; }
+    let alive = true;
+    setLoading(true); setErr(null);
+    getDataPreview(sym, ds.tf || "1d", ds.source, 30)
+      .then(res => {
+        if (!alive) return;
+        const data = (res && res.data) || [];
+        // 최신이 위로 오도록 역순
+        setRows(data.slice().reverse().map(r => ({
+          ts: String(r.ts || "").slice(0, 19),
+          symbol: r.symbol,
+          open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume,
+        })));
+      })
+      .catch(() => { if (alive) setErr("미리보기 로드 실패 — Analytics 사이드카 / 수집 현황을 확인하세요."); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [ds?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!ds) return null;
+  const cols = ds.cols || ["ts","symbol","open","high","low","close","volume"];
   return (
     <div style={{flex:1,overflow:"auto",padding:"16px 20px",background:"#0f1117"}}>
       <div style={{marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
         <div>
-          <div style={{fontSize:13,fontWeight:700,color:"white"}}>{ds.name}</div>
-          <div style={{fontSize:10,color:"#4B5563",marginTop:2}}>{ds.desc}  ·  {ds.rows} rows  ·  {ds.cols.length} cols</div>
+          <div style={{fontSize:13,fontWeight:700,color:"white",display:"flex",alignItems:"center",gap:8}}>
+            {ds.name}
+            {ds.live && <span style={{fontSize:8,padding:"1px 6px",borderRadius:999,background:"rgba(16,185,129,0.15)",color:"#10B981",fontWeight:700}}>LIVE DB</span>}
+          </div>
+          <div style={{fontSize:10,color:"#4B5563",marginTop:2}}>{ds.desc}  ·  {ds.rows} rows  ·  {cols.length} cols</div>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:6,flexWrap:"wrap"}}>
-          {ds.cols.map(c=>(
+          {cols.map(c=>(
             <span key={c} style={{fontSize:9,padding:"2px 7px",borderRadius:4,background:"rgba(96,165,250,0.1)",color:"#60a5fa",fontFamily:"monospace"}}>{c}</span>
           ))}
         </div>
@@ -412,23 +489,29 @@ function DataTableView({ datasetId }) {
         <table style={{borderCollapse:"collapse",width:"100%",fontSize:11.5}}>
           <thead>
             <tr>
-              {ds.cols.map(c=>(
+              {cols.map(c=>(
                 <th key={c} style={{padding:"6px 12px",textAlign:"left",color:"#4B5563",fontWeight:700,
                   borderBottom:"1px solid rgba(255,255,255,0.08)",background:"#161b22",whiteSpace:"nowrap"}}>{c}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {ds.preview.map((row,i)=>(
+            {rows.map((row,i)=>(
               <tr key={i} style={{background:i%2===0?"transparent":"rgba(255,255,255,0.015)"}}>
-                {ds.cols.map(c=>(
+                {cols.map(c=>(
                   <td key={c} style={{padding:"5px 12px",color:"#9CA3AF",borderBottom:"1px solid rgba(255,255,255,0.04)",
-                    fontFamily:"'Fira Code',monospace",whiteSpace:"nowrap",fontSize:11}}>{row[c]}</td>
+                    fontFamily:"'Fira Code',monospace",whiteSpace:"nowrap",fontSize:11}}>{String(row[c] ?? "")}</td>
                 ))}
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+      <div style={{marginTop:10,fontSize:10,color:"#2d3748"}}>
+        {loading ? "실제 DB에서 미리보기 로딩 중…"
+          : err ? err
+          : ds.live ? `* 최근 ${rows.length}행 (실제 수집 데이터 · source=${ds.source})  |  전체 ${ds.rows} rows 적재됨`
+          : `* 상위 ${rows.length}행 미리보기`}
       </div>
     </div>
   );
@@ -566,6 +649,16 @@ export default function DeveloperLab() {
   }, [sidePanel]);
 
   const [folderOpen, setFolderOpen] = useState(true);
+
+  // 데이터셋: 실제 수집 현황(/api/analytics/data-status)으로 동적 구성 (실패 시 하드코딩 폴백)
+  const [datasets, setDatasets] = useState(DATASETS);
+  useEffect(() => {
+    let alive = true;
+    getDataStatus()
+      .then(st => { if (alive) setDatasets(buildDatasetsFromStatus(st, DATASETS)); })
+      .catch(() => { /* 폴백 유지 */ });
+    return () => { alive = false; };
+  }, []);
   const [dataGroupOpen, setDataGroupOpen] = useState(true);
   const [myDataOpen, setMyDataOpen] = useState(true);
 
@@ -593,6 +686,7 @@ export default function DeveloperLab() {
   const [bottomH, setBottomH] = useState(180);
   const [runStatus, setRunStatus] = useState("idle");
   const [logLines, setLogLines] = useState([]);
+  const [consoleTab, setConsoleTab] = useState("log"); // "log" | "terminal"
   const logEndRef = useRef(null);
   const timerRefs = useRef([]);
 
@@ -786,6 +880,15 @@ export default function DeveloperLab() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsId]);
 
+  // Heli(RightChatDock)가 현재 에디터 코드를 알 수 있도록 라이브 스냅샷 공유.
+  // → dev studio 에서 "이 코드 고쳐줘" 했을 때 Heli 가 현재 코드를 베이스로 code 패치를 만든다.
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.__alphaLiveCode = { wsId: wsId ? Number(wsId) : null, files: fileContents };
+    }
+  }, [wsId, fileContents]);
+
+  // 드롭다운 외부 클릭 시 닫기
   useEffect(() => {
     if (!wsDropdownOpen) return;
     const handler = (e) => { if (wsDropdownRef.current && !wsDropdownRef.current.contains(e.target)) setWsDropdownOpen(false); };
@@ -846,9 +949,11 @@ export default function DeveloperLab() {
     const customParams = parseParamsFromCode(currentCode);
     const ticker = customParams.ticker || "SPY";
 
+    const t0 = Date.now();
     setLogLines([
-      { type:"info", msg:`[vectorbt] 백테스트 시작  ticker=${ticker}`, ts: new Date().toLocaleTimeString() },
-      { type:"info", msg:`[PARAM] ${JSON.stringify(customParams)}`, ts: new Date().toLocaleTimeString() },
+      { type:"info", msg:`[vectorbt] 백테스트 시작  ticker=${ticker}  period=5y`, ts: new Date().toLocaleTimeString() },
+      { type:"info", msg:`[param] ${JSON.stringify(customParams)}`, ts: new Date().toLocaleTimeString() },
+      { type:"info", msg:`[data] OHLCV 로드 중… (Polygon→yfinance 폴백)`, ts: new Date().toLocaleTimeString() },
     ]);
 
     try {
@@ -856,12 +961,19 @@ export default function DeveloperLab() {
       setBtResult(result);
       setRunStatus("done");
       const stats = result.stats || {};
+      const ec = result.equity_curve || [];
       const ts = new Date().toLocaleTimeString();
-      setLogLines([
-        { type:"success", msg:`[DONE] 백테스트 완료`, ts },
-        { type:"trade",   msg:`총 수익률: ${stats.total_return_pct?.toFixed(1)}%  /  연환산: ${stats.annualized_return_pct?.toFixed(1)}%`, ts },
-        { type:"trade",   msg:`거래 ${stats.trades}회  /  승률 ${stats.win_rate_pct?.toFixed(1)}%`, ts },
-        { type:"info",    msg:`Sharpe ${stats.sharpe?.toFixed(2)}  /  MDD ${stats.max_drawdown_pct?.toFixed(1)}%`, ts },
+      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+      const f1 = (v) => (v == null ? "N/A" : v.toFixed(1));
+      const f2 = (v) => (v == null ? "N/A" : v.toFixed(2));
+      setLogLines(prev => [...prev,
+        { type:"info",    msg:`[data] OHLCV ${ec.length || "?"} bars 로드 완료 (${stats.start || "?"} ~ ${stats.end || "?"})`, ts },
+        { type:"info",    msg:`[cost] 수수료 0.25% + 슬리피지 0.1% 반영 · 신호 fshift(1) anti-look-ahead`, ts },
+        { type:"info",    msg:`[engine] vectorbt Portfolio.from_signals 시뮬레이션 완료`, ts },
+        { type:"success", msg:`[done] 백테스트 완료 (${elapsed}s)`, ts },
+        { type:"trade",   msg:`총수익 ${f1(stats.total_return_pct)}%  ·  연환산 ${f1(stats.annualized_return_pct)}%  ·  Sharpe ${f2(stats.sharpe)}`, ts },
+        { type:"trade",   msg:`거래 ${stats.trades ?? "?"}회  ·  승률 ${f1(stats.win_rate_pct)}%  ·  MDD ${f1(stats.max_drawdown_pct)}%`, ts },
+        { type:"info",    msg:`▶ '📊 백테스트 결과' 탭에서 수익률 커브 + 메트릭 확인`, ts },
       ]);
       const reportId = `tab_report_${Date.now()}`;
       setOpenTabs(prev => {
@@ -1090,7 +1202,7 @@ export default function DeveloperLab() {
               </div>
             )}
 
-            <div ref={sidePanelScrollRef} style={{flex:1, overflow:"auto", display:sidePanel==="git"?"flex":"block", flexDirection:"column"}}>
+            <div ref={sidePanelScrollRef} className="dark-scroll" style={{flex:1, overflow:"auto", display:sidePanel==="git"?"flex":"block", flexDirection:"column"}}>
 
               {/* ── Explorer ── */}
               {sidePanel==="explorer" && (
@@ -1159,8 +1271,9 @@ export default function DeveloperLab() {
                     <Database size={12} color="#10B981" style={{flexShrink:0}}/>
                     기본 제공 데이터셋
                   </div>
-                  {dataGroupOpen && DATASETS.filter(d=>d.id!=="my_kis").map(ds=>(
-                    <div key={ds.id} onClick={()=>openDataset(ds)}
+                  {dataGroupOpen && datasets.filter(d=>d.id!=="my_kis").map(ds=>(
+                    <div key={ds.id}
+                      onClick={()=>openDataset(ds)}
                       style={{padding:"4px 8px 4px 26px",cursor:"pointer",fontSize:11.5,
                         background:activeTab?.datasetId===ds.id?"rgba(16,185,129,0.1)":"transparent",
                         color:activeTab?.datasetId===ds.id?"#e2e8f0":"#6B7280"}}
@@ -1181,8 +1294,9 @@ export default function DeveloperLab() {
                     <Database size={12} color="#60a5fa" style={{flexShrink:0}}/>
                     내 데이터 (KIS API)
                   </div>
-                  {myDataOpen && DATASETS.filter(d=>d.id==="my_kis").map(ds=>(
-                    <div key={ds.id} onClick={()=>openDataset(ds)}
+                  {myDataOpen && datasets.filter(d=>d.id==="my_kis").map(ds=>(
+                    <div key={ds.id}
+                      onClick={()=>openDataset(ds)}
                       style={{padding:"4px 8px 4px 26px",cursor:"pointer",fontSize:11.5,
                         background:activeTab?.datasetId===ds.id?"rgba(96,165,250,0.1)":"transparent",
                         color:activeTab?.datasetId===ds.id?"#e2e8f0":"#6B7280"}}
@@ -1305,7 +1419,6 @@ export default function DeveloperLab() {
                 }}
               />
             )}
-
             {/* GitHub 레포 파일 */}
             {activeTab?.type==="repoFile" && (
               <Editor
@@ -1327,7 +1440,7 @@ export default function DeveloperLab() {
               />
             )}
 
-            {activeTab?.type==="data" && <DataTableView datasetId={activeTab.datasetId}/>}
+            {activeTab?.type==="data" && <DataTableView datasetId={activeTab.datasetId} datasets={datasets}/>}
             {activeTab?.type==="report" && <BacktestReportView btResult={btResult}/>}
 
             {!activeTab && (
@@ -1351,9 +1464,10 @@ export default function DeveloperLab() {
               borderBottom:"1px solid rgba(255,255,255,0.06)",
               padding:"0 12px", flexShrink:0, background:"#161b22",
             }}>
-              <button style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",
-                background:"none",border:"none",borderBottom:"2px solid #60a5fa",
-                color:"#60a5fa",fontSize:11,fontWeight:600,cursor:"pointer",marginBottom:-1}}>
+              <button onClick={()=>setConsoleTab("log")}
+                style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",
+                background:"none",border:"none",borderBottom:consoleTab==="log"?"2px solid #60a5fa":"2px solid transparent",
+                color:consoleTab==="log"?"#60a5fa":"#6B7280",fontSize:11,fontWeight:600,cursor:"pointer",marginBottom:-1}}>
                 <Terminal size={10}/>CONSOLE
                 {runStatus==="running"&&(
                   <span style={{width:6,height:6,borderRadius:999,background:"#F59E0B",animation:"pulse 1s ease-in-out infinite"}}/>
@@ -1362,33 +1476,51 @@ export default function DeveloperLab() {
                   <span style={{width:6,height:6,borderRadius:999,background:"#10B981"}}/>
                 )}
               </button>
-              <div style={{marginLeft:"auto"}}>
-                <button onClick={()=>setBottomH(h=>h===180?320:180)}
-                  style={{background:"none",border:"none",color:"#2d3748",cursor:"pointer",fontSize:9,padding:"3px 6px"}}>
+              <button onClick={()=>setConsoleTab("terminal")}
+                style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",
+                background:"none",border:"none",borderBottom:consoleTab==="terminal"?"2px solid #60a5fa":"2px solid transparent",
+                color:consoleTab==="terminal"?"#60a5fa":"#6B7280",fontSize:11,fontWeight:600,cursor:"pointer",marginBottom:-1}}>
+                <Terminal size={10}/>TERMINAL
+              </button>
+              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:2}}>
+                {consoleTab==="log" && (
+                  <button onClick={()=>setLogLines([])} title="콘솔 지우기"
+                    style={{background:"none",border:"none",color:"#4B5563",cursor:"pointer",
+                      fontSize:10,padding:"3px 8px"}}>Clear</button>
+                )}
+                <button onClick={()=>setBottomH(h=>h===180?320:180)} title="콘솔 크기"
+                  style={{background:"none",border:"none",color:"#2d3748",cursor:"pointer",
+                    fontSize:9,padding:"3px 6px"}}>
                   {bottomH===180?"↑":"↓"}
                 </button>
               </div>
             </div>
-            <div ref={logScrollRef} style={{flex:1,overflow:"auto",padding:"6px 14px",
-              fontFamily:"'Fira Code','Cascadia Code',monospace",fontSize:11}}>
-              {logLines.length===0&&runStatus==="idle"&&(
-                <div style={{color:"#2d3748",marginTop:4}}>
-                  ▶  Run Backtest 클릭 → 로그가 실시간 스트리밍됩니다.
-                </div>
-              )}
-              {logLines.map((line,i)=>(
-                <div key={i} style={{display:"flex",gap:10,marginBottom:1}}>
-                  <span style={{color:"#2d3748",flexShrink:0}}>{line.ts}</span>
-                  <span style={{color:logColor[line.type]||"#9CA3AF"}}>{line.msg}</span>
-                </div>
-              ))}
-              {runStatus==="running"&&(
-                <div style={{color:"#374151",marginTop:2,display:"flex",alignItems:"center",gap:4}}>
-                  <Loader size={9} style={{animation:"spin 1s linear infinite"}}/>처리 중…
-                </div>
-              )}
-              <div ref={logEndRef}/>
-            </div>
+            {consoleTab==="terminal" ? (
+              <div style={{flex:1,minHeight:0,overflow:"hidden"}}>
+                <TerminalPane/>
+              </div>
+            ) : (
+              <div ref={logScrollRef} className="dark-scroll" style={{flex:1,overflow:"auto",padding:"6px 14px",
+                fontFamily:"'Fira Code','Cascadia Code',monospace",fontSize:11}}>
+                {logLines.length===0&&runStatus==="idle"&&(
+                  <div style={{color:"#2d3748",marginTop:4}}>
+                    ▶  Run Backtest 클릭 → LEAN 엔진 로그 / TERMINAL 탭에서 bash·powershell·cmd 실행.
+                  </div>
+                )}
+                {logLines.map((line,i)=>(
+                  <div key={i} style={{display:"flex",gap:10,marginBottom:1}}>
+                    <span style={{color:"#2d3748",flexShrink:0}}>{line.ts}</span>
+                    <span style={{color:logColor[line.type]||"#9CA3AF"}}>{line.msg}</span>
+                  </div>
+                ))}
+                {runStatus==="running"&&(
+                  <div style={{color:"#374151",marginTop:2,display:"flex",alignItems:"center",gap:4}}>
+                    <Loader size={9} style={{animation:"spin 1s linear infinite"}}/>처리 중…
+                  </div>
+                )}
+                <div ref={logEndRef}/>
+              </div>
+            )}
           </div>
 
         </div>
