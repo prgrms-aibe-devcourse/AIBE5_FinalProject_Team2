@@ -972,6 +972,20 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
     finally { setBusy(false); }
   };
 
+  // 매매 스위치 토글 (brokerType=BINANCE 명시 — 미지정 시 백엔드가 KIS 로 라우팅하는 버그 회피)
+  const doToggleTrading = async () => {
+    const next = !acct.tradingEnabled;
+    if (next && env === "REAL" && !confirm("실전(메인넷) Binance 매매를 활성화합니다. 실제 자산으로 주문이 나갈 수 있어요. 계속할까요?")) return;
+    setBusy(true); setMsg(null);
+    try {
+      await setBrokerTrading(env, next, "BINANCE");
+      setMsg({ type: "ok", text: `매매 스위치 ${next ? "ON ✅" : "OFF"}` });
+      reload();
+    } catch (e) {
+      setMsg({ type: "err", text: "스위치 변경 실패: " + (e?.response?.data?.error || e.message) });
+    } finally { setBusy(false); }
+  };
+
   const infoRow = (label, value) => (
     <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13, borderBottom: `1px solid ${theme.border}` }}>
       <span style={{ color: theme.subtle }}>{label}</span>
@@ -1008,6 +1022,12 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
           <button onClick={doTest} disabled={busy} style={btnPrimary}>
             {busy ? "테스트 중…" : "🔗 연결 테스트"}
           </button>
+          {acct.lastVerifiedAt && (
+            <button onClick={doToggleTrading} disabled={busy}
+              style={acct.tradingEnabled ? btnDanger : { ...btnPrimary, background: "linear-gradient(135deg,#22c55e,#16a34a)" }}>
+              {acct.tradingEnabled ? "⏸ 매매 OFF" : "▶ 매매 ON"}
+            </button>
+          )}
           <button onClick={() => refresh()} disabled={busy} style={btnSecondary}>
             잔고 새로고침
           </button>
@@ -1016,6 +1036,19 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
           </button>
         </div>
       </Card>
+
+      {/* 현물 주문 폼 (SPOT + 검증완료일 때만) */}
+      {mode === "SPOT" && acct.lastVerifiedAt && (
+        <BinanceOrderForm theme={theme} env={env} acct={acct} setMsg={setMsg} onPlaced={refresh} />
+      )}
+      {mode === "FUTURES" && (
+        <Card theme={theme}>
+          <div style={{ fontSize: 13, color: theme.subtle }}>
+            ⚠️ 선물(FUTURES) 주문은 현재 비활성화되어 있습니다 — 안전을 위해 <strong>SPOT(현물)</strong>만 지원합니다.
+            (잔고·포지션 조회는 가능)
+          </div>
+        </Card>
+      )}
 
       {/* 잔고 카드 */}
       {balance && (
@@ -1093,6 +1126,121 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
         </Card>
       )}
     </div>
+  );
+}
+
+/* ─────────────────────────────── Binance 현물 주문 폼 (분수 수량 · MARKET/LIMIT · USDT) */
+function BinanceOrderForm({ theme, env, acct, setMsg, onPlaced }) {
+  const [form, setForm] = useState({ symbol: "BTCUSDT", side: "BUY", quantity: "", type: "MARKET", limitPrice: "" });
+  const [quote, setQuote] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const fetchQuote = async (symbol) => {
+    if (!symbol || !acct.lastVerifiedAt) { setQuote(null); return; }
+    try { setQuote(await getBrokerQuote(env, symbol, "BINANCE")); } catch { setQuote(null); }
+  };
+
+  const buildBody = () => ({
+    ticker: (form.symbol || "").toUpperCase(),
+    side: form.side,
+    quantity: form.quantity ? Number(form.quantity) : 0,
+    limitPrice: form.type === "LIMIT" && form.limitPrice ? Number(form.limitPrice) : null,
+  });
+
+  const doPreview = async () => {
+    setBusy(true); setMsg(null);
+    try { setPreview(await previewBrokerOrder(env, buildBody(), "BINANCE")); }
+    catch (e) { setMsg({ type: "err", text: "프리뷰 실패: " + (e?.response?.data?.error || e.message) }); }
+    finally { setBusy(false); }
+  };
+  const doPlace = async () => {
+    if (!preview?.ok) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await placeBrokerOrder(env, buildBody(), "BINANCE");
+      setMsg({ type: "ok", text: `Binance 주문 전송 완료 — 주문번호 ${r.order_no || "(응답확인)"}${r.status_code ? ` (${r.status_code})` : ""}` });
+      setPreview(null);
+      onPlaced?.();
+    } catch (e) {
+      setMsg({ type: "err", text: "주문 실패: " + (e?.response?.data?.error || e.message) });
+    } finally { setBusy(false); }
+  };
+
+  const overLimit = preview?.over_single_limit;
+  const isLimit = form.type === "LIMIT";
+
+  return (
+    <Card theme={theme}>
+      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>🪙 Binance 현물 주문 ({env === "REAL" ? "메인넷" : "테스트넷"})</h3>
+      <div style={{ display: "grid", gridTemplateColumns: isLimit ? "1.6fr 1fr 1fr 1.2fr 1.2fr auto" : "1.6fr 1fr 1fr 1.4fr auto", gap: 8, alignItems: "end" }}>
+        <Field label="심볼 (예: BTCUSDT)">
+          <input style={inp(theme)} value={form.symbol}
+            onChange={e => setForm(f => ({ ...f, symbol: e.target.value.toUpperCase() }))}
+            onBlur={e => fetchQuote(e.target.value.trim().toUpperCase())} />
+        </Field>
+        <Field label="매매구분">
+          <select style={inp(theme)} value={form.side}
+            onChange={e => setForm(f => ({ ...f, side: e.target.value }))}>
+            <option value="BUY">매수</option><option value="SELL">매도</option>
+          </select>
+        </Field>
+        <Field label="주문유형">
+          <select style={inp(theme)} value={form.type}
+            onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+            <option value="MARKET">시장가</option><option value="LIMIT">지정가</option>
+          </select>
+        </Field>
+        <Field label="수량 (코인)">
+          <input type="number" step="any" min="0" style={inp(theme)} value={form.quantity}
+            placeholder="예: 0.001"
+            onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
+        </Field>
+        {isLimit && (
+          <Field label="지정가 (USDT)">
+            <input type="number" step="any" style={inp(theme)} value={form.limitPrice}
+              onChange={e => setForm(f => ({ ...f, limitPrice: e.target.value }))} />
+          </Field>
+        )}
+        <button onClick={doPreview} disabled={busy} style={btnSecondary}>프리뷰</button>
+      </div>
+
+      {quote && quote.last_price > 0 && (
+        <div style={{ marginTop: 10, fontSize: 12, color: theme.subtle }}>
+          📊 <b>{form.symbol}</b> 현재가:{" "}
+          <b style={{ color: theme.text }}>{Number(quote.last_price).toLocaleString(undefined, { maximumFractionDigits: 8 })} USDT</b>
+          {isLimit && <>
+            {" · "}
+            <button type="button"
+              onClick={() => setForm(f => ({ ...f, limitPrice: String(quote.last_price) }))}
+              style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>
+              이 가격으로 입력 →
+            </button>
+          </>}
+        </div>
+      )}
+
+      {preview && (
+        <div style={{
+          marginTop: 14, padding: 12, borderRadius: 8,
+          background: overLimit ? "#FEE2E2" : (form.side === "BUY" ? "#DCFCE7" : "#FEE2E2"),
+          color: overLimit ? "#991B1B" : (form.side === "BUY" ? "#166534" : "#991B1B"),
+          fontSize: 13,
+        }}>
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>
+            {overLimit ? "❌ 한도 초과" : `✅ ${preview.side} ${preview.quantity} ${preview.ticker}${isLimit ? ` @ ${preview.limit_price} USDT` : " (시장가)"}`}
+          </div>
+          <div>예상 명목가: ${Number(preview.est_total_usd).toFixed(2)} / 1건 한도 ${preview.max_order_usd}{!isLimit && preview.ref_price > 0 ? ` · 참고가 ${Number(preview.ref_price).toLocaleString(undefined, { maximumFractionDigits: 8 })} USDT` : ""}</div>
+          <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+            <button onClick={doPlace} disabled={busy || !preview.ok || !acct.tradingEnabled}
+              style={form.side === "BUY" ? btnPrimary : btnDanger}>
+              {acct.tradingEnabled ? `🚀 ${form.side === "BUY" ? "매수" : "매도"} 실행` : "매매 스위치 OFF"}
+            </button>
+            <button onClick={() => setPreview(null)} style={btnDefault}>취소</button>
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
 

@@ -82,6 +82,7 @@ function InlineInput({ defaultValue = "", placeholder = "", onConfirm, onCancel,
       placeholder={placeholder}
       onKeyDown={e => {
         e.stopPropagation();
+        if (e.nativeEvent.isComposing) return;
         if (e.key === "Enter") confirm();
         if (e.key === "Escape") onCancel();
       }}

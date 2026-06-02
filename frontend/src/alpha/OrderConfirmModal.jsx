@@ -24,6 +24,7 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
 
   // ── 한도 인라인 편집용 상태 ───────────────────────────────────
   const [brokerEnv, setBrokerEnv] = useState(null);   // "MOCK" | "REAL"
+  const [brokerType, setBrokerType] = useState(null); // "KIS" | "BINANCE" — 한도조정 라우팅(Binance 제안이 KIS 계좌를 잘못 건드리는 것 방지)
   const [currentMax, setCurrentMax] = useState(null); // 현재 1건당 한도
   const [currentDaily, setCurrentDaily] = useState(null); // 현재 일일 한도
   const [newMax, setNewMax] = useState("");           // 사용자가 입력 중인 값
@@ -62,10 +63,11 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
         const acct = list.find(b => b.id === proposal.brokerAccountId);
         if (!acct) return;
         setBrokerEnv(acct.env);
+        setBrokerType(acct.brokerType);
         setCurrentMax(acct.maxOrderUsd);
         setCurrentDaily(acct.dailyOrderUsd);
         // 깨진 한도 종류에 따라 추천값 산출
-        const est = proposal?.limitPrice ? Number(proposal.limitPrice) * Number(proposal.qty) : 0;
+        const est = proposal?.limitPrice ? Number(proposal.limitPrice) * (proposal.qtyDecimal != null ? Number(proposal.qtyDecimal) : Number(proposal.qty)) : 0;
         let suggested;
         if (limitKind === "daily") {
           // 오늘 사용량 + 신규를 1.2배 여유로 수용
@@ -96,7 +98,7 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
     setSaving(true); setSaveErr(null);
     try {
       const key = limitKind === "daily" ? "dailyOrderUsd" : "maxOrderUsd";
-      await patchBrokerLimits(brokerEnv, { [key]: v });
+      await patchBrokerLimits(brokerEnv, { [key]: v }, brokerType);
       if (limitKind === "daily") setCurrentDaily(v); else setCurrentMax(v);
       // 한도 저장 성공 → 바로 주문 재시도
       await onConfirm();
@@ -134,9 +136,13 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
   const isBuy = proposal.side === "BUY";
   const sideColor = isBuy ? "#15803D" : "#B91C1C";
   const sideBg = isBuy ? "#DCFCE7" : "#FEE2E2";
+  const isCrypto = proposal.qtyDecimal != null;   // Binance 분수수량 제안
+  const qtyNum = isCrypto ? Number(proposal.qtyDecimal) : Number(proposal.qty);
+  const qtyLabel = isCrypto ? `${proposal.qtyDecimal} · ${proposal.ticker}` : `${proposal.qty}주 · ${proposal.ticker}`;
   const estUsd = proposal.limitPrice
-    ? Number(proposal.limitPrice) * Number(proposal.qty)
-    : null;  const sheet = {
+    ? Number(proposal.limitPrice) * qtyNum
+    : null;
+  const sheet = {
     background: theme.panel,
     color: theme.text,
     boxShadow: "0 -8px 30px rgba(0,0,0,0.25)",
@@ -212,11 +218,11 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
             {isBuy ? "매수 BUY" : "매도 SELL"}
           </div>
           <div style={{ fontSize: 26, fontWeight: 900, marginBottom: 4, letterSpacing: -0.5 }}>
-            {proposal.qty}주 · {proposal.ticker}
+            {qtyLabel}
           </div>
           {proposal.limitPrice && (
             <div style={{ fontSize: 14, color: theme.textMuted }}>
-              지정가 ${Number(proposal.limitPrice).toFixed(2)}
+              지정가 {isCrypto ? `${Number(proposal.limitPrice)} USDT` : `$${Number(proposal.limitPrice).toFixed(2)}`}
               {estUsd && (
                 <span style={{ marginLeft: 10, color: theme.text, fontWeight: 700 }}>
                   예상 ${estUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
@@ -243,8 +249,10 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
         }}>
           <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
           <div>
-            승인 시 즉시 KIS 모의(또는 실전) 계좌로 주문이 전송됩니다.
-            전송 후 취소는 KIS 영업시간 내에서만 가능합니다.
+            승인 시 즉시 {isCrypto ? "Binance" : "KIS"} 계좌로 주문이 전송됩니다.
+            {isCrypto
+              ? " 크립토 시장은 24시간 거래되며, 시장가 주문은 즉시 체결됩니다."
+              : " 전송 후 취소는 KIS 영업시간 내에서만 가능합니다."}
           </div>
         </div>
 

@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   MessageSquare, Layers, BarChart3, Activity, ShieldCheck,
   ScrollText, Play, ChevronLeft, RefreshCw,
-  AlertTriangle, FileText,
+  AlertTriangle, FileText, Bot,
 } from "lucide-react";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import {
@@ -56,7 +56,7 @@ export default function Workspace() {
   const navigate = useNavigate();
   const { theme } = useTheme();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get("tab") || "config";
+  const tab = searchParams.get("tab") || localStorage.getItem("ah.workbench.defaultTab") || "config";
   const setTab = (t) => setSearchParams({ tab: t }, { replace: true });
   const [ws, setWs] = useState(null);
   const [err, setErr] = useState(null);
@@ -171,12 +171,13 @@ export default function Workspace() {
   const subScores = trust?.sub_scores || {};
   const assets = extractAssets(ws.strategyConfig);
   const template = ws.strategyConfig?.template || ws.strategyConfig?.name || ws.name;
+  const hasGoal = !!(ws.goalProfile?.target || ws.goalProfile?.objective || ws.goalProfile?.summary || ws.goalProfile?.goal);
   const goalSummary =
     ws.goalProfile?.target ||
     ws.goalProfile?.objective ||
     ws.goalProfile?.summary ||
     ws.goalProfile?.goal ||
-    "목표가 아직 설정되지 않았습니다 — AI 대화에서 입력해주세요";
+    "목표가 아직 설정되지 않았습니다.";
 
   // 단순 regime 표시 (lastRegime 필드가 백엔드에 없는 경우 placeholder)
   const regimeText = ws.lastRegime?.current_label || ws.lastRegime?.label || "정상 (Normal)";
@@ -189,13 +190,30 @@ export default function Workspace() {
       marginBottom: 18,
     }}>
       <div style={topCard(theme)}>
-        <div style={topCardLabel(theme)}>전략</div>
-        <div style={{ fontSize: 13.5, fontWeight: 800, color: theme.text, marginTop: 2, marginBottom: 4, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {template}
-        </div>
-        <div style={{ fontSize: 11, color: theme.textMuted, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-          {goalSummary}
-        </div>
+        <div style={topCardLabel(theme)}>목표</div>
+        {hasGoal ? (
+          <div style={{ fontSize: 13.5, fontWeight: 800, color: theme.text, marginTop: 2, marginBottom: 4, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+            {goalSummary}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+            <div style={{ fontSize: 11, color: theme.textMuted, lineHeight: 1.4 }}>
+              목표가 아직 설정되지 않았습니다.
+            </div>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent("alpha:open-chat", { detail: { goal: true } }))}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                padding: "5px 10px", borderRadius: 8, border: "none",
+                background: "linear-gradient(135deg,#dbeafe,#ede9fe)",
+                color: "#3730a3", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                alignSelf: "flex-start",
+              }}
+            >
+              <Bot size={12} /> AI와 목표 설정하기
+            </button>
+          </div>
+        )}
         <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
           <span style={{ padding: "2px 8px", borderRadius: 999, background: theme.accentSoft, color: theme.accent, fontSize: 10.5, fontWeight: 700 }}>
             {STATUS_LABEL[ws.status] || ws.status}
@@ -758,7 +776,7 @@ function NewStrategyModal({ open, name, onChange, onConfirm, onClose, theme }) {
             autoFocus
             value={name}
             onChange={e => onChange(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") onConfirm(); if (e.key === "Escape") onClose(); }}
+            onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") onConfirm(); if (e.key === "Escape") onClose(); }}
             placeholder="예: 미국 배당 성장 전략"
             style={{
               width: "100%", padding: "12px 14px", borderRadius: 10,
@@ -950,6 +968,7 @@ function GoalProfileSummary({ profile, theme, wsId, onChange }) {
                     value={editing.value}
                     onChange={(e) => setEditing({ ...editing, value: e.target.value })}
                     onKeyDown={(e) => {
+                      if (e.nativeEvent.isComposing) return;
                       if (e.key === "Enter") saveEdit(r.type === "num" ? castNum : castStr);
                       if (e.key === "Escape") cancelEdit();
                     }}
@@ -1085,7 +1104,7 @@ function BrokerLimitsCard({ theme }) {
   };
   useEffect(() => { reload(); }, []);
 
-  const startEdit = (env, key, raw) => setEditing({ env, key, value: raw == null ? "" : String(raw) });
+  const startEdit = (brokerType, env, key, raw) => setEditing({ brokerType, env, key, value: raw == null ? "" : String(raw) });
   const cancel = () => setEditing(null);
   const save = async () => {
     if (!editing) return;
@@ -1093,7 +1112,7 @@ function BrokerLimitsCard({ theme }) {
     if (!Number.isFinite(v) || v < 0) { alert("0 이상 정수를 입력하세요"); return; }
     setSaving(true);
     try {
-      await patchBrokerLimits(editing.env, { [editing.key]: v });
+      await patchBrokerLimits(editing.env, { [editing.key]: v }, editing.brokerType);
       setEditing(null);
       await reload();
     } catch (e) {
@@ -1135,10 +1154,10 @@ function BrokerLimitsCard({ theme }) {
               padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 800,
               background: b.env === "REAL" ? "linear-gradient(135deg,#fecaca,#fca5a5)" : "linear-gradient(135deg,#bae6fd,#7dd3fc)",
               color: b.env === "REAL" ? "#7f1d1d" : "#075985",
-            }}>{b.env === "REAL" ? "실전" : "모의"}</span>
+            }}>{(b.brokerType === "BINANCE" ? "Binance " : "KIS ") + (b.env === "REAL" ? "실전" : "모의")}</span>
             {["maxOrderUsd", "dailyOrderUsd"].map((key) => {
               const label = key === "maxOrderUsd" ? "1건당 한도" : "일일 누적 한도";
-              const isEditing = editing && editing.env === b.env && editing.key === key;
+              const isEditing = editing && editing.brokerType === b.brokerType && editing.env === b.env && editing.key === key;
               return (
                 <div key={key} style={{ display: "flex", flexDirection: "column" }}>
                   <span style={{ fontSize: 10, color: theme.textMuted, fontWeight: 600 }}>{label}</span>
@@ -1148,7 +1167,7 @@ function BrokerLimitsCard({ theme }) {
                       <input autoFocus type="number" min="0" step="100"
                         value={editing.value}
                         onChange={(e) => setEditing({ ...editing, value: e.target.value })}
-                        onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
+                        onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
                         style={{
                           flex: 1, padding: "3px 8px", fontSize: 13, fontWeight: 700,
                           border: `1px solid ${theme.accent}`, borderRadius: 6, outline: "none", minWidth: 0,
@@ -1163,7 +1182,7 @@ function BrokerLimitsCard({ theme }) {
                       }}>✕</button>
                     </div>
                   ) : (
-                    <div onClick={() => startEdit(b.env, key, b[key])}
+                    <div onClick={() => startEdit(b.brokerType, b.env, key, b[key])}
                       title="클릭해서 수정"
                       style={{
                         display: "flex", justifyContent: "space-between", alignItems: "center",

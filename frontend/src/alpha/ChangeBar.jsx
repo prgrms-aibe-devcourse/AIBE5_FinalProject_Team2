@@ -31,9 +31,10 @@ export default function ChangeBar({ wsId }) {
     if (busy) return;
     setBusy(true);
     try {
-      await keepPatch(wsId, cs.id);
-      setMsg("✅ 유지됨");
-      setTimeout(() => setCs(null), 1200);
+      const r = await keepPatch(wsId, cs.id);
+      const gc = r?.gitCommit;
+      setMsg(gc?.committed ? `✅ 유지 + GitHub 커밋 (${gc.branch})` : "✅ 유지됨");
+      setTimeout(() => setCs(null), gc?.committed ? 2200 : 1200);
     } catch (e) {
       setMsg("⚠️ " + (e?.response?.data?.error || e.message));
     } finally { setBusy(false); }
