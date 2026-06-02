@@ -2,62 +2,46 @@ import { useState } from "react";
 import { Bell, CheckCheck, Trash2, X } from "lucide-react";
 import { useTheme } from "../alpha/ThemeContext";
 import { useNotificationStore } from "../store/useNotificationStore";
+import { useLanguage } from "../i18n/LanguageContext";
 
 const TYPE_CFG = {
-  strategy: { label: "전략",    color: "#3B82F6", bg: "#EFF6FF", emoji: "🎯" },
-  backtest: { label: "백테스트", color: "#10B981", bg: "#ECFDF5", emoji: "📊" },
-  regime:   { label: "시장 국면", color: "#F59E0B", bg: "#FFFBEB", emoji: "🌍" },
-  trust:    { label: "Trust",   color: "#8B5CF6", bg: "#F5F3FF", emoji: "🛡️" },
-  briefing: { label: "브리핑",  color: "#EC4899", bg: "#FDF2F8", emoji: "✨" },
-  system:   { label: "시스템",  color: "#EF4444", bg: "#FEF2F2", emoji: "⚙️" },
+  strategy: { color: "#3B82F6", bg: "#EFF6FF", emoji: "🎯" },
+  backtest: { color: "#10B981", bg: "#ECFDF5", emoji: "📊" },
+  regime:   { color: "#F59E0B", bg: "#FFFBEB", emoji: "🌍" },
+  trust:    { color: "#8B5CF6", bg: "#F5F3FF", emoji: "🛡️" },
+  briefing: { color: "#EC4899", bg: "#FDF2F8", emoji: "✨" },
+  system:   { color: "#EF4444", bg: "#FEF2F2", emoji: "⚙️" },
 };
 
-const FILTERS = [
-  { key: "all",      label: "전체" },
-  { key: "unread",   label: "읽지 않음" },
-  { key: "strategy", label: "전략" },
-  { key: "backtest", label: "백테스트" },
-  { key: "regime",   label: "시장 국면" },
-  { key: "briefing", label: "브리핑" },
-  { key: "system",   label: "시스템" },
-];
+const FILTER_KEYS = ["all", "unread", "strategy", "backtest", "regime", "briefing", "system"];
 
-const EMPTY_MSGS = {
-  all:      { emoji: "🔔", title: "알림이 없습니다",      sub: "새로운 알림이 도착하면 여기서 확인하세요." },
-  unread:   { emoji: "✅", title: "모두 읽었습니다!",      sub: "읽지 않은 알림이 없습니다." },
-  strategy: { emoji: "🎯", title: "전략 알림 없음",       sub: "전략 정형화나 업데이트 알림이 표시됩니다." },
-  backtest: { emoji: "📊", title: "백테스트 알림 없음",   sub: "백테스트 완료 시 결과 알림이 도착합니다." },
-  regime:   { emoji: "🌍", title: "시장 국면 알림 없음",  sub: "국면 전환 감지 시 알림이 도착합니다." },
-  briefing: { emoji: "✨", title: "브리핑 알림 없음",     sub: "일일 Living Briefing 도착 알림이 표시됩니다." },
-  system:   { emoji: "⚙️", title: "시스템 알림 없음",    sub: "구독, 결제, 서비스 알림이 표시됩니다." },
-};
-
-function timeAgo(iso) {
+function timeAgo(iso, t) {
   const d = Date.now() - new Date(iso).getTime();
-  if (d < 60_000)      return "방금 전";
-  if (d < 3_600_000)   return `${Math.floor(d / 60_000)}분 전`;
-  if (d < 86_400_000)  return `${Math.floor(d / 3_600_000)}시간 전`;
-  if (d < 172_800_000) return "어제";
-  return `${Math.floor(d / 86_400_000)}일 전`;
+  if (d < 60_000)      return t("notifications.timeJustNow");
+  if (d < 3_600_000)   return t("notifications.timeMinAgo",  { n: Math.floor(d / 60_000) });
+  if (d < 86_400_000)  return t("notifications.timeHourAgo", { n: Math.floor(d / 3_600_000) });
+  if (d < 172_800_000) return t("notifications.timeYesterday");
+  return t("notifications.timeDayAgo", { n: Math.floor(d / 86_400_000) });
 }
 
-function groupByDate(list) {
+function groupByDate(list, t) {
   const today     = new Date().toDateString();
   const yesterday = new Date(Date.now() - 86_400_000).toDateString();
-  const todayItems    = list.filter(n => new Date(n.time).toDateString() === today);
-  const yItems        = list.filter(n => new Date(n.time).toDateString() === yesterday);
-  const olderItems    = list.filter(n => {
+  const todayItems  = list.filter(n => new Date(n.time).toDateString() === today);
+  const yItems      = list.filter(n => new Date(n.time).toDateString() === yesterday);
+  const olderItems  = list.filter(n => {
     const d = new Date(n.time).toDateString();
     return d !== today && d !== yesterday;
   });
   const result = [];
-  if (todayItems.length)  result.push({ label: "오늘", items: todayItems });
-  if (yItems.length)      result.push({ label: "어제", items: yItems });
-  if (olderItems.length)  result.push({ label: "이전", items: olderItems });
+  if (todayItems.length)  result.push({ label: t("notifications.dateToday"),     items: todayItems });
+  if (yItems.length)      result.push({ label: t("notifications.dateYesterday"), items: yItems });
+  if (olderItems.length)  result.push({ label: t("notifications.dateOlder"),     items: olderItems });
   return result;
 }
 
 export default function NotificationsPage() {
+  const { t } = useLanguage();
   const { theme } = useTheme();
   const { notifications, markRead, markAllRead, remove, clearAll } = useNotificationStore();
   const [filter, setFilter]   = useState("all");
@@ -72,7 +56,7 @@ export default function NotificationsPage() {
     return n.type === filter;
   });
 
-  const groups = groupByDate(filtered);
+  const groups = groupByDate(filtered, t);
 
   const filterCount = (key) => {
     if (key === "all")    return notifications.length;
@@ -87,7 +71,6 @@ export default function NotificationsPage() {
         @keyframes ah-fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
       `}</style>
 
-      {/* ── 헤더 ── */}
       <div style={{
         display: "flex", alignItems: "flex-start", justifyContent: "space-between",
         marginBottom: 32, flexWrap: "wrap", gap: 16,
@@ -107,12 +90,13 @@ export default function NotificationsPage() {
               background: "linear-gradient(90deg,#3b82f6 0%,#6366f1 100%)",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
             }}>
-              알림함
+              {t("notifications.pageTitle")}
             </h1>
-            <p style={{ margin: "5px 0 0", fontSize: 13, color: "#64748B", fontWeight: 500 }}>
-              {unread > 0
-                ? <><span style={{ color: "#6366f1", fontWeight: 700 }}>{unread}개</span>의 읽지 않은 알림</>
-                : "모든 알림을 확인했습니다 ✓"}
+            <p style={{
+              margin: "5px 0 0", fontSize: 13, fontWeight: 500,
+              color: unread > 0 ? "#6366f1" : "#64748B",
+            }}>
+              {unread > 0 ? t("notifications.unreadCount", { count: unread }) : t("notifications.allRead")}
             </p>
           </div>
         </div>
@@ -121,7 +105,7 @@ export default function NotificationsPage() {
           {unread > 0 && (
             <ActionBtn
               icon={<CheckCheck size={14} />}
-              label="전체 읽음"
+              label={t("notifications.markAllRead")}
               color="#3B82F6"
               hoverBg="#EFF6FF"
               hoverBorder="#BFDBFE"
@@ -131,7 +115,7 @@ export default function NotificationsPage() {
           {notifications.length > 0 && (
             <ActionBtn
               icon={<Trash2 size={14} />}
-              label="전체 삭제"
+              label={t("notifications.clearAll")}
               color="#94A3B8"
               hoverBg="#FEF2F2"
               hoverBorder="#FECACA"
@@ -142,13 +126,12 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      {/* ── 필터 탭 ── */}
       <div style={{ display: "flex", gap: 8, marginBottom: 30, flexWrap: "wrap" }}>
-        {FILTERS.map(f => {
-          const cnt    = filterCount(f.key);
-          const active = filter === f.key;
+        {FILTER_KEYS.map(key => {
+          const cnt    = filterCount(key);
+          const active = filter === key;
           return (
-            <button key={f.key} onClick={() => setFilter(f.key)} style={{
+            <button key={key} onClick={() => setFilter(key)} style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "7px 15px", borderRadius: 20, border: "none",
               background: active
@@ -160,7 +143,7 @@ export default function NotificationsPage() {
               boxShadow: active ? "0 3px 12px rgba(99,102,241,0.28)" : "none",
               transition: "all 0.15s",
             }}>
-              {f.label}
+              {t(`notifications.filters.${key}`)}
               {cnt > 0 && (
                 <span style={{
                   background: active ? "rgba(255,255,255,0.25)" : "rgba(100,116,139,0.14)",
@@ -176,7 +159,6 @@ export default function NotificationsPage() {
         })}
       </div>
 
-      {/* ── 알림 목록 ── */}
       <div style={{ maxWidth: 780 }}>
         {groups.length === 0 ? (
           <EmptyState filter={filter} />
@@ -184,7 +166,6 @@ export default function NotificationsPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 30 }}>
             {groups.map(group => (
               <section key={group.label}>
-                {/* 날짜 그룹 레이블 */}
                 <div style={{
                   display: "flex", alignItems: "center", gap: 10, marginBottom: 12,
                 }}>
@@ -210,18 +191,14 @@ export default function NotificationsPage() {
                         style={{
                           display: "flex", alignItems: "flex-start", gap: 14,
                           padding: "17px 18px",
-                          background: n.read
-                            ? "rgba(243,244,246,0.7)"
-                            : "white",
+                          background: n.read ? "rgba(243,244,246,0.7)" : "white",
                           borderRadius: 16,
                           border: n.read
                             ? "1px solid rgba(226,232,240,0.5)"
                             : "1px solid rgba(203,213,225,0.9)",
                           boxShadow: isHov
                             ? "0 8px 28px rgba(0,0,0,0.11)"
-                            : n.read
-                              ? "none"
-                              : "0 2px 10px rgba(0,0,0,0.06)",
+                            : n.read ? "none" : "0 2px 10px rgba(0,0,0,0.06)",
                           transform: isHov ? "translateY(-2px)" : "none",
                           transition: "transform 0.15s ease, box-shadow 0.15s ease",
                           cursor: "pointer",
@@ -229,7 +206,6 @@ export default function NotificationsPage() {
                           position: "relative",
                         }}
                       >
-                        {/* 타입 이모지 아이콘 */}
                         <div style={{
                           width: 42, height: 42, borderRadius: 13, flexShrink: 0,
                           background: cfg.bg,
@@ -240,7 +216,6 @@ export default function NotificationsPage() {
                           {cfg.emoji}
                         </div>
 
-                        {/* 본문 */}
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
                             <span style={{
@@ -250,10 +225,10 @@ export default function NotificationsPage() {
                               padding: "2px 9px", borderRadius: 10,
                               border: `1px solid ${cfg.color}30`,
                             }}>
-                              {cfg.label}
+                              {t(`notifications.types.${n.type}`)}
                             </span>
                             <span style={{ fontSize: 12, color: "#94A3B8", fontWeight: 500 }}>
-                              {timeAgo(n.time)}
+                              {timeAgo(n.time, t)}
                             </span>
                           </div>
                           <div style={{
@@ -274,7 +249,6 @@ export default function NotificationsPage() {
                           </div>
                         </div>
 
-                        {/* 우측: 미읽음 표시 + 삭제 버튼 */}
                         <div style={{
                           display: "flex", flexDirection: "column",
                           alignItems: "flex-end", gap: 10, flexShrink: 0,
@@ -343,7 +317,9 @@ function ActionBtn({ icon, label, color, hoverBg, hoverBorder, hoverColor, onCli
 }
 
 function EmptyState({ filter }) {
-  const m = EMPTY_MSGS[filter] || EMPTY_MSGS.all;
+  const { t } = useLanguage();
+  const emojis = { all: "🔔", unread: "✅", strategy: "🎯", backtest: "📊", regime: "🌍", briefing: "✨", system: "⚙️" };
+  const emoji = emojis[filter] || "🔔";
   return (
     <div style={{
       display: "flex", flexDirection: "column", alignItems: "center",
@@ -357,14 +333,14 @@ function EmptyState({ filter }) {
         fontSize: 36,
         boxShadow: "0 4px 16px rgba(99,102,241,0.1)",
       }}>
-        {m.emoji}
+        {emoji}
       </div>
       <div style={{ textAlign: "center" }}>
         <div style={{ fontSize: 17, fontWeight: 700, color: "#0F172A", marginBottom: 7 }}>
-          {m.title}
+          {t(`notifications.empty.${filter}.title`)}
         </div>
         <div style={{ fontSize: 13, color: "#94A3B8", lineHeight: 1.6 }}>
-          {m.sub}
+          {t(`notifications.empty.${filter}.sub`)}
         </div>
       </div>
     </div>

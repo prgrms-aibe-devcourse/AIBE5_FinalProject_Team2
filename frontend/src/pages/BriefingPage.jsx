@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Sparkles, RefreshCw, TrendingUp, ShieldCheck, Activity, ArrowRight, AlertCircle } from "lucide-react";
 import { listWorkspaces, getWorkspace, runBriefing } from "../alpha/alphaApi";
 import { useTheme } from "../alpha/ThemeContext";
+import { useLanguage } from "../i18n/LanguageContext";
 
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const COOLDOWN_MS = 3 * 60 * 60 * 1000;
@@ -63,6 +64,7 @@ function cleanBriefing(raw) {
 export default function BriefingPage() {
   const nav = useNavigate();
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const username = (typeof window !== "undefined" && (localStorage.getItem("username") || localStorage.getItem("dbName"))) || "trader";
 
   const [strategies, setStrategies] = useState([]); // [{id,name,status,assets,keywords,trust,goal}]
@@ -107,13 +109,6 @@ export default function BriefingPage() {
   useEffect(() => { loadAll(); }, []);
 
   const refreshOne = async (wsId) => {
-    const existing = briefings[wsId];
-    if (existing?.generatedAt && Date.now() - existing.generatedAt < COOLDOWN_MS) {
-      const remainMin = Math.ceil((COOLDOWN_MS - (Date.now() - existing.generatedAt)) / 60000);
-      const h = Math.floor(remainMin / 60), m = remainMin % 60;
-      alert(`이 전략 브리핑은 3시간에 한 번만 생성됩니다.\n다음 가능 시간까지 약 ${h > 0 ? `${h}시간 ` : ""}${m}분 남았습니다.`);
-      return;
-    }
     setBusyId(wsId);
     try {
       const b = await runBriefing(wsId);
@@ -125,6 +120,18 @@ export default function BriefingPage() {
     } finally {
       setBusyId(null);
     }
+  };
+
+  const handleRefreshOne = (wsId) => {
+    const existing = briefings[wsId];
+    if (existing?.generatedAt && Date.now() - existing.generatedAt < COOLDOWN_MS) {
+      const remainMin = Math.ceil((COOLDOWN_MS - (Date.now() - existing.generatedAt)) / 60000);
+      const h = Math.floor(remainMin / 60), m = remainMin % 60;
+      const time = h > 0 ? `${h}h ${m}m` : `${m}m`;
+      alert(t("briefing.cooldownAlert", { time }));
+      return;
+    }
+    refreshOne(wsId);
   };
 
   const liveOnly = strategies.filter(s => s.status === "LIVE");
@@ -148,10 +155,10 @@ export default function BriefingPage() {
             background: "linear-gradient(90deg,#6366f1 0%,#a78bfa 100%)",
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
           }}>
-            전체 브리핑
+            {t("briefing.title")}
           </h1>
           <p style={{ margin: "5px 0 0", fontSize: 13, color: "#64748B", fontWeight: 500 }}>
-            {username} 님이 운영 중인 전략들의 시장·키워드 브리핑입니다.
+            {t("briefing.subtitle", { name: username })}
           </p>
         </div>
         <button onClick={loadAll} disabled={loading} style={{
@@ -160,7 +167,7 @@ export default function BriefingPage() {
           background: "white", color: "#0F172A", fontSize: 13, fontWeight: 600,
           cursor: loading ? "wait" : "pointer",
         }}>
-          <RefreshCw size={14} /> {loading ? "불러오는 중…" : "목록 새로고침"}
+          <RefreshCw size={14} /> {loading ? t("briefing.loading") : t("briefing.refresh")}
         </button>
       </div>
 
@@ -175,7 +182,7 @@ export default function BriefingPage() {
         <div style={{ padding: 24, background: "white", border: "1px solid #E2E8F0", borderRadius: 14, textAlign: "center" }}>
           <AlertCircle size={28} color="#94A3B8" style={{ marginBottom: 8 }} />
           <div style={{ fontSize: 14, color: "#475569", marginBottom: 12 }}>
-            아직 전략 워크스페이스가 없습니다. 먼저 워크스페이스를 만들고 백테스트를 실행해 주세요.
+            {t("briefing.noWorkspace")}
           </div>
           <button onClick={() => nav("/alpha?new=1")} style={{
             padding: "10px 16px", borderRadius: 9, border: "none",
@@ -183,14 +190,14 @@ export default function BriefingPage() {
             color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer",
             display: "inline-flex", alignItems: "center", gap: 6,
           }}>
-            <ArrowRight size={14} /> 워크스페이스 만들기
+            <ArrowRight size={14} /> {t("briefing.createWorkspace")}
           </button>
         </div>
       )}
 
       {!loading && strategies.length > 0 && liveOnly.length === 0 && (
         <div style={{ padding: "12px 16px", background: "#FEF9C3", border: "1px solid #FCD34D", borderRadius: 10, color: "#713f12", fontSize: 13, marginBottom: 16, fontWeight: 500 }}>
-          현재 <b>운영 중(LIVE)</b>으로 표시된 전략이 없어, 전체 워크스페이스를 보여드립니다. 실거래에 적용할 전략은 워크스페이스에서 상태를 <b>LIVE</b>로 변경해 주세요.
+          {t("briefing.noLive")}
         </div>
       )}
 
@@ -232,20 +239,20 @@ export default function BriefingPage() {
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <button onClick={() => refreshOne(s.id)} disabled={busy} style={{
+                  <button onClick={() => handleRefreshOne(s.id)} disabled={busy} style={{
                     display: "inline-flex", alignItems: "center", gap: 6,
                     padding: "8px 12px", borderRadius: 8, border: "1px solid #E5E7EB",
                     background: "white", color: "#0F172A", fontSize: 12.5, fontWeight: 600,
                     cursor: busy ? "wait" : "pointer",
                   }}>
-                    <RefreshCw size={12} /> {busy ? "생성 중…" : (b?.briefing ? "다시 생성" : "브리핑 생성")}
+                    <RefreshCw size={12} /> {busy ? t("briefing.generating") : (b?.briefing ? t("briefing.regenerate") : t("briefing.generate"))}
                   </button>
                   <button onClick={() => nav(`/alpha/w/${s.id}`)} style={{
                     display: "inline-flex", alignItems: "center", gap: 4,
                     padding: "8px 12px", borderRadius: 8, border: "none",
                     background: "#DBEAFE", color: "#1e3a5f", fontSize: 12.5, fontWeight: 600, cursor: "pointer",
                   }}>
-                    워크스페이스 열기 <ArrowRight size={12} />
+                    {t("briefing.openWorkspace")} <ArrowRight size={12} />
                   </button>
                 </div>
               </div>
@@ -260,13 +267,13 @@ export default function BriefingPage() {
                   ? <MarkdownLite text={cleanBriefing(b.briefing)} />
                   : b?.error
                     ? <span style={{ color: "#b91c1c" }}>⚠ {b.error}</span>
-                    : <span style={{ color: "#94A3B8" }}>{busy ? "AI 매니저가 시장 키워드 기반 브리핑을 작성 중입니다…" : "‘브리핑 생성’ 버튼을 눌러 이 전략의 시장 브리핑을 생성하세요."}</span>}
+                    : <span style={{ color: "#94A3B8" }}>{busy ? t("briefing.generating") : t("briefing.generate")}</span>}
               </div>
 
               {Array.isArray(b?.references) && b.references.length > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 6 }}>
-                    📚 시장국면 분석 근거 · 참고 링크 ({b.references.length})
+                    📚 {t("briefing.refsTitle", { count: b.references.length })}
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                     {b.references.map((r, i) => (
@@ -288,7 +295,7 @@ export default function BriefingPage() {
 
               {b?.generatedAt && (
                 <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 8, textAlign: "right" }}>
-                  생성 시각: {new Date(b.generatedAt).toLocaleString("ko-KR")}
+                  {t("briefing.generatedAt")} {new Date(b.generatedAt).toLocaleString()}
                 </div>
               )}
             </section>

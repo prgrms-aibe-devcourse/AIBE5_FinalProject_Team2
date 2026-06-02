@@ -29,6 +29,7 @@ export default function VisionBoard() {
   const [newColor, setNewColor]   = useState(MEMO_COLORS[0]);
   const [dirty, setDirty]         = useState(false);
   const [savedAnim, setSavedAnim] = useState(false);
+  const [showDesc, setShowDesc]   = useState(false);
 
   const fileRef    = useRef(null);
   const canvasRef  = useRef(null);
@@ -174,9 +175,40 @@ export default function VisionBoard() {
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
             whiteSpace: "nowrap",
           }}>비전 보드</span>
-          <span style={{ fontSize: 12.5, color: "#475569", fontWeight: 500, whiteSpace: "nowrap" }}>
-            — 투자 자유를 꿈꾸는 당신의 비전을 시각화하세요. 목표하는 삶, 가고 싶은 곳, 이루고 싶은 것들을 자유롭게 붙여보세요.
-          </span>
+          <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+            <div
+              onMouseEnter={() => setShowDesc(true)}
+              onMouseLeave={() => setShowDesc(false)}
+              style={{
+                width: 22, height: 22, borderRadius: "50%",
+                background: "#F1F5F9", border: "1px solid #E2E8F0",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "default",
+              }}
+            >
+              <HelpCircle size={13} color="#94A3B8" />
+            </div>
+            {showDesc && (
+              <div style={{
+                position: "absolute", top: "calc(100% + 8px)", left: 0,
+                background: "#ffffff", borderRadius: 12,
+                padding: "14px 18px", zIndex: 9999,
+                boxShadow: "0 8px 28px rgba(99,102,241,0.18), 0 0 0 1px #E0E7FF",
+                whiteSpace: "nowrap", pointerEvents: "none",
+              }}>
+                <div style={{
+                  position: "absolute", top: -6, left: 10,
+                  width: 12, height: 12, background: "#ffffff",
+                  borderLeft: "1px solid #E0E7FF", borderTop: "1px solid #E0E7FF",
+                  transform: "rotate(45deg)",
+                }} />
+                <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.6 }}>
+                  투자 자유를 꿈꾸는 당신의 비전을 시각화하세요.<br />
+                  목표하는 삶, 가고 싶은 곳, 이루고 싶은 것들을 자유롭게 붙여보세요.
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div style={{ width: 1, height: 22, background: "#E2E8F0", margin: "0 4px" }} />
@@ -255,7 +287,7 @@ export default function VisionBoard() {
             autoFocus
             value={newText}
             onChange={e => setNewText(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") addText(); if (e.key === "Escape") setShowText(false); }}
+            onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") addText(); if (e.key === "Escape") setShowText(false); }}
             placeholder="텍스트 내용 입력 후 Enter..."
             style={{
               flex: 1, padding: "8px 12px", borderRadius: 8, fontFamily: F,
@@ -477,7 +509,7 @@ const HINTS = [
 function HintTooltip() {
   const [show, setShow] = useState(false);
   return (
-    <div style={{ position: "relative", display: "inline-flex" }}>
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
       <div
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
@@ -492,8 +524,7 @@ function HintTooltip() {
       </div>
       {show && (
         <div style={{
-          position: "absolute", top: "calc(100% + 8px)", left: "50%",
-          transform: "translateX(-50%)",
+          position: "absolute", top: "calc(100% + 8px)", left: 0,
           background: "#ffffff", borderRadius: 12,
           padding: "14px 18px", zIndex: 9999,
           boxShadow: "0 8px 28px rgba(99,102,241,0.18), 0 0 0 1px #E0E7FF",
@@ -502,10 +533,10 @@ function HintTooltip() {
         }}>
           {/* 말풍선 화살표 */}
           <div style={{
-            position: "absolute", top: -6, left: "50%",
+            position: "absolute", top: -6, left: 10,
             width: 12, height: 12, background: "#ffffff",
             borderLeft: "1px solid #E0E7FF", borderTop: "1px solid #E0E7FF",
-            transform: "translateX(-50%) rotate(45deg)",
+            transform: "rotate(45deg)",
           }} />
           <div style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", letterSpacing: 0.6, marginBottom: 10, textTransform: "uppercase" }}>
             사용법

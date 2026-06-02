@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Plus, TrendingUp, Sparkles, ArrowRight, Pencil, Check, X, Layers } from "lucide-react";
 import { listWorkspaces, getWorkspace, runBriefing, createWorkspace } from "../alpha/alphaApi";
 import { useTheme } from "../alpha/ThemeContext";
+import { useLanguage } from "../i18n/LanguageContext";
 
 /**
  * WorkHome — 실제 백엔드(alpha_workspace) 데이터를 읽어 "오늘의 전략 상태 요약"을 표시.
@@ -19,16 +20,17 @@ function greeting() {
   return "Good evening";
 }
 
-function healthFromTrust(t) {
-  if (t == null) return { label: "미측정", color: "#94A3B8", bg: "#F1F5F9", gradient: "linear-gradient(90deg,#CBD5E1,#E2E8F0)" };
-  if (t >= 75)   return { label: "Stable",  color: "#10B981", bg: "#ECFDF5", gradient: "linear-gradient(90deg,#10B981,#34D399)" };
-  if (t >= 60)   return { label: "Normal",  color: "#3B82F6", bg: "#EFF6FF", gradient: "linear-gradient(90deg,#3B82F6,#60A5FA)" };
-  return               { label: "Caution", color: "#F59E0B", bg: "#FFFBEB", gradient: "linear-gradient(90deg,#F59E0B,#FCD34D)" };
+function healthFromTrust(score) {
+  if (score == null) return { key: "unmeasured", color: "#94A3B8", bg: "#F1F5F9", gradient: "linear-gradient(90deg,#CBD5E1,#E2E8F0)" };
+  if (score >= 75)   return { key: "stable",     color: "#10B981", bg: "#ECFDF5", gradient: "linear-gradient(90deg,#10B981,#34D399)" };
+  if (score >= 60)   return { key: "normal",     color: "#3B82F6", bg: "#EFF6FF", gradient: "linear-gradient(90deg,#3B82F6,#60A5FA)" };
+  return                    { key: "caution",    color: "#F59E0B", bg: "#FFFBEB", gradient: "linear-gradient(90deg,#F59E0B,#FCD34D)" };
 }
 
 export default function WorkHome() {
   const nav = useNavigate();
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const username = (typeof window !== "undefined" && (localStorage.getItem("username") || localStorage.getItem("dbName"))) || "trader";
   const [strategies, setStrategies] = useState([]); // [{ id, name, trust, status, color, label, goal, progress }]
   const [briefing, setBriefing] = useState(null);
@@ -46,7 +48,7 @@ export default function WorkHome() {
           const h = healthFromTrust(trust);
           const goal = (w.goalProfile && typeof w.goalProfile === "object")
             ? (w.goalProfile.목표 || w.goalProfile.goal || w.goalProfile.summary || null) : null;
-          return { id: w.id, name: w.name, trust, status: w.status, label: h.label, color: h.color, bg: h.bg, gradient: h.gradient, goal };
+          return { id: w.id, name: w.name, trust, status: w.status, healthKey: h.key, color: h.color, bg: h.bg, gradient: h.gradient, goal };
         });
         setStrategies(items);
 
@@ -95,7 +97,7 @@ export default function WorkHome() {
       const w = await createWorkspace(createModalName.trim());
       nav(`/alpha/w/${w.id}`);
     } catch (e) {
-      alert("생성 실패: " + (e?.response?.data?.error || e.message));
+      alert(t("workhome.createFailed", { err: e?.response?.data?.error || e.message }));
     } finally {
       setCreating(false);
     }
@@ -129,7 +131,7 @@ export default function WorkHome() {
               {greeting()}, {username}
             </h1>
             <p style={{ margin: "5px 0 0", fontSize: 13, color: "#64748B", fontWeight: 500 }}>
-              오늘의 전략 상태 요약
+              {t("workhome.subtitle")}
             </p>
           </div>
         </div>
@@ -149,13 +151,13 @@ export default function WorkHome() {
             <h3 style={cardTitle}>Freedom Goal</h3>
           </div>
           <div style={{ fontSize: 16, color: "#64748B", margin: "6px 0 18px", paddingLeft: 36, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ flexShrink: 0 }}>목표:</span>
+            <span style={{ flexShrink: 0 }}>{t("workhome.goal")}</span>
             {editGoal ? (
               <>
                 <input
                   value={draft}
                   onChange={e => setDraft(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditGoal(false); }}
+                  onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditGoal(false); }}
                   disabled={false}
                   style={{
                     flex: 1, padding: "6px 10px", borderRadius: 8,
@@ -164,19 +166,19 @@ export default function WorkHome() {
                   }}
                   autoFocus
                 />
-                <button onClick={saveEdit} disabled={false} title="저장" style={iconBtn("#10B981")}>
+                <button onClick={saveEdit} disabled={false} title={t("common.save")} style={iconBtn("#10B981")}>
                   <Check size={14} />
                 </button>
-                <button onClick={() => setEditGoal(false)} disabled={false} title="취소" style={iconBtn("#94A3B8")}>
+                <button onClick={() => setEditGoal(false)} disabled={false} title={t("common.cancel")} style={iconBtn("#94A3B8")}>
                   <X size={14} />
                 </button>
               </>
             ) : (
               <>
                 <span style={{ color: "#0F172A", flex: 1, wordBreak: "break-all" }}>
-                  {slogan || firstGoal || (loading ? "로딩 중…" : "아직 설정되지 않은 슬로건 — 연필을 눌러 투자의 최종 목표를 적어보세요")}
+                  {slogan || firstGoal || (loading ? t("workhome.loading") : t("workhome.sloganEmpty"))}
                 </span>
-                <button onClick={startEdit} title="수정" style={iconBtn("#64748B")}>
+                <button onClick={startEdit} title={t("common.edit")} style={iconBtn("#64748B")}>
                   <Pencil size={13} />
                 </button>
               </>
@@ -190,7 +192,7 @@ export default function WorkHome() {
                 cursor: "pointer", padding: 0,
                 display: "inline-flex", alignItems: "center", gap: 4,
               }}>
-              비전 보드 보기 <ArrowRight size={14} />
+              {t("workhome.visionBoard")} <ArrowRight size={14} />
             </button>
           </div>
         </section>
@@ -206,7 +208,7 @@ export default function WorkHome() {
           <p style={{ fontSize: 13.5, color: "#334155", lineHeight: 1.65, margin: "8px 0 18px", paddingLeft: 36, whiteSpace: "pre-wrap" }}>
             {briefing?.briefing
               ? (briefing.briefing.split(/\n+/).map(s => s.trim().replace(/["""'']/g, "").replace(/,\s*$/, "")).find(l => l.length >= 10) || briefing.briefing.slice(0, 160))
-              : (loading ? "브리핑을 불러오는 중…" : "워크스페이스를 생성하고 Trust Score를 한번이라도 실행하면 AI 브리핑이 표시됩니다.")}
+              : (loading ? t("workhome.briefingLoading") : t("workhome.briefingEmpty"))}
           </p>
           <button onClick={() => nav("/briefing")}
             style={{
@@ -216,7 +218,7 @@ export default function WorkHome() {
               display: "inline-flex", alignItems: "center", gap: 4,
               padding: 0,
             }}>
-            전체 브리핑 보기 <ArrowRight size={14} />
+            {t("workhome.viewBriefing")} <ArrowRight size={14} />
           </button>
         </section>
       </div>
@@ -239,7 +241,7 @@ export default function WorkHome() {
           onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.05)"}
           onMouseLeave={e => e.currentTarget.style.filter = "none"}
         >
-          <Plus size={15} /> 새 워크스페이스
+          <Plus size={15} /> {t("workhome.newWorkspace")}
         </button>
       </div>
 
@@ -249,16 +251,16 @@ export default function WorkHome() {
       }}>
         {err && (
           <div style={{ gridColumn: "1/-1", padding: 14, background: "#FEF2F2", color: "#B91C1C", border: "1px solid #FECACA", borderRadius: 10, fontSize: 13 }}>
-            워크스페이스 불러오기 실패: {err}
+            {t("workhome.loadFailed", { err })}
           </div>
         )}
         {!err && !loading && strategies.length === 0 && (
           <div style={{ gridColumn: "1/-1", padding: 28, background: "#F8FAFC", border: "1px dashed #CBD5E1", borderRadius: 12, textAlign: "center", color: "#64748B", fontSize: 14 }}>
-            아직 전략 워크스페이스가 없습니다. 오른쪽 위 <b>+ 새 워크스페이스</b> 버튼으로 시작해보세요.
+            {t("workhome.noWorkspace")}
           </div>
         )}
         {loading && strategies.length === 0 && (
-          <div style={{ gridColumn: "1/-1", padding: 20, color: "#94A3B8", fontSize: 13 }}>로딩 중…</div>
+          <div style={{ gridColumn: "1/-1", padding: 20, color: "#94A3B8", fontSize: 13 }}>{t("workhome.loading")}</div>
         )}
         {strategies.map(s => {
           return (
@@ -311,7 +313,7 @@ export default function WorkHome() {
                   background: s.bg, color: s.color,
                   padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
                 }}>
-                  {s.label}
+                  {t(`workhome.health.${s.healthKey}`)}
                 </div>
               </div>
             </div>
@@ -345,8 +347,8 @@ export default function WorkHome() {
                   <Layers size={20} color="white" />
                 </div>
                 <div>
-                  <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1e3a8a", fontFamily: F }}>새 워크스페이스</h2>
-                  <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569", fontFamily: F }}>삶의 목표를 투자 전략으로 변환합니다</p>
+                  <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1e3a8a", fontFamily: F }}>{t("workhome.modal.title")}</h2>
+                  <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569", fontFamily: F }}>{t("workhome.modal.subtitle")}</p>
                 </div>
               </div>
               <button onClick={() => setCreateModalOpen(false)} style={{
@@ -357,14 +359,14 @@ export default function WorkHome() {
             </div>
             <div style={{ padding: "24px 28px" }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 8, fontFamily: F }}>
-                워크스페이스 이름
+                {t("workhome.modal.label")}
               </label>
               <input
                 autoFocus
                 value={createModalName}
                 onChange={e => setCreateModalName(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") onConfirmCreate(); if (e.key === "Escape") setCreateModalOpen(false); }}
-                placeholder="예: 5년 후 월 300만원 현금흐름"
+                onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") onConfirmCreate(); if (e.key === "Escape") setCreateModalOpen(false); }}
+                placeholder={t("workhome.modal.placeholder")}
                 style={{
                   width: "100%", padding: "12px 14px", borderRadius: 10,
                   border: "1.5px solid #C7D2FE", fontSize: 14, outline: "none",
@@ -375,7 +377,7 @@ export default function WorkHome() {
                 onBlur={e => e.target.style.borderColor = "#C7D2FE"}
               />
               <p style={{ margin: "10px 0 0", fontSize: 12, color: "#94A3B8", lineHeight: 1.6, fontFamily: F }}>
-                이름은 나중에 AI와 대화하면서 자동으로 목표에 맞게 구체화됩니다.
+                {t("workhome.modal.hint")}
               </p>
             </div>
             <div style={{ padding: "0 28px 24px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -383,7 +385,7 @@ export default function WorkHome() {
                 padding: "10px 20px", borderRadius: 10,
                 border: "1px solid #E2E8F0", background: "white", color: "#374151",
                 fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: F,
-              }}>취소</button>
+              }}>{t("workhome.modal.cancel")}</button>
               <button onClick={onConfirmCreate} disabled={!createModalName.trim()} style={{
                 padding: "10px 20px", borderRadius: 10, border: "none",
                 background: createModalName.trim()
@@ -392,7 +394,7 @@ export default function WorkHome() {
                 color: createModalName.trim() ? "white" : "#94A3B8",
                 fontSize: 13, fontWeight: 700, fontFamily: F,
                 cursor: createModalName.trim() ? "pointer" : "not-allowed",
-              }}>워크스페이스 생성</button>
+              }}>{t("workhome.modal.create")}</button>
             </div>
           </div>
         </div>

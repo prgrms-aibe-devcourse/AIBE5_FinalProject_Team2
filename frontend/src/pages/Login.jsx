@@ -89,15 +89,7 @@ function Login() {
     }
   };
 
-  // 이메일 → 역할 매핑 (백엔드 연동 전 임시 하드코딩)
-  // 실제 서비스에서는 서버 DB의 role 필드로 대체됩니다.
-  const EMAIL_ROLE_MAP = {
-    "hylee132@gmail.com":              "partner",
-    "yeonalee.researcher@gmail.com":   "client",
-    "dirwnsdl0106@gmail.com":          "partner",
-    "jinhyenkim01@gmail.com":          "partner",
-  };
-
+  // 역할(role)은 서버 응답(data.userType)에서만 취득한다. 과거 하드코딩 EMAIL_ROLE_MAP(실명 Gmail PII)은 제거됨.
   const googleLogin = useGoogleLogin({
     state: googleOAuthState,
     onSuccess: async (tokenResponse) => {
@@ -117,7 +109,8 @@ function Login() {
 
         // BE 에 소셜 로그인 요청 → JWT 발급
         try {
-          const data = await authApi.socialLogin({ email: userEmail, provider: "google" });
+          // 보안: 클라이언트가 email 을 정하지 않고 accessToken 을 보내 백엔드가 Google 에 직접 검증.
+          const data = await authApi.socialLogin({ accessToken, provider: "google" });
           // JWT는 HttpOnly 쿠키로 자동 set — 잔존 레거시 토큰 정리만.
           localStorage.removeItem('accessToken');
           if (data.userId != null) {
