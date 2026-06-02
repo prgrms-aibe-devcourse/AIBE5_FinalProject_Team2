@@ -136,6 +136,7 @@ function GoalProfileSummary({ profile, theme, wsId, onChange }) {
                     value={editing.value}
                     onChange={(e) => setEditing({ ...editing, value: e.target.value })}
                     onKeyDown={(e) => {
+                      if (e.nativeEvent.isComposing) return;
                       if (e.key === "Enter") saveEdit(r.type === "num" ? castNum : castStr);
                       if (e.key === "Escape") cancelEdit();
                     }}
@@ -255,7 +256,7 @@ function BrokerLimitsCard({ theme }) {
   };
   useEffect(() => { reload(); }, []);
 
-  const startEdit = (env, key, raw) => setEditing({ env, key, value: raw == null ? "" : String(raw) });
+  const startEdit = (brokerType, env, key, raw) => setEditing({ brokerType, env, key, value: raw == null ? "" : String(raw) });
   const cancel = () => setEditing(null);
   const save = async () => {
     if (!editing) return;
@@ -263,7 +264,7 @@ function BrokerLimitsCard({ theme }) {
     if (!Number.isFinite(v) || v < 0) { alert("0 이상 정수를 입력하세요"); return; }
     setSaving(true);
     try {
-      await patchBrokerLimits(editing.env, { [editing.key]: v });
+      await patchBrokerLimits(editing.env, { [editing.key]: v }, editing.brokerType);
       setEditing(null);
       await reload();
     } catch (e) {
@@ -305,10 +306,10 @@ function BrokerLimitsCard({ theme }) {
               padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 800,
               background: b.env === "REAL" ? "linear-gradient(135deg,#fecaca,#fca5a5)" : "linear-gradient(135deg,#bae6fd,#7dd3fc)",
               color: b.env === "REAL" ? "#7f1d1d" : "#075985",
-            }}>{b.env === "REAL" ? "실전" : "모의"}</span>
+            }}>{(b.brokerType === "BINANCE" ? "Binance " : "KIS ") + (b.env === "REAL" ? "실전" : "모의")}</span>
             {["maxOrderUsd", "dailyOrderUsd"].map((key) => {
               const label = key === "maxOrderUsd" ? "1건당 한도" : "일일 누적 한도";
-              const isEditing = editing && editing.env === b.env && editing.key === key;
+              const isEditing = editing && editing.brokerType === b.brokerType && editing.env === b.env && editing.key === key;
               return (
                 <div key={key} style={{ display: "flex", flexDirection: "column" }}>
                   <span style={{ fontSize: 10, color: theme.textMuted, fontWeight: 600 }}>{label}</span>
@@ -318,7 +319,7 @@ function BrokerLimitsCard({ theme }) {
                       <input autoFocus type="number" min="0" step="100"
                         value={editing.value}
                         onChange={(e) => setEditing({ ...editing, value: e.target.value })}
-                        onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
+                        onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") save(); if (e.key === "Escape") cancel(); }}
                         style={{
                           flex: 1, padding: "3px 8px", fontSize: 13, fontWeight: 700,
                           border: `1px solid ${theme.accent}`, borderRadius: 6, outline: "none", minWidth: 0,
@@ -333,7 +334,7 @@ function BrokerLimitsCard({ theme }) {
                       }}>✕</button>
                     </div>
                   ) : (
-                    <div onClick={() => startEdit(b.env, key, b[key])}
+                    <div onClick={() => startEdit(b.brokerType, b.env, key, b[key])}
                       title="클릭해서 수정"
                       style={{
                         display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -426,7 +427,7 @@ export default function ConfigPanel({ id, ws, onChange, setTab, topSummary }) {
   const headerBtnLabel = busy ? "변환 중…" : (candidates.length > 0 ? "후보 다시 생성" : "Goal → Strategy");
 
   return (
-    <div style={{ maxWidth: 1100 }}>
+    <div>
       <PanelHeader
         icon="🧩"
         title="Strategy Card"
