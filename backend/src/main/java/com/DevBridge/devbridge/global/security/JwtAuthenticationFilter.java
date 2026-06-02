@@ -8,10 +8,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * JWT 추출 우선순위:
@@ -44,9 +48,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 Object type = claims.get("type");
                 if (uid instanceof Number n) {
                     request.setAttribute(ATTR_USER_ID, n.longValue());
-                }
-                if (type != null) {
-                    request.setAttribute(ATTR_USER_TYPE, type.toString());
+                    if (type != null) {
+                        request.setAttribute(ATTR_USER_TYPE, type.toString());
+                    }
+                    // Spring Security SecurityContext에도 인증 정보 등록
+                    // → .anyRequest().authenticated() 체크를 통과하게 함
+                    var auth = new UsernamePasswordAuthenticationToken(
+                            n.longValue(), null, List.of());
+                    auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(auth);
                 }
             } catch (Exception e) {
                 // 토큰 파싱 실패: 익명 요청으로 통과

@@ -19,7 +19,7 @@ import java.util.Properties;
 @EnableJpaAuditing
 @EnableScheduling
 @EnableAsync
-public class DevbridgeApplication {
+public class DevBridgeApplication {
 	public static void main(String[] args) {
 		// === .env 로딩 ===
 		// cwd 에 의존하지 않도록 절대경로 후보를 직접 탐색하고, 결과를 로그로 남긴다.
@@ -57,7 +57,7 @@ public class DevbridgeApplication {
 		// application-local.properties 의 정적 값(즉, ${ENV:} 형태가 아닌 값)을 JVM system property 로 등록.
 		// Spring property 우선순위: System property(#8) > OS env(#9) > application-{profile}.properties(#11).
 		// → application-local 자체에 박힌 값은 OS env 덮어쓰기와 무관하게 우선되어야 한다.
-		try (InputStream in = DevbridgeApplication.class.getResourceAsStream("/application-local.properties")) {
+		try (InputStream in = DevBridgeApplication.class.getResourceAsStream("/application-local.properties")) {
 			if (in != null) {
 				Properties localProps = new Properties();
 				localProps.load(in);
@@ -71,7 +71,7 @@ public class DevbridgeApplication {
 			}
 		} catch (Exception ignored) { /* 로컬 파일 없으면 skip */ }
 
-		SpringApplication app = new SpringApplication(DevbridgeApplication.class);
+		SpringApplication app = new SpringApplication(DevBridgeApplication.class);
 		Map<String, Object> defaults = new HashMap<>();
 		envProps.forEach(defaults::put);
 		app.setDefaultProperties(defaults);

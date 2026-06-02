@@ -25,7 +25,6 @@ function Login() {
   const [touched, setTouched] = useState({ email: false, pw: false });
   const [_agreedToTerms, _setAgreedToTerms] = useState(false);
   const [showSignupConfirm, setShowSignupConfirm] = useState(false);
-  const [googleOAuthState] = useState(() => crypto.randomUUID());
 
   const emailError = useMemo(() => {
     if (!touched.email) return "";
@@ -99,12 +98,7 @@ function Login() {
   };
 
   const googleLogin = useGoogleLogin({
-    state: googleOAuthState,
     onSuccess: async (tokenResponse) => {
-      if (tokenResponse.state !== googleOAuthState) {
-        alert("보안 오류가 발생했습니다. 다시 시도해주세요.");
-        return;
-      }
       const accessToken = tokenResponse.access_token;
 
       try {
