@@ -15,7 +15,7 @@ import java.util.Map;
 
 /**
  * 사용자 프로필 세부 정보 (UserProfileDetail + Skills/Careers/Educations/Awards/Certifications) 통합 컨트롤러.
- * - PartnerProfile.jsx, Client_Profile.jsx 의 "전체 설정 저장하기" 에서 호출.
+ * - Client_Profile.jsx 의 "전체 설정 저장하기" 에서 호출.
  */
 @RestController
 @RequestMapping("/api/profile")

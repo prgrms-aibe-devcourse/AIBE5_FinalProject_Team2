@@ -74,6 +74,18 @@ public class AlphaWorkspace {
     @Column(name = "broker_account_id")
     private Long brokerAccountId;
 
+    /**
+     * 이 워크스페이스와 매핑된 GitHub repo full name ("owner/repo").
+     * Developer Studio Git 연동: 1 워크스페이스 ↔ 1 repo.
+     */
+    @Column(name = "github_repo_full_name", length = 200)
+    private String githubRepoFullName;
+
+    /** GitHub 기본 브랜치 (default: main). */
+    @Column(name = "github_branch", length = 100)
+    @Builder.Default
+    private String githubBranch = "main";
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 

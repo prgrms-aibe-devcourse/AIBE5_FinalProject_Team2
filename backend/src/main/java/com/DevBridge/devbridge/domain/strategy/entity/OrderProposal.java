@@ -54,9 +54,16 @@ public class OrderProposal {
     @Column(nullable = false, length = 8)
     private String side;
 
-    /** 주문 수량 (정수 주식 수) */
+    /** 주문 수량 (정수 주식 수). 크립토 분수 수량은 {@link #qtyDecimal} 사용 — 이 값은 올림 placeholder. */
     @Column(nullable = false)
     private Integer qty;
+
+    /**
+     * 분수 주문 수량 (크립토용, 예: 0.0015 BTC). NULL 이면 KIS 정수 주문({@link #qty} 사용).
+     * 실행/체결은 qtyDecimal 이 있으면 우선한다.
+     */
+    @Column(name = "qty_decimal", precision = 28, scale = 8)
+    private BigDecimal qtyDecimal;
 
     /** 지정가 (null = 시장가) */
     @Column(name = "limit_price", precision = 18, scale = 4)
@@ -98,6 +105,32 @@ public class OrderProposal {
 
     @Column(name = "executed_at")
     private LocalDateTime executedAt;
+
+    /** true면 사람 승인 없이 자동 체결된 주문 (REAL 자동매매 졸업 게이트 집계에 사용). */
+    @Column(name = "auto_executed", nullable = false)
+    @Builder.Default
+    private Boolean autoExecuted = false;
+
+    // ───── B1 체결 확인 폴링 (KIS 미체결내역 조회로 갱신) ─────
+    /** 실제 체결 상태: UNKNOWN | OPEN | PARTIAL | FILLED | CANCELLED. EXECUTED(주문수락)와 별개. */
+    @Column(name = "fill_status", length = 16)
+    private String fillStatus;
+
+    /** 체결 수량 (정수 — 크립토 분수 체결은 {@link #filledQtyDecimal}). */
+    @Column(name = "filled_qty")
+    private Integer filledQty;
+
+    /** 분수 체결 수량 (크립토용). NULL 이면 {@link #filledQty} 사용. */
+    @Column(name = "filled_qty_decimal", precision = 28, scale = 8)
+    private BigDecimal filledQtyDecimal;
+
+    /** 평균 체결가 (USD) */
+    @Column(name = "fill_avg_price", precision = 18, scale = 4)
+    private BigDecimal fillAvgPrice;
+
+    /** 마지막 체결 폴링 시각 */
+    @Column(name = "fill_checked_at")
+    private LocalDateTime fillCheckedAt;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

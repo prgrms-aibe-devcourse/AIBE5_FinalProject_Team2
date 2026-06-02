@@ -83,35 +83,36 @@ public class UserController {
     }
 
     /**
-     * GET /api/users/me/slogan
-     * 현재 로그인 사용자의 슬로건(투자 최종 목표) 조회.
+     * GET /api/users/me/github-username
+     * 현재 로그인 사용자의 GitHub 사용자명 조회.
      */
-    @GetMapping("/me/slogan")
-    public ResponseEntity<?> getMySlogan() {
+    @GetMapping("/me/github-username")
+    public ResponseEntity<?> getMyGithubUsername() {
         Long uid = AuthContext.currentUserId();
         if (uid == null) return ResponseEntity.status(401).build();
         return userRepository.findById(uid)
-                .map(u -> ResponseEntity.ok(Map.of("slogan", u.getSlogan() == null ? "" : u.getSlogan())))
+                .map(u -> ResponseEntity.ok(Map.of("githubUsername", u.getGithubUsername() == null ? "" : u.getGithubUsername())))
                 .orElse(ResponseEntity.notFound().build());
     }
 
     /**
-     * PATCH /api/users/me/slogan  body: { "slogan": "..." }
+     * PATCH /api/users/me/github-username  body: { "githubUsername": "..." }
      */
-    @PatchMapping("/me/slogan")
+    @PatchMapping("/me/github-username")
     @Transactional
-    public ResponseEntity<?> updateMySlogan(@RequestBody Map<String, String> body) {
+    public ResponseEntity<?> updateMyGithubUsername(@RequestBody Map<String, String> body) {
         Long uid = AuthContext.currentUserId();
         if (uid == null) return ResponseEntity.status(401).build();
         return userRepository.findById(uid)
                 .map(u -> {
-                    String s = body == null ? null : body.get("slogan");
-                    if (s == null) s = "";
-                    String trimmed = s.trim();
-                    if (trimmed.length() > 500) trimmed = trimmed.substring(0, 500);
-                    u.setSlogan(trimmed);
+                    String username = body == null ? null : body.get("githubUsername");
+                    if (username == null) username = "";
+                    String trimmed = username.trim();
+                    if (trimmed.length() > 100) trimmed = trimmed.substring(0, 100);
+                    u.setGithubUsername(trimmed.isEmpty() ? null : trimmed);
+                    u.setGithubConnectedAt(trimmed.isEmpty() ? null : java.time.LocalDateTime.now());
                     userRepository.save(u);
-                    return ResponseEntity.ok(Map.of("slogan", trimmed));
+                    return ResponseEntity.ok(Map.of("githubUsername", trimmed));
                 })
                 .orElse(ResponseEntity.notFound().build());
     }

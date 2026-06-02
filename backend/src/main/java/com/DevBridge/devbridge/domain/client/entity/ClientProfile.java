@@ -25,9 +25,6 @@ public class ClientProfile {
     @Column(name = "client_type", nullable = false)
     private ClientType clientType;
 
-    @Column(nullable = false, length = 255)
-    private String slogan;
-
     // ===== ERD v2 확장 필드 =====
     @Column(length = 50)
     private String industry;

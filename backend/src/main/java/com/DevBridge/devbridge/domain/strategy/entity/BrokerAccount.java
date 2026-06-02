@@ -82,19 +82,49 @@ public class BrokerAccount {
     @Builder.Default
     private Long maxOrderUsd = 5_000L;
 
-    /** 일일 누적 최대 주문금액 (USD) */
+    /** 일일 누적 최대 주문금액 (USD) — Binance/일반용. KIS 는 아래 KRW 한도가 우선. */
     @Column(name = "daily_order_usd")
     @Builder.Default
     private Long dailyOrderUsd = 20_000L;
+
+    /** 손실 한도 서킷브레이커 (USD): 미실현 총손실이 이 값 초과 시 신규 매수 차단. null/0 = 비활성. (B3) */
+    @Column(name = "daily_loss_limit_usd")
+    private Long dailyLossLimitUsd;
+
+    /** KIS 전용: 1일 누적 매수 한도 (원화). null = 무제한. */
+    @Column(name = "daily_buy_krw")
+    private Long dailyBuyKrw;
+
+    /** KIS 전용: 1일 누적 매도 한도 (원화). null = 무제한. */
+    @Column(name = "daily_sell_krw")
+    private Long dailySellKrw;
 
     /** 사용자 직접 ON/OFF 가능한 마스터 스위치. false면 모든 승인 거부. */
     @Column(name = "trading_enabled", nullable = false)
     @Builder.Default
     private Boolean tradingEnabled = false;
 
+    /**
+     * 자동 체결 스위치. true면 시그널이 만든 PENDING 제안을 사람 승인 없이 자동 실행한다.
+     * 전제: tradingEnabled=true. REAL 계정은 MOCK 자동매매 졸업 게이트(2주+20회) 통과 필요.
+     * 모든 안전장치(한도·kill-switch)는 그대로 적용된다. 기본 OFF.
+     */
+    @Column(name = "auto_execute", nullable = false)
+    @Builder.Default
+    private Boolean autoExecute = false;
+
     /** 마지막 연결 테스트 성공 시각 (잔고조회로 검증) */
     @Column(name = "last_verified_at")
     private LocalDateTime lastVerifiedAt;
+
+    // ───── B2: 체결 후 잔고/포지션 동기화 스냅샷 ─────
+    /** 마지막 동기화된 잔고/포지션 JSON (체결 직후 자동 갱신). */
+    @Column(name = "last_balance_json", columnDefinition = "LONGTEXT")
+    private String lastBalanceJson;
+
+    /** 잔고 스냅샷 시각. */
+    @Column(name = "last_balance_at")
+    private LocalDateTime lastBalanceAt;
 
     @CreatedDate
     @Column(name = "created_at", updatable = false)

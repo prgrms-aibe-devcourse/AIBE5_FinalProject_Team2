@@ -19,7 +19,6 @@ public class SignupRequest {
     private String username;
     private String password;
     private User.UserType userType;
-    private String interests;
     private LocalDate birthDate;
 
     // 기본 회원가입에서 입력받는 업종/서비스 분야.
@@ -28,7 +27,6 @@ public class SignupRequest {
 
     // 2. 클라이언트용 추가 정보 (ClientRegister.jsx)
     private String clientType;
-    private String slogan;
 
     // 3. 추가 정보 (향후 확장용)
     private String workCategory;

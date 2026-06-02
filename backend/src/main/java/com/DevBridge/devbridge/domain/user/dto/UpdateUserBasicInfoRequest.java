@@ -17,6 +17,12 @@ import lombok.*;
 @Builder
 public class UpdateUserBasicInfoRequest {
     
+    /** 로그인 이메일 (User.email) */
+    private String email;
+
+    /** 닉네임 (User.username) */
+    private String username;
+
     /** 연락처 (User.phone) */
     private String phone;
     
@@ -46,4 +52,7 @@ public class UpdateUserBasicInfoRequest {
     
     /** 프로필 이미지 URL (User.profileImageUrl) */
     private String profileImageUrl;
+
+    /** GitHub 닉네임 (User.githubUsername) */
+    private String githubNickname;
 }

@@ -8,10 +8,16 @@ import com.DevBridge.devbridge.global.security.JwtUtil;
 import com.DevBridge.devbridge.domain.user.service.AuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -23,10 +29,8 @@ public class AuthController {
     private final AuthService authService;
     private final JwtUtil jwtUtil;
 
-    /**
-     * 운영(HTTPS)에선 true 권장. 로컬 dev에선 false (HTTP localhost는 secure 쿠키를 못 받음).
-     * application-prod.properties에 app.cookie.secure=true 로 설정.
-     */
+    private final RestTemplate restTemplate = new RestTemplate();
+
     @Value("${app.cookie.secure:false}")
     private boolean cookieSecure;
 
@@ -36,7 +40,12 @@ public class AuthController {
     @Value("${app.jwt.ttl-hours:24}")
     private long jwtTtlHours;
 
-    /** JWT 토큰을 HttpOnly 쿠키로 set. JS에서 접근 불가 → XSS 환경에서도 토큰 탈취 방지. */
+    @Value("${github.client.id:}")
+    private String githubClientId;
+
+    @Value("${github.client.secret:}")
+    private String githubClientSecret;
+
     private ResponseCookie buildAuthCookie(String token) {
         return ResponseCookie.from(AUTH_COOKIE_NAME, token)
                 .httpOnly(true)
@@ -47,7 +56,6 @@ public class AuthController {
                 .build();
     }
 
-    /** 로그아웃 시 쿠키를 즉시 만료시키는 빈 쿠키. */
     private ResponseCookie buildClearCookie() {
         return ResponseCookie.from(AUTH_COOKIE_NAME, "")
                 .httpOnly(true)
@@ -73,7 +81,8 @@ public class AuthController {
                             .phone(user.getPhone())
                             .birthDate(user.getBirthDate())
                             .userType(user.getUserType())
-                            .token(token) // 호환성: 일부 호출부가 아직 body의 token을 읽을 수 있어 유지
+                            .githubUsername(user.getGithubUsername())
+                            .token(token)
                             .message("회원가입이 완료되었습니다.")
                             .build());
         } catch (Exception e) {
@@ -98,6 +107,7 @@ public class AuthController {
                             .phone(user.getPhone())
                             .birthDate(user.getBirthDate())
                             .userType(user.getUserType())
+                            .githubUsername(user.getGithubUsername())
                             .token(token)
                             .message("로그인에 성공했습니다.")
                             .build());
@@ -114,7 +124,7 @@ public class AuthController {
      * 미가입 이메일은 400 으로 응답하여 호출부에서 회원가입 플로우로 안내.
      */
     @PostMapping("/social-login")
-    public ResponseEntity<AuthResponse> socialLogin(@RequestBody java.util.Map<String, String> request) {
+    public ResponseEntity<AuthResponse> socialLogin(@RequestBody Map<String, String> request) {
         String email = request.get("email");
         if (email == null || email.isBlank()) {
             return ResponseEntity.badRequest().body(AuthResponse.builder()
@@ -134,6 +144,7 @@ public class AuthController {
                             .phone(user.getPhone())
                             .birthDate(user.getBirthDate())
                             .userType(user.getUserType())
+                            .githubUsername(user.getGithubUsername())
                             .token(token)
                             .message("로그인에 성공했습니다.")
                             .build());
@@ -145,19 +156,89 @@ public class AuthController {
     }
 
     /**
-     * GitHub OAuth 로그인 — 프론트가 받은 OAuth code를 전달하면
-     * 서버가 GitHub과 직접 토큰을 교환하고 사용자 이메일로 JWT를 발급.
-     * 미가입 이메일은 400 → 프론트에서 회원가입 안내.
+     * GitHub OAuth 로그인.
+     * 프론트에서 GitHub 인가 코드(code)를 받아 access_token 으로 교환하고,
+     * GitHub /user/emails + /user API 로 이메일·로그인명을 확인한 뒤 JWT 를 발급한다.
+     * 기존 가입 이메일이면 그대로 로그인, 처음이면 자동으로 계정을 생성한다.
      */
-    @PostMapping("/github-callback")
-    public ResponseEntity<AuthResponse> githubCallback(@RequestBody java.util.Map<String, String> request) {
+    @PostMapping("/github")
+    public ResponseEntity<AuthResponse> githubLogin(@RequestBody Map<String, String> request) {
         String code = request.get("code");
         String redirectUri = request.get("redirectUri");
+
         if (code == null || code.isBlank()) {
-            return ResponseEntity.badRequest().body(AuthResponse.builder().message("code가 필요합니다.").build());
+            return ResponseEntity.badRequest().body(AuthResponse.builder()
+                    .message("GitHub code가 필요합니다.").build());
         }
+
         try {
-            User user = authService.githubLogin(code, redirectUri != null ? redirectUri : "");
+            // 1. code → access_token 교환
+            var tokenHeaders = new org.springframework.http.HttpHeaders();
+            tokenHeaders.set("Accept", "application/json");
+            Map<String, String> tokenBody = Map.of(
+                    "client_id", githubClientId,
+                    "client_secret", githubClientSecret,
+                    "code", code,
+                    "redirect_uri", redirectUri != null ? redirectUri : ""
+            );
+            @SuppressWarnings("unchecked")
+            Map<String, Object> tokenResp = restTemplate.postForObject(
+                    "https://github.com/login/oauth/access_token",
+                    new org.springframework.http.HttpEntity<>(tokenBody, tokenHeaders),
+                    Map.class
+            );
+
+            if (tokenResp == null || !tokenResp.containsKey("access_token")) {
+                String errDesc = tokenResp != null ? String.valueOf(tokenResp.get("error_description")) : "응답 없음";
+                return ResponseEntity.badRequest().body(AuthResponse.builder()
+                        .message("GitHub 토큰 발급 실패: " + errDesc).build());
+            }
+            String accessToken = (String) tokenResp.get("access_token");
+
+            var ghHeaders = new org.springframework.http.HttpHeaders();
+            ghHeaders.set("Authorization", "Bearer " + accessToken);
+            ghHeaders.set("Accept", "application/vnd.github+json");
+            ghHeaders.set("X-GitHub-Api-Version", "2022-11-28");
+            var ghEntity = new org.springframework.http.HttpEntity<>(ghHeaders);
+
+            // 2. 인증된 primary 이메일 조회
+            ResponseEntity<List<Map<String, Object>>> emailResp = restTemplate.exchange(
+                    "https://api.github.com/user/emails",
+                    HttpMethod.GET, ghEntity,
+                    new ParameterizedTypeReference<>() {}
+            );
+            List<Map<String, Object>> emails = emailResp.getBody();
+            if (emails == null || emails.isEmpty()) {
+                return ResponseEntity.badRequest().body(AuthResponse.builder()
+                        .message("GitHub 이메일 정보를 가져올 수 없습니다.").build());
+            }
+            String email = emails.stream()
+                    .filter(e -> Boolean.TRUE.equals(e.get("primary")) && Boolean.TRUE.equals(e.get("verified")))
+                    .map(e -> (String) e.get("email"))
+                    .findFirst()
+                    .orElseGet(() -> emails.stream()
+                            .filter(e -> Boolean.TRUE.equals(e.get("verified")))
+                            .map(e -> (String) e.get("email"))
+                            .findFirst()
+                            .orElse(null));
+            if (email == null) {
+                return ResponseEntity.badRequest().body(AuthResponse.builder()
+                        .message("인증된 GitHub 이메일이 없습니다. GitHub 계정에서 이메일을 인증해 주세요.").build());
+            }
+
+            // 3. GitHub 프로필 조회 (username 확보)
+            @SuppressWarnings("unchecked")
+            Map<String, Object> ghUser = restTemplate.exchange(
+                    "https://api.github.com/user",
+                    HttpMethod.GET, ghEntity, Map.class
+            ).getBody();
+            String githubLogin = ghUser != null && ghUser.get("login") != null
+                    ? (String) ghUser.get("login") : email.split("@")[0];
+
+            // 4. 기존 계정 조회 → 없으면 자동 생성 (GitHub OAuth 표준 동작)
+            // accessToken을 함께 저장해 Git 패널에서 별도 PAT 없이 바로 사용 가능
+            User user = authService.findOrCreateGithubUser(email, githubLogin, accessToken);
+
             String token = jwtUtil.issue(user.getId(), user.getEmail(),
                     user.getUserType() != null ? user.getUserType().name() : "GUEST");
             return ResponseEntity.ok()
@@ -169,19 +250,20 @@ public class AuthController {
                             .phone(user.getPhone())
                             .birthDate(user.getBirthDate())
                             .userType(user.getUserType())
+                            .githubUsername(user.getGithubUsername())
                             .token(token)
-                            .message("로그인에 성공했습니다.")
+                            .message("GitHub 로그인에 성공했습니다.")
                             .build());
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(AuthResponse.builder().message(e.getMessage()).build());
+            return ResponseEntity.badRequest().body(AuthResponse.builder()
+                    .message(e.getMessage()).build());
         }
     }
 
-    /** 로그아웃: 인증 쿠키 즉시 만료. body는 단순 응답. */
     @PostMapping("/logout")
-    public ResponseEntity<java.util.Map<String, String>> logout() {
+    public ResponseEntity<Map<String, String>> logout() {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, buildClearCookie().toString())
-                .body(java.util.Map.of("message", "로그아웃 되었습니다."));
+                .body(Map.of("message", "로그아웃 되었습니다."));
     }
 }
