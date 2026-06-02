@@ -29,6 +29,13 @@ export default defineConfig(({ command }) => ({
         changeOrigin: true,
         secure: false,
       },
+      // 로컬 터미널 WebSocket (Developer Studio 콘솔) — ws:true 로 WS 업그레이드 프록시
+      '/ws': {
+        target: DEV_BACKEND,
+        changeOrigin: true,
+        ws: true,
+        secure: false,
+      },
     },
   } : undefined,
   build: {

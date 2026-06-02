@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import { BRAND_GRADIENT } from "../ThemeContext";
 
 // ──────────────────────────────────────────────
@@ -39,19 +39,42 @@ export function Stat({ label, value, unit = "", theme, positive, negative, hint 
   let color = theme.text;
   if (positive && typeof value === "number" && value > 0) color = theme.success;
   if (negative && typeof value === "number" && value < 0) color = theme.danger;
+  const [show, setShow] = useState(false);
   return (
     <div style={{ padding: 10, background: theme.codeBg, borderRadius: 8 }}>
       <div style={{ fontSize: 11, color: theme.textMuted, display: "flex", alignItems: "center", gap: 3, marginBottom: 2 }}>
         {label}
         {hint && (
-          <span
-            title={hint}
-            style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 14, height: 14, borderRadius: "50%",
-              background: "#22c55e", color: "white",
-              fontSize: 8, fontWeight: 900, cursor: "help", flexShrink: 0,
-            }}>!</span>
+          <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+            <span
+              onMouseEnter={() => setShow(true)}
+              onMouseLeave={() => setShow(false)}
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 14, height: 14, borderRadius: "50%",
+                background: "#22c55e", color: "white",
+                fontSize: 8, fontWeight: 900, cursor: "help", flexShrink: 0,
+              }}>!</span>
+            {show && (
+              <div style={{
+                position: "absolute", bottom: "calc(100% + 8px)", left: 0,
+                background: "#ffffff", borderRadius: 12,
+                padding: "10px 14px", zIndex: 9999,
+                boxShadow: "0 8px 28px rgba(99,102,241,0.18), 0 0 0 1px #E0E7FF",
+                width: 220, pointerEvents: "none",
+              }}>
+                <div style={{
+                  position: "absolute", bottom: -6, left: 10,
+                  width: 12, height: 12, background: "#ffffff",
+                  borderRight: "1px solid #E0E7FF", borderBottom: "1px solid #E0E7FF",
+                  transform: "rotate(45deg)",
+                }} />
+                <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>
+                  {hint}
+                </div>
+              </div>
+            )}
+          </span>
         )}
       </div>
       <div style={{ fontSize: 18, fontWeight: 800, color }}>{v}{unit}</div>
@@ -69,6 +92,7 @@ export function Row({ k, v, theme }) {
 }
 
 export function SubScoreBar({ label, value, theme }) {
+  const [show, setShow] = useState(false);
   const KO = {
     generalization: "일반화 (OOS 일관성)",
     regime_robustness: "시장국면 견고성",
@@ -77,25 +101,49 @@ export function SubScoreBar({ label, value, theme }) {
     statistical_confidence: "통계적 유의성",
   };
   const HINT = {
-    generalization: "Walk-Forward 검증에서 과거 구간(In-Sample) 성과가 미래 구간(Out-of-Sample)에서도 유지되는지. 과거에만 맞춘 과적합일수록 낮아집니다.",
-    regime_robustness: "상승/하락/횡보/고변동 4가지 시장 국면 중 '가장 안좋은 국면'의 Sharpe로 평가. 특정 국면에만 강한 전략은 낮게 나옵니다.",
-    parameter_stability: "주요 파라미터를 ±10% 흔들었을 때 Sharpe가 얼마나 안정적인지. 파라미터에 민감하면 운 좋은 설계일 가능성이 높아 낮게 나옵니다.",
-    risk_control: "목표 MDD 대비 실제 MDD 비율. 목표보다 손실이 작으면 높은 점수, 초과하면 낮은 점수.",
-    statistical_confidence: "일별 수익률 평균이 0과 통계적으로 유의하게 다른지 (t-statistic). 시운 이상의 실증적 우위성.",
+    generalization: "Walk-Forward 검증에서 과거 구간(In-Sample) 성과가 미래 구간(Out-of-Sample)에서도 유지되는지 측정합니다.\n\n과거에만 잘 맞춰진 과적합 전략일수록 점수가 낮아집니다. OOS Sharpe가 IS Sharpe와 가까울수록 높은 점수입니다.",
+    regime_robustness: "상승·하락·횡보·고변동 4가지 시장 국면 중 '가장 안 좋은 국면'의 Sharpe로 평가합니다.\n\n특정 국면에만 강한 전략은 낮게 나옵니다. 모든 국면에서 고르게 방어적인 전략이 높은 점수를 받습니다.",
+    parameter_stability: "주요 파라미터를 ±10% 흔들었을 때 Sharpe가 얼마나 안정적인지 측정합니다.\n\n파라미터 변화에 민감하면 운 좋은 설계일 가능성이 높아 낮은 점수를 받습니다.",
+    risk_control: "목표 MDD 대비 실제 MDD 비율로 평가합니다.\n\n목표보다 손실이 작으면 높은 점수, 목표 MDD를 초과하면 낮은 점수를 받습니다.",
+    statistical_confidence: "일별 수익률 평균이 0과 통계적으로 유의하게 다른지 t-statistic으로 측정합니다.\n\n시운(운)이 아닌 실증적 우위성이 있어야 높은 점수를 받습니다.",
   };
   const hint = HINT[label] || "";
   return (
-    <div style={{ marginBottom: 10 }} title={hint}>
+    <div style={{ marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
-        <span style={{ color: theme.text, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, cursor: "help" }}>
+        <span style={{ color: theme.text, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
           {KO[label] || label}
           {hint && (
-            <span style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 13, height: 13, borderRadius: 999,
-              background: theme.codeBg || "#eef2ff", color: theme.textMuted || "#64748b",
-              fontSize: 9, fontWeight: 800,
-            }}>?</span>
+            <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+              <span
+                onMouseEnter={() => setShow(true)}
+                onMouseLeave={() => setShow(false)}
+                style={{
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  width: 14, height: 14, borderRadius: "50%",
+                  background: "#22c55e", color: "white",
+                  fontSize: 8, fontWeight: 900, cursor: "help", flexShrink: 0,
+                }}>!</span>
+              {show && (
+                <div style={{
+                  position: "absolute", bottom: "calc(100% + 8px)", left: 0,
+                  background: "#ffffff", borderRadius: 12,
+                  padding: "10px 14px", zIndex: 9999,
+                  boxShadow: "0 8px 28px rgba(99,102,241,0.18), 0 0 0 1px #E0E7FF",
+                  width: 240, pointerEvents: "none",
+                }}>
+                  <div style={{
+                    position: "absolute", bottom: -6, left: 10,
+                    width: 12, height: 12, background: "#ffffff",
+                    borderRight: "1px solid #E0E7FF", borderBottom: "1px solid #E0E7FF",
+                    transform: "rotate(45deg)",
+                  }} />
+                  <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>
+                    {hint}
+                  </div>
+                </div>
+              )}
+            </span>
           )}
         </span>
         <b style={{ color: theme.accent }}>{value}/100</b>
@@ -240,71 +288,169 @@ export function DonutChart({ items, size = 180, thickness = 26, centerLabel, cen
  */
 export function TrendLineChart({ series, height = 240, theme }) {
   const [hoverIdx, setHoverIdx] = useState(null);
-  const W = 720, H = height, PADL = 50, PADR = 16, PADT = 16, PADB = 32;
+  const [zoom, setZoom] = useState(null);   // {s,e} 보이는 인덱스 구간 (null = 전체)
+  const [drag, setDrag] = useState(null);   // 드래그 브러시 {x0,x1} (viewBox px)
+  const svgRef = useRef(null);
+  const wheelHandlerRef = useRef(null);
+  const W = 720, H = height, PADL = 56, PADR = 16, PADT = 16, PADB = 32;
   const valid = (series || []).filter((s) => s && Array.isArray(s.points) && s.points.length > 1);
   if (valid.length === 0) {
     return <div style={{ padding: 20, textAlign: "center", color: theme?.textMuted, fontSize: 12 }}>표시할 데이터가 없습니다.</div>;
   }
   const base = valid[0].points;
   const N = base.length;
+  // 보이는 인덱스 구간(줌). 줌하면 Y축도 해당 구간 기준으로 재스케일 → 디테일이 확대된다.
+  const vs = zoom ? Math.max(0, Math.min(zoom.s, N - 2)) : 0;
+  const ve = zoom ? Math.min(N - 1, Math.max(zoom.e, vs + 1)) : N - 1;
+  const span = Math.max(1, ve - vs);
   let yMin = Infinity, yMax = -Infinity;
-  valid.forEach((s) => s.points.forEach((p) => {
-    if (p.y == null || Number.isNaN(p.y)) return;
-    if (p.y < yMin) yMin = p.y;
-    if (p.y > yMax) yMax = p.y;
-  }));
+  valid.forEach((s) => {
+    for (let i = vs; i <= ve; i++) {
+      const y = s.points[i]?.y;
+      if (y == null || Number.isNaN(y)) continue;
+      if (y < yMin) yMin = y;
+      if (y > yMax) yMax = y;
+    }
+  });
   if (!isFinite(yMin) || !isFinite(yMax)) return null;
   const yPad = (yMax - yMin) * 0.05 || 1;
   yMin -= yPad; yMax += yPad;
-  const xAt = (i) => PADL + (i / Math.max(1, N - 1)) * (W - PADL - PADR);
+  const plotW = W - PADL - PADR;
+  const xAt = (i) => PADL + ((i - vs) / span) * plotW;
   const yAt = (v) => PADT + (1 - (v - yMin) / (yMax - yMin)) * (H - PADT - PADB);
-  const pathFor = (pts) => pts.map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.y).toFixed(1)}`).join(" ");
-  const xTicks = Array.from({ length: 5 }, (_, k) => Math.round(k * (N - 1) / 4));
-  const yTicks = 4;
-  const onMove = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const rel = ((e.clientX - rect.left) / rect.width) * W;
-    const i = Math.round(((rel - PADL) / (W - PADL - PADR)) * (N - 1));
-    setHoverIdx(Math.max(0, Math.min(N - 1, i)));
+  const pathFor = (pts) => {
+    let d = "", move = true;
+    for (let i = vs; i <= ve; i++) {
+      const p = pts[i];
+      if (!p || p.y == null || Number.isNaN(p.y)) { move = true; continue; }
+      d += `${move ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p.y).toFixed(1)} `;
+      move = false;
+    }
+    return d.trim();
   };
-  const onLeave = () => setHoverIdx(null);
+  const xTicks = Array.from({ length: 5 }, (_, k) => Math.round(vs + (k * span) / 4));
+  const yTicks = 4;
+
+  // 휠 핸들러 ref — 클로저 스테일 없이 항상 최신 vs/ve/span/N 참조
+  wheelHandlerRef.current = (e) => {
+    e.preventDefault();
+    const el = svgRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const vbX = ((e.clientX - rect.left) / rect.width) * W;
+    const mouseIdx = Math.max(vs, Math.min(ve, Math.round(vs + ((vbX - PADL) / plotW) * span)));
+    const factor = e.deltaY > 0 ? 1.3 : 0.77; // 휠 다운 = 축소, 휠 업 = 확대
+    const newSpan = Math.round(span * factor);
+    if (newSpan < 2) return;
+    const f = span === 0 ? 0.5 : (mouseIdx - vs) / span;
+    let ns = Math.round(mouseIdx - f * newSpan);
+    let ne = ns + newSpan;
+    if (ns < 0) { ne = Math.min(N - 1, ne - ns); ns = 0; }
+    if (ne > N - 1) { ns = Math.max(0, ns - (ne - (N - 1))); ne = N - 1; }
+    if (ne - ns < 2) return;
+    if (ns <= 0 && ne >= N - 1) setZoom(null);
+    else setZoom({ s: ns, e: ne });
+  };
+
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const handler = (e) => wheelHandlerRef.current(e);
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
+
+  const toVbX = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return ((e.clientX - rect.left) / rect.width) * W;
+  };
+  const pxToIdx = (px) => Math.max(vs, Math.min(ve, Math.round(vs + ((px - PADL) / plotW) * span)));
+  const onDown = (e) => setDrag({ x0: toVbX(e), x1: toVbX(e) });
+  const onMove = (e) => {
+    const px = toVbX(e);
+    if (drag) setDrag((d) => (d ? { ...d, x1: px } : d));
+    setHoverIdx(pxToIdx(px));
+  };
+  const onUp = () => {
+    if (drag) {
+      const a = pxToIdx(Math.min(drag.x0, drag.x1));
+      const b = pxToIdx(Math.max(drag.x0, drag.x1));
+      if (b - a >= 2) setZoom({ s: a, e: b });   // 최소 폭 확보(단순 클릭 오작동 방지)
+      setDrag(null);
+    }
+  };
+  const onLeave = () => { setHoverIdx(null); setDrag(null); };
+  const resetZoom = () => setZoom(null);
+  const zoomed = zoom != null;
   const fmt = (v) => (v == null ? "—" : v >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 0 }) : v.toFixed(2));
+  // Y축 라벨은 큰 값(수억 단위)이 잘리지 않게 compact(K/M/B) 표기.
+  const fmtAxis = (v) => {
+    if (v == null || Number.isNaN(v)) return "";
+    const a = Math.abs(v);
+    if (a >= 1e9) return (v / 1e9).toFixed(a >= 1e10 ? 0 : 1) + "B";
+    if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 0 : 1) + "M";
+    if (a >= 1e3) return (v / 1e3).toFixed(a >= 1e4 ? 0 : 1) + "K";
+    return v.toFixed(a < 10 ? 2 : 0);
+  };
   return (
     <div style={{ position: "relative", width: "100%" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} onMouseMove={onMove} onMouseLeave={onLeave} style={{ cursor: "crosshair" }}>
+      {zoomed && (
+        <button onClick={resetZoom}
+          title="전체 구간 보기 (더블클릭도 가능)"
+          style={{
+            position: "absolute", top: 2, right: 2, zIndex: 2,
+            padding: "3px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer",
+            background: theme?.accent || "#3b82f6", color: "#fff", border: "none", borderRadius: 6,
+          }}>⤢ 전체보기</button>
+      )}
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width="100%"
+        onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onLeave} onDoubleClick={resetZoom}
+        style={{ cursor: drag ? "col-resize" : "crosshair", display: "block", userSelect: "none" }}>
         {Array.from({ length: yTicks + 1 }, (_, k) => {
           const v = yMin + ((yMax - yMin) * k) / yTicks;
           const y = yAt(v);
           return (
             <g key={k}>
               <line x1={PADL} x2={W - PADR} y1={y} y2={y} stroke={theme?.panelBorder || "#e2e8f0"} strokeWidth={0.6} />
-              <text x={PADL - 6} y={y + 3} textAnchor="end" fontSize={10} fill={theme?.textMuted || "#94a3b8"}>{fmt(v)}</text>
+              <text x={PADL - 6} y={y + 3} textAnchor="end" fontSize={10} fill={theme?.textMuted || "#94a3b8"}>{fmtAxis(v)}</text>
             </g>
           );
         })}
-        {xTicks.map((i) => {
+        {xTicks.map((i, ki) => {
           const lbl = base[i]?.x;
           const label = lbl instanceof Date ? `${lbl.getFullYear()}.${String(lbl.getMonth() + 1).padStart(2, "0")}` :
             (typeof lbl === "string" ? lbl.slice(0, 7) : String(lbl ?? ""));
+          const anchor = ki === 0 ? "start" : ki === xTicks.length - 1 ? "end" : "middle";
           return (
-            <text key={i} x={xAt(i)} y={H - 10} textAnchor="middle" fontSize={10} fill={theme?.textMuted || "#94a3b8"}>{label}</text>
+            <text key={i} x={xAt(i)} y={H - 10} textAnchor={anchor} fontSize={10} fill={theme?.textMuted || "#94a3b8"}>{label}</text>
           );
+        })}
+        {valid.map((s, idx) => {
+          const firstIdx = s.points.findIndex(p => p.y != null && !Number.isNaN(p.y));
+          const firstPt = firstIdx >= vs && firstIdx <= ve ? s.points[firstIdx] : null;
+          return firstPt ? (
+            <circle key={`start-${idx}`} cx={xAt(firstIdx)} cy={yAt(firstPt.y)} r={2.5} fill={s.color} />
+          ) : null;
         })}
         {valid.map((s, idx) => (
           <path key={idx} d={pathFor(s.points)} fill="none" stroke={s.color} strokeWidth={s.width || 1.8} opacity={s.opacity ?? 0.95}>
             <title>{s.name}</title>
           </path>
         ))}
-        {hoverIdx != null && (
+        {drag && Math.abs(drag.x1 - drag.x0) > 1 && (
+          <rect x={Math.min(drag.x0, drag.x1)} y={PADT} width={Math.abs(drag.x1 - drag.x0)} height={H - PADT - PADB}
+            fill={theme?.accent || "#3b82f6"} opacity={0.12} stroke={theme?.accent || "#3b82f6"} strokeWidth={0.5} />
+        )}
+        {hoverIdx != null && !drag && (
           <line x1={xAt(hoverIdx)} x2={xAt(hoverIdx)} y1={PADT} y2={H - PADB} stroke={theme?.accent || "#3b82f6"} strokeDasharray="3 3" strokeWidth={1} opacity={0.7} />
         )}
-        {hoverIdx != null && valid.map((s, idx) => {
+        {hoverIdx != null && !drag && valid.map((s, idx) => {
           const p = s.points[hoverIdx];
           if (!p || p.y == null) return null;
           return <circle key={idx} cx={xAt(hoverIdx)} cy={yAt(p.y)} r={3.5} fill={s.color} stroke="white" strokeWidth={1.5} />;
         })}
       </svg>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 6, fontSize: 11 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 6, fontSize: 11, alignItems: "center" }}>
         {valid.map((s, idx) => {
           const v = hoverIdx != null ? s.points[hoverIdx]?.y : s.points[s.points.length - 1]?.y;
           return (
@@ -323,6 +469,9 @@ export function TrendLineChart({ series, height = 240, theme }) {
             })()})
           </span>
         )}
+        <span style={{ marginLeft: "auto", color: theme?.textMuted, fontSize: 10, whiteSpace: "nowrap" }}>
+          {zoomed ? `🔍 ${span + 1}개 구간 확대됨 · 더블클릭/전체보기로 해제` : "휠로 확대/축소 · 드래그로 구간 선택 🔍"}
+        </span>
       </div>
     </div>
   );
@@ -351,15 +500,42 @@ export function calcSMA(values, window) {
  * hover 시 설명 툴팁이 뜨는 라벨.
  */
 export function HelpLabel({ children, hint, theme }) {
+  const [show, setShow] = useState(false);
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "help", position: "relative" }} title={hint}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
       {children}
-      <span style={{
-        display: "inline-flex", alignItems: "center", justifyContent: "center",
-        width: 14, height: 14, borderRadius: 999,
-        background: theme?.codeBg || "#eef2ff", color: theme?.textMuted || "#64748b",
-        fontSize: 9, fontWeight: 800,
-      }}>?</span>
+      {hint && (
+        <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+          <span
+            onMouseEnter={() => setShow(true)}
+            onMouseLeave={() => setShow(false)}
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 14, height: 14, borderRadius: "50%",
+              background: "#22c55e", color: "white",
+              fontSize: 8, fontWeight: 900, cursor: "help", flexShrink: 0,
+            }}>!</span>
+          {show && (
+            <div style={{
+              position: "absolute", bottom: "calc(100% + 8px)", left: 0,
+              background: "#ffffff", borderRadius: 12,
+              padding: "10px 14px", zIndex: 9999,
+              boxShadow: "0 8px 28px rgba(99,102,241,0.18), 0 0 0 1px #E0E7FF",
+              width: 220, pointerEvents: "none",
+            }}>
+              <div style={{
+                position: "absolute", bottom: -6, left: 10,
+                width: 12, height: 12, background: "#ffffff",
+                borderRight: "1px solid #E0E7FF", borderBottom: "1px solid #E0E7FF",
+                transform: "rotate(45deg)",
+              }} />
+              <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>
+                {hint}
+              </div>
+            </div>
+          )}
+        </span>
+      )}
     </span>
   );
 }
@@ -432,7 +608,7 @@ export function TrustDetailsCard({ details, theme }) {
             <div style={{ fontWeight: 700, color: theme.text, marginBottom: 6 }}>📐 통계</div>
             <div style={k}><HelpLabel hint="일별 수익률 평균이 0과 다른지 검정한 t-통계량 (절댓값 2 이상이면 유의)" theme={theme}>t-statistic</HelpLabel></div>
             <div style={v}>{num(st.t_stat ?? st.t_statistic ?? st.tstat)}</div>
-            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="PSR(확률적 Sharpe Ratio) — 수익이 우연이 아닐 확률. 높을수록 실력에 의한 수익" theme={theme}>PSR (SR>0 확률)</HelpLabel></div>
+            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="PSR(확률적 Sharpe Ratio) — 수익이 우연이 아닐 확률. 높을수록 실력에 의한 수익" theme={theme}>PSR (SR&gt;0 확률)</HelpLabel></div>
             <div style={v}>{st.psr_zero != null ? `${(st.psr_zero * 100).toFixed(1)}%` : "-"}</div>
             <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="표본 수 (거래일 수)" theme={theme}>표본 수</HelpLabel></div>
             <div style={v}>{st.n_samples ?? st.n ?? st.data_points ?? "-"}</div>
@@ -537,7 +713,6 @@ export function RegimeTimelineChart({ timeline, theme, height = 220, ticker }) {
         <svg
           viewBox={`0 0 ${W} ${H}`}
           width="100%"
-          height={H}
           onMouseMove={onMove}
           onMouseLeave={() => setHoverIdx(null)}
           style={{ cursor: "crosshair", display: "block" }}
@@ -582,12 +757,12 @@ export function RegimeTimelineChart({ timeline, theme, height = 220, ticker }) {
           })}
 
           {/* X축 라벨 */}
-          {xTicks.map((i) => (
+          {xTicks.map((i, ki) => (
             <text
               key={i}
               x={xAt(i)}
               y={H - 10}
-              textAnchor="middle"
+              textAnchor={ki === 0 ? "start" : ki === xTicks.length - 1 ? "end" : "middle"}
               fontSize={10}
               fill={theme?.textMuted}
             >

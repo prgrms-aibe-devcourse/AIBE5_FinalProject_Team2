@@ -3,6 +3,7 @@ import { useTheme } from "../ThemeContext";
 import { runRegime } from "../alphaApi";
 import { Play } from "lucide-react";
 import { PanelHeader, Card, Row, Empty, RegimeTimelineChart, primaryBtn } from "./helpers";
+import RegimeSummary from "./RegimeSummary";
 
 const PERIOD_OPTIONS = [
   { value: "1y", label: "1년" },
@@ -16,6 +17,7 @@ export default function RegimePanel({ id, ws, onChange }) {
   const [data, setData] = useState(ws?.lastRegime ?? null);
   const [busy, setBusy] = useState(false);
   const [period, setPeriod] = useState("10y");
+  const [showRaw, setShowRaw] = useState(false);
   const onRun = async () => {
     setBusy(true);
     try {
@@ -29,7 +31,7 @@ export default function RegimePanel({ id, ws, onChange }) {
   const labels = { bull: "🐂 상승장", bear: "🐻 하락장", sideways: "↔ 횡보장", high_vol_unstable: "⚡ 고변동성 불안정장" };
   const ALL_KEYS = ["bull", "bear", "sideways", "high_vol_unstable"];
   return (
-    <div style={{ maxWidth: 1100 }}>
+    <div>
       <PanelHeader
         icon="📡"
         title="Regime Analysis"
@@ -60,8 +62,27 @@ export default function RegimePanel({ id, ws, onChange }) {
       {!data && <Empty msg="시장 국면별로 전략의 강점/약점을 분석합니다 (MA200 + 60일 변동성 기반 5분류)" theme={theme} />}
       {data && (
         <>
-          <Card title="🌤 자연어 요약" theme={theme}>
-            <p style={{ margin: 0, fontSize: 13, color: theme.text, lineHeight: 1.8, whiteSpace: "pre-line" }}>{data.narrative}</p>
+          <Card
+            title="🌤 자연어 요약"
+            theme={theme}
+            action={
+              <button
+                onClick={() => setShowRaw(v => !v)}
+                style={{
+                  padding: "4px 10px", borderRadius: 6, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+                  border: `1px solid ${theme.panelBorder}`,
+                  background: showRaw ? theme.accentSoft : "white",
+                  color: showRaw ? theme.accent : theme.textMuted,
+                }}
+              >
+                {showRaw ? "요약 보기" : "자연어 보기"}
+              </button>
+            }
+          >
+            {showRaw
+              ? <p style={{ margin: 0, fontSize: 13, color: theme.text, lineHeight: 1.8, whiteSpace: "pre-line" }}>{data.narrative}</p>
+              : <RegimeSummary data={data} theme={theme} />
+            }
           </Card>
           {data.regime_timeline && data.regime_timeline.length > 0 && (
             <Card title="📈 국면 타임라인" theme={theme}>

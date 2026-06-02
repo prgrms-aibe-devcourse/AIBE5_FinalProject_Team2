@@ -36,10 +36,10 @@ export default function ReportPanel({ id, ws, onChange }) {
     ];
   }, [bt]);
   return (
-    <div style={{ maxWidth: 1100 }}>
+    <div>
       <PanelHeader
         icon="📊"
-        title="Easy Performance Report"
+        title="Backtest Report"
         description="Strategy Config가 정형화되면 vectorbt deterministic engine으로 실행한 백테스트 결과입니다."
         theme={theme}
         action={
@@ -65,7 +65,7 @@ export default function ReportPanel({ id, ws, onChange }) {
       {!bt && <Empty msg="Strategy Config가 정형화되면 vectorbt deterministic engine으로 백테스트 실행" theme={theme} />}
       {bt && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10, marginBottom: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
             <Stat label="총 수익률" value={bt.stats?.total_return_pct} unit="%" theme={theme} positive hint="백테스트 전체 기간의 누적 수익률입니다. 매수 후 보유 대비 전략의 성과를 보여줍니다." />
             <Stat label="연환산 수익" value={bt.stats?.annualized_return_pct} unit="%" theme={theme} hint="CAGR — 1년 단위로 환산했을 때의 평균 수익률. 기간이 달라도 비교 가능한 표준 지표입니다." />
             <Stat label="MDD" value={bt.stats?.max_drawdown_pct} unit="%" theme={theme} negative hint="Maximum Drawdown — 고점 대비 최대 낙폭. 이 전략을 가장 불운한 타이밍에 매수했을 때 겪을 수 있는 최대 손실입니다." />
@@ -86,7 +86,7 @@ export default function ReportPanel({ id, ws, onChange }) {
           )}
           {bt.risk_metrics && (
             <Card title="📐 위험지표 상세 (QuantStats)" theme={theme}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                 <Stat label="CAGR" value={bt.risk_metrics.cagr_pct} unit="%" theme={theme} hint="Compound Annual Growth Rate — QuantStats로 계산한 복리 연환산 수익률입니다." />
                 <Stat label="변동성" value={bt.risk_metrics.volatility_pct} unit="%" theme={theme} hint="연환산 변동성. 일별 수익률의 표준편차 × √252. 높을수록 자산 가치의 등락이 크다는 의미입니다." />
                 <Stat label="VaR(95%)" value={bt.risk_metrics.var_95_pct} unit="%" theme={theme} hint="Value at Risk — 95% 신뢰수준에서 하루에 발생 가능한 최대 손실. 예: -2%면 95% 확률로 하루 손실이 2% 이내." />

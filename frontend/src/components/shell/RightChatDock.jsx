@@ -185,7 +185,8 @@ function HeliAvatar({ src, size = 36 }) {
 export default function RightChatDock({ open, onClose, width = 380, onResize }) {
   const { lang } = useLanguage();
   const loc = useLocation();
-  const wsMatch = loc?.pathname?.match(/^\/alpha\/w\/(\d+)/);
+  // 워크스페이스는 두 화면(/alpha/w/:id 와 /strategy/:id)에서 보이므로 둘 다 매칭. 라우트가 없으면 lastWsId 폴백.
+  const wsMatch = loc?.pathname?.match(/^\/(?:alpha\/w|strategy)\/(\d+)/);
   const wsIdFromStorage = (typeof window !== "undefined") ? Number(localStorage.getItem("alpha.lastWsId")) || null : null;
   const wsIdInRoute = wsMatch ? Number(wsMatch[1]) : wsIdFromStorage;
 
@@ -315,8 +316,13 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
     if (scrollRef.current) setTimeout(() => { scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
     try {
       // 현재 워크스페이스의 전략/백테스트/목표 컨텍스트를 주입 — Heli 가 "지금 보고 있는 전략"을 인지하게.
+      // wsId 는 전송 시점에 라우트(/alpha/w 또는 /strategy) → lastWsId 순으로 신선하게 재해석(렌더 시점 stale 방지).
+      const liveWsId = (typeof window !== "undefined")
+        ? (window.location.pathname.match(/\/(?:alpha\/w|strategy)\/(\d+)/)?.[1]
+           || localStorage.getItem("alpha.lastWsId") || null)
+        : null;
       let wsCtx = "";
-      try { if (wsIdInRoute) wsCtx = summarizeWorkspace(await getWorkspace(wsIdInRoute)); } catch { /* 조회 실패는 무시 */ }
+      try { if (liveWsId) wsCtx = summarizeWorkspace(await getWorkspace(liveWsId)); } catch { /* 조회 실패는 무시 */ }
       const sys = `${SYS}\n${langInstruction(lang)}${wsCtx}${buildLiveCodeContext()}`;
       const reply = await chatWithAI(
         [...messages, { role: "user", content: text }].map(m => ({ role: m.role, text: m.content })),
