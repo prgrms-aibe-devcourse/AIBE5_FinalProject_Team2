@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import LeftSidebar from "./LeftSidebar";
 import TopBar from "./TopBar";
@@ -18,6 +18,12 @@ export default function AppShell({ children, hideChat = false }) {
   const isDeveloper = loc.pathname.startsWith("/alpha/developer") || loc.pathname.startsWith("/vision_board");
   const [chatOpen, setChatOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setChatOpen(true);
+    window.addEventListener("alpha:open-chat", handler);
+    return () => window.removeEventListener("alpha:open-chat", handler);
+  }, []);
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = parseInt(localStorage.getItem("aiDockWidth") || "0", 10);
     return saved >= 280 && saved <= 900 ? saved : 380;

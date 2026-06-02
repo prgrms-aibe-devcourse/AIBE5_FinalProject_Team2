@@ -104,6 +104,76 @@ function buildLiveCodeContext() {
   }
 }
 
+// 현재 워크스페이스의 전략/백테스트/목표/국면/신뢰도를 Heli 컨텍스트로 요약한다.
+// (코드가 아닌 "전략 config + 결과"를 인지시켜, '전략 코드가 없다'는 헛답을 막는다.)
+function summarizeWorkspace(ws) {
+  if (!ws || typeof ws !== "object") return "";
+  const num = (v, suf = "") => (v == null || Number.isNaN(Number(v)) ? null : `${Number(v).toFixed(2)}${suf}`);
+  const won = (v) => (v == null ? null : `${Number(v).toLocaleString("ko-KR")}원`);
+  const lines = [];
+
+  const gp = ws.goalProfile;
+  if (gp && typeof gp === "object") {
+    const g = [];
+    if (gp.goal) g.push(`목표="${gp.goal}"`);
+    if (gp.horizon_years != null) g.push(`기간=${gp.horizon_years}년`);
+    if (gp.initial_capital_krw != null) g.push(`초기금=${won(gp.initial_capital_krw)}`);
+    if (gp.monthly_contribution_krw != null) g.push(`월적립=${won(gp.monthly_contribution_krw)}`);
+    if (gp.risk_tolerance) g.push(`성향=${gp.risk_tolerance}`);
+    if (gp.max_drawdown_target_pct != null) g.push(`MDD목표=${gp.max_drawdown_target_pct}%`);
+    if (gp.assets_of_interest) g.push(`관심자산=${Array.isArray(gp.assets_of_interest) ? gp.assets_of_interest.join(", ") : gp.assets_of_interest}`);
+    if (gp.strategy_direction) g.push(`전략방향=${gp.strategy_direction}`);
+    if (g.length) lines.push("• 목표 프로필: " + g.join(", "));
+  }
+
+  const sc = ws.strategyConfig;
+  if (sc && typeof sc === "object") {
+    let sel = null;
+    if (Array.isArray(sc.candidates) && sc.candidates.length) {
+      sel = sc.candidates.find((c) => c && c.id === sc.selectedId) || sc.candidates[0];
+    } else if (sc.strategy_name || sc.strategy_type) {
+      sel = sc;
+    }
+    const name = sel?.strategy_name || sel?.strategy_type || sc.template || sc.name;
+    if (name) {
+      let line = `• 선택 전략: ${name}`;
+      const params = sel?.params || sel?.parameters;
+      if (params && typeof params === "object") {
+        const ps = Object.entries(params).slice(0, 8).map(([k, v]) => `${k}=${v}`).join(", ");
+        if (ps) line += ` (파라미터: ${ps})`;
+      }
+      lines.push(line);
+    }
+  }
+
+  const bt = ws.lastBacktest;
+  if (bt && bt.stats && typeof bt.stats === "object") {
+    const s = bt.stats;
+    const parts = [
+      num(s.total_return_pct, "%") && `총수익률 ${num(s.total_return_pct, "%")}`,
+      num(s.annualized_return_pct, "%") && `연환산 ${num(s.annualized_return_pct, "%")}`,
+      num(s.max_drawdown_pct, "%") && `MDD ${num(s.max_drawdown_pct, "%")}`,
+      num(s.sharpe) && `Sharpe ${num(s.sharpe)}`,
+      num(s.sortino) && `Sortino ${num(s.sortino)}`,
+      num(s.calmar) && `Calmar ${num(s.calmar)}`,
+      num(s.win_rate_pct, "%") && `승률 ${num(s.win_rate_pct, "%")}`,
+      s.trades != null && `거래수 ${s.trades}`,
+    ].filter(Boolean);
+    if (parts.length) lines.push("• 최근 백테스트: " + parts.join(", "));
+  }
+
+  const rgLabel = ws.lastRegime && (ws.lastRegime.current_label || ws.lastRegime.label);
+  if (rgLabel) lines.push(`• 시장국면(Regime): ${rgLabel}`);
+  const trScore = ws.lastTrust && (ws.lastTrust.trust_score ?? ws.lastTrust.score ?? ws.lastTrust.overall);
+  if (trScore != null) lines.push(`• Trust Score: ${trScore}`);
+
+  if (!lines.length) return "";
+  return `\n\n[현재 워크스페이스 상태 — 사용자가 "지금 보고 있는/이 전략"이라고 하면 아래를 가리킨다]\n`
+    + (ws.name ? `워크스페이스: "${ws.name}"\n` : "")
+    + lines.join("\n")
+    + `\n→ 사용자가 이 전략의 수익률·승률 개선이나 지표 추가를 물으면, 위 수치(특히 MDD·Sharpe·승률·거래수)를 근거로 진단하고 구체적으로 제안하라. 이 정보가 있으면 "전략 코드가 없다"는 식으로 답하지 마라.`;
+}
+
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 function HeliAvatar({ src, size = 36 }) {
@@ -115,7 +185,8 @@ function HeliAvatar({ src, size = 36 }) {
 export default function RightChatDock({ open, onClose, width = 380, onResize }) {
   const { lang } = useLanguage();
   const loc = useLocation();
-  const wsMatch = loc?.pathname?.match(/^\/alpha\/w\/(\d+)/);
+  // 워크스페이스는 두 화면(/alpha/w/:id 와 /strategy/:id)에서 보이므로 둘 다 매칭. 라우트가 없으면 lastWsId 폴백.
+  const wsMatch = loc?.pathname?.match(/^\/(?:alpha\/w|strategy)\/(\d+)/);
   const wsIdFromStorage = (typeof window !== "undefined") ? Number(localStorage.getItem("alpha.lastWsId")) || null : null;
   const wsIdInRoute = wsMatch ? Number(wsMatch[1]) : wsIdFromStorage;
 
@@ -124,12 +195,27 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [model, setModel] = useState("gemini-2.5-flash");
+  const [model, setModel] = useState(
+    () => localStorage.getItem("ah.chat.model") || "gemini-2.5-flash"
+  );
+  const [sendOnEnter, setSendOnEnter] = useState(
+    () => localStorage.getItem("ah.chat.sendOnEnter") !== "false"
+  );
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.detail?.key === "ah.chat.model")
+        setModel(localStorage.getItem("ah.chat.model") || "gemini-2.5-flash");
+      if (e.detail?.key === "ah.chat.sendOnEnter")
+        setSendOnEnter(localStorage.getItem("ah.chat.sendOnEnter") !== "false");
+    };
+    window.addEventListener("ah:settingsChanged", handler);
+    return () => window.removeEventListener("ah:settingsChanged", handler);
+  }, []);
   const [textareaHeight, setTextareaHeight] = useState(72);
   const [inputFocused, setInputFocused] = useState(false);
   const scrollRef = useRef(null);
 
-  // Workspace.jsx 의 현재 탭을 추적 (전략 카드 탭일 때만 "한 번에 끝내기" 배너 노출)
+  // Workspace.jsx 의 현재 탭을 추적
   const [activeTab, setActiveTab] = useState(() =>
     (typeof window !== "undefined" ? localStorage.getItem("alpha.activeTab") : null) || "config"
   );
@@ -137,6 +223,16 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
     const onTab = (e) => setActiveTab(e?.detail?.tab || "config");
     window.addEventListener("alpha:tabChanged", onTab);
     return () => window.removeEventListener("alpha:tabChanged", onTab);
+  }, []);
+
+  // "AI와 목표 설정하기" 버튼으로 열렸을 때만 예시양식 배너 표시
+  const [goalMode, setGoalMode] = useState(false);
+  useEffect(() => {
+    const handler = (e) => {
+      if (e?.detail?.goal) setGoalMode(true);
+    };
+    window.addEventListener("alpha:open-chat", handler);
+    return () => window.removeEventListener("alpha:open-chat", handler);
   }, []);
 
   const fillExampleAnswer = () => {
@@ -153,10 +249,9 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
     setInput(example);
   };
 
-  // 사용자가 한 번이라도 답하면 배너 자동 숨김
+  // "AI와 목표 설정하기" 버튼으로 열렸고 아직 유저가 메시지 안 보낸 경우만 배너 표시
   const showOnboardingBanner =
-    activeTab === "config" &&
-    !!wsIdInRoute &&
+    goalMode &&
     !messages.some((m) => m.role === "user");
 
   // 채팅 메시지 안의 액션 버튼 클릭 핸들러
@@ -215,11 +310,20 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
     const text = input.trim();
     if (!text || loading) return;
     setMessages(m => [...m, { role: "user", content: text }]);
+    setGoalMode(false);
     setInput("");
     setLoading(true);
     if (scrollRef.current) setTimeout(() => { scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
     try {
-      const sys = `${SYS}\n${langInstruction(lang)}${buildLiveCodeContext()}`;
+      // 현재 워크스페이스의 전략/백테스트/목표 컨텍스트를 주입 — Heli 가 "지금 보고 있는 전략"을 인지하게.
+      // wsId 는 전송 시점에 라우트(/alpha/w 또는 /strategy) → lastWsId 순으로 신선하게 재해석(렌더 시점 stale 방지).
+      const liveWsId = (typeof window !== "undefined")
+        ? (window.location.pathname.match(/\/(?:alpha\/w|strategy)\/(\d+)/)?.[1]
+           || localStorage.getItem("alpha.lastWsId") || null)
+        : null;
+      let wsCtx = "";
+      try { if (liveWsId) wsCtx = summarizeWorkspace(await getWorkspace(liveWsId)); } catch { /* 조회 실패는 무시 */ }
+      const sys = `${SYS}\n${langInstruction(lang)}${wsCtx}${buildLiveCodeContext()}`;
       const reply = await chatWithAI(
         [...messages, { role: "user", content: text }].map(m => ({ role: m.role, text: m.content })),
         sys, model
@@ -552,10 +656,14 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
+              const shouldSend = sendOnEnter ? (e.key === "Enter" && !e.shiftKey) : (e.key === "Enter" && e.ctrlKey);
+              if (shouldSend) { e.preventDefault(); send(); }
+            }}
             onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
-            placeholder="메시지를 입력하세요 (Enter 전송)"
+            placeholder={sendOnEnter ? "메시지를 입력하세요 (Enter 전송)" : "메시지를 입력하세요 (Ctrl+Enter 전송)"}
             style={{
               flex: 1, height: textareaHeight, padding: "10px 14px",
               fontSize: 13, lineHeight: 1.5,
