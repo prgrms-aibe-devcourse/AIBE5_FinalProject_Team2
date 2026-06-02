@@ -393,7 +393,7 @@ function CreateWorkspaceModal({ open, name, onChange, onConfirm, onClose, theme 
             autoFocus
             value={name}
             onChange={e => onChange(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") onConfirm(); if (e.key === "Escape") onClose(); }}
+            onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") onConfirm(); if (e.key === "Escape") onClose(); }}
             placeholder="예: 5년 후 월 300만원 현금흐름"
             style={{
               width: "100%", padding: "12px 14px", borderRadius: 10,

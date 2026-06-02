@@ -36,6 +36,31 @@ export const saveCode            = (id, codeJson) =>
 export const queueOrders         = (id) =>
   api.post(`/alpha/workspaces/${id}/queue-orders`).then(r => r.data);
 
+// Developer Studio 데이터셋 — 실제 수집 현황(polygon/binance/...) + OHLCV 미리보기
+export const getDataStatus  = () => api.get("/analytics/data-status").then(r => r.data);
+export const getDataPreview = (symbol, tf = "1d", source, limit = 30) =>
+  api.get("/analytics/data-ohlcv", { params: { symbol, tf, source, limit } }).then(r => r.data);
+
+// QuantConnect Lean 백테스트 (vectorbt 와 병행 · Docker 필요 · 첫 실행 매우 느림).
+// body: { strategyId, symbols:[..], startDate:"YYYY-MM-DD", endDate, market:"us"|"krx", paramOverrides }
+// app.lean.enabled=false 면 503 (error+hint) 반환 → 호출부에서 안내.
+export const leanBacktest       = (body) => api.post("/lean/backtest", body, { timeout: 600000 }).then(r => r.data);
+export const leanListStrategies = () => api.get("/lean/strategies").then(r => r.data); // { strategies:[{id,name,params}] }
+// 비동기 잡: start → { job_id } 즉시, status 를 since 커서로 폴링(진행 로그 + 완료 결과)
+export const leanBacktestStart  = (body) => api.post("/lean/backtest/start", body).then(r => r.data);
+export const leanBacktestStatus = (jobId, since = 0) =>
+  api.get(`/lean/backtest/status/${jobId}`, { params: { since } }).then(r => r.data);
+export const getLeanHealth      = () => api.get("/lean/health").then(r => r.data); // { enabled, docker, lean_cli, image, ready }
+
+// Claude Code 에이전트 — 헤드리스 claude CLI 로 워크스페이스 코드 편집 → ChangeSet(PENDING) + 내레이션
+export const runClaudeAgent = (wsId, request) =>
+  api.post(`/alpha/workspaces/${wsId}/claude-agent`, { request }, { timeout: 240000 }).then(r => r.data);
+// A2: 스트리밍 잡 — start → { jobId } 즉시, status 를 since 커서로 폴링(단계별 진행 + 완료 결과+diff)
+export const runClaudeAgentStart  = (wsId, request) =>
+  api.post(`/alpha/workspaces/${wsId}/claude-agent/start`, { request }).then(r => r.data);
+export const runClaudeAgentStatus = (wsId, jobId, since = 0) =>
+  api.get(`/alpha/workspaces/${wsId}/claude-agent/status/${jobId}`, { params: { since } }).then(r => r.data);
+
 // Decision Log
 export const fetchDecisionLog    = (id) => api.get(`/alpha/workspaces/${id}/log`).then(r => r.data);
 
@@ -59,20 +84,24 @@ export const listBrokerAccounts  = () => api.get("/broker/account").then(r => r.
 export const upsertBrokerAccount = (body) => api.post("/broker/account", body).then(r => r.data); // body.env 포함
 export const deleteBrokerAccount = (env, brokerType = "KIS") => api.delete("/broker/account", { params: { env, brokerType } });
 export const testBrokerAccount   = (env) => api.post("/broker/account/test", null, { params: { env } }).then(r => r.data);
-export const setBrokerTrading    = (env, enabled) => api.patch("/broker/account/trading-enabled", { enabled }, { params: { env } }).then(r => r.data);
-/** 한도(maxOrderUsd / dailyOrderUsd) 만 부분 수정. body 예: { maxOrderUsd: 200000 } */
-export const patchBrokerLimits   = (env, body) => api.patch("/broker/account/limits", body, { params: { env } }).then(r => r.data);
+export const setBrokerTrading    = (env, enabled, brokerType) => api.patch("/broker/account/trading-enabled", { enabled }, { params: { env, ...(brokerType ? { brokerType } : {}) } }).then(r => r.data);
+/** 자동 체결 ON/OFF. REAL 은 MOCK 졸업 게이트(2주+20회) 통과 필요 — 미충족 시 412 + summary 반환. */
+export const setBrokerAutoExecute = (env, enabled, brokerType = "KIS") => api.patch("/broker/account/auto-execute", { enabled }, { params: { env, brokerType } }).then(r => r.data);
+/** 한도(maxOrderUsd / dailyOrderUsd) 만 부분 수정. body 예: { maxOrderUsd: 200000 }.
+ *  brokerType(optional): "KIS"(기본) | "BINANCE" — 미지정 시 백엔드가 KIS 로 라우팅(다중브로커 시 Binance 는 반드시 명시). */
+export const patchBrokerLimits   = (env, body, brokerType) => api.patch("/broker/account/limits", body, { params: { env, ...(brokerType ? { brokerType } : {}) } }).then(r => r.data);
 export const getPromotionGate    = (env) => api.get("/broker/account/promotion-gate", { params: { env } }).then(r => r.data);
 
 // Binance 전용
 export const testBinanceAccount  = (env, mode = "SPOT") => api.post("/broker/account/binance/test", null, { params: { env, mode } }).then(r => r.data);
 export const getBinanceBalance   = (env, mode = "SPOT") => api.get("/broker/account/binance/balance", { params: { env, mode } }).then(r => r.data);
 
-export const getBrokerBalance     = (env) => api.get("/broker/balance", { params: { env } }).then(r => r.data);
-export const previewBrokerOrder   = (env, body) => api.post("/broker/orders/preview", body, { params: { env } }).then(r => r.data);
-export const placeBrokerOrder     = (env, body) => api.post("/broker/orders/place", body, { params: { env } }).then(r => r.data);
-export const getBrokerOrdersToday = (env) => api.get("/broker/orders/today", { params: { env } }).then(r => r.data);
-export const getBrokerQuote       = (env, ticker) => api.get("/broker/quote", { params: { env, ticker } }).then(r => r.data);
+// brokerType(optional): "KIS"(기본) | "BINANCE" — 지정 시 해당 브로커로 라우팅(미지정은 KIS 하위호환).
+export const getBrokerBalance     = (env, brokerType) => api.get("/broker/balance", { params: { env, ...(brokerType ? { brokerType } : {}) } }).then(r => r.data);
+export const previewBrokerOrder   = (env, body, brokerType) => api.post("/broker/orders/preview", body, { params: { env, ...(brokerType ? { brokerType } : {}) } }).then(r => r.data);
+export const placeBrokerOrder     = (env, body, brokerType) => api.post("/broker/orders/place", body, { params: { env, ...(brokerType ? { brokerType } : {}) } }).then(r => r.data);
+export const getBrokerOrdersToday = (env, brokerType) => api.get("/broker/orders/today", { params: { env, ...(brokerType ? { brokerType } : {}) } }).then(r => r.data);
+export const getBrokerQuote       = (env, ticker, brokerType) => api.get("/broker/quote", { params: { env, ticker, ...(brokerType ? { brokerType } : {}) } }).then(r => r.data);
 export const getBrokerWsKey       = (env) => api.post("/broker/ws-key", null, { params: { env } }).then(r => r.data);
 
 // OrderProposal — 자동주문 승인 큐

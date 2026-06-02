@@ -19,12 +19,13 @@ const STATUS_META = {
   REJECTED:    { label: "거절",      color: "#6B7280", bg: "#F3F4F6", Icon: XCircle },
   EXPIRED:     { label: "만료",      color: "#6B7280", bg: "#F3F4F6", Icon: Clock },
   EXEC_FAILED: { label: "실행 실패",  color: "#B91C1C", bg: "#FEE2E2", Icon: AlertTriangle },
+  ALL:         { label: "전체",       color: "#6B7280", bg: "#F3F4F6", Icon: Clock },
 };
 
 export default function ProposalsPage() {
   const { theme } = useTheme();
   const navigate = useNavigate();
-  const [filter, setFilter] = useState("PENDING");
+  const [filter, setFilter] = useState("ALL");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -120,7 +121,7 @@ export default function ProposalsPage() {
 
       {/* 필터 */}
       <div className="filter-row" style={{ display: "flex", gap: 6, marginBottom: 18 }}>
-        {["PENDING", "EXECUTED", "REJECTED", "EXEC_FAILED", "ALL"].map(s => (
+        {["ALL", "PENDING", "EXECUTED", "REJECTED", "EXEC_FAILED"].map(s => (
           <button key={s} onClick={() => setFilter(s)}
             style={{
               padding: "6px 14px", borderRadius: 999, fontSize: 12, fontWeight: 600,
@@ -175,9 +176,9 @@ export default function ProposalsPage() {
                     color: p.side === "BUY" ? "#15803D" : "#B91C1C",
                     marginRight: 6,
                   }}>{p.side}</span>
-                  {p.qty}주 · {p.ticker}
+                  {p.qtyDecimal != null ? `${p.qtyDecimal} · ${p.ticker}` : `${p.qty}주 · ${p.ticker}`}
                   {p.limitPrice && <span style={{ color: theme.textMuted, fontWeight: 500, marginLeft: 8 }}>
-                    @ ${Number(p.limitPrice).toFixed(2)}
+                    @ {p.qtyDecimal != null ? `${Number(p.limitPrice)} USDT` : `$${Number(p.limitPrice).toFixed(2)}`}
                   </span>}
                 </div>
                 <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 2 }}>
@@ -188,7 +189,7 @@ export default function ProposalsPage() {
                   {p.sourceSignalId && ` · signal#${p.sourceSignalId}`}
                   {" · "}broker#{p.brokerAccountId}
                   {" · "}{new Date(p.createdAt).toLocaleString("ko-KR")}
-                  {p.kisOrderNo && ` · KIS#${p.kisOrderNo}`}
+                  {p.kisOrderNo && ` · ${p.qtyDecimal != null ? "Binance" : "KIS"}#${p.kisOrderNo}`}
                   {p.execError && (
                     <span style={{ color: "#B91C1C", marginLeft: 8 }}>· {p.execError}</span>
                   )}

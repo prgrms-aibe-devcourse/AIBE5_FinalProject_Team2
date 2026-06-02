@@ -1,5 +1,6 @@
 package com.DevBridge.devbridge.domain.user.entity;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -35,12 +36,9 @@ public class User {
     @Column(nullable = false, length = 255)
     private String password;
 
-    @Enumerated(EnumType.STRING)
+    @Convert(converter = UserTypeConverter.class)
     @Column(name = "user_type", nullable = false)
     private UserType userType;
-
-    @Column(nullable = false, columnDefinition = "TEXT")
-    private String interests;
 
     @Column(name = "contact_email", length = 100)
     private String contactEmail;
@@ -56,9 +54,6 @@ public class User {
 
     @Column(name = "tax_email", length = 100)
     private String taxEmail;
-
-    @Column(name = "fax_number", length = 50)
-    private String faxNumber;
 
     @Column(name = "bank_name", length = 50)
     private String bankName;
@@ -76,11 +71,7 @@ public class User {
     @Column(name = "profile_image_url", columnDefinition = "TEXT")
     private String profileImageUrl;
 
-    /** Alpha-Helix 워크스페이스의 사용자 슬로건 (투자 최종 목표 한 줄). */
-    @Column(name = "slogan", length = 500)
-    private String slogan;
-
-    /** GitHub 사용자명 (Developer Studio Git 연동). 토큰 검증 후 저장. */
+    /** GitHub 사용자명 (Developer Studio Git 연동). */
     @Column(name = "github_username", length = 100)
     private String githubUsername;
 
@@ -101,7 +92,21 @@ public class User {
     private LocalDateTime updatedAt;
 
     public enum UserType {
-        PARTNER, CLIENT
+        FREE,       // 무료 회원
+        STANDARD,   // 스탠다드 구독 회원
+        PREMIUM;    // 프리미엄 구독 회원
+
+        /** 구 값("CLIENT"/"USER"/"PARTNER"/"PRO") 역방향 호환 처리. */
+        @JsonCreator
+        public static UserType fromJson(String value) {
+            if (value == null) return null;
+            return switch (value.toUpperCase()) {
+                case "CLIENT", "USER", "FREE" -> FREE;
+                case "PARTNER", "PRO", "STANDARD" -> STANDARD;
+                case "PREMIUM" -> PREMIUM;
+                default -> FREE;
+            };
+        }
     }
 
     public enum Gender {

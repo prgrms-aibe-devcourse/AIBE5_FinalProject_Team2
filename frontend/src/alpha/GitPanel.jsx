@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   GitBranch, Github, Link2, Unlink, RefreshCw, ExternalLink,
-  GitCommit, AlertCircle, CheckCircle2, Loader, Search,
+  GitCommit, AlertCircle, CheckCircle2, Loader, Search, Filter, Pin, Check,
   Upload, Download, FileCode,
 } from "lucide-react";
 import {
@@ -54,7 +54,7 @@ export default function GitPanel({
         setStage("repos");
       } else {
         setStage("commits");
-        const cs = await listWorkspaceCommits(workspaceId, ws.branch, 30);
+        const cs = await listWorkspaceCommits(workspaceId, ws.branch, 100);
         setCommits(cs || []);
       }
     } catch (e) {
@@ -121,12 +121,12 @@ function Header({ onRefresh, loading, username }) {
       padding: "8px 12px", display: "flex", alignItems: "center", gap: 6,
       borderBottom: "1px solid rgba(255,255,255,0.05)", flexShrink: 0,
     }}>
-      <Github size={14} color="#60a5fa" />
-      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8" }}>
+      <Github size={16} color="#60a5fa" />
+      <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8" }}>
         Git
       </div>
       {username && (
-        <div style={{ fontSize: 10.5, color: "#64748b", marginLeft: 4 }}>· {username}</div>
+        <div style={{ fontSize: 12.5, color: "#64748b", marginLeft: 4 }}>· {username}</div>
       )}
       <div style={{ flex: 1 }} />
       <button onClick={onRefresh} disabled={loading} title="새로고침"
@@ -174,7 +174,7 @@ function ConnectForm({ onConnect, onDisconnect, username }) {
           <input
             type="password" value={token} onChange={e => setToken(e.target.value)}
             placeholder="ghp_xxxxxxxxxxxx" disabled={busy}
-            onKeyDown={e => e.key === "Enter" && submit()}
+            onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") submit(); }}
             style={{
               width: "100%", padding: "7px 9px", background: "#0f1117",
               border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6,
@@ -215,6 +215,13 @@ function RepoPicker({ workspaceId, onLinked }) {
   const [err, setErr]       = useState(null);
   const [q, setQ]           = useState("");
   const [linking, setLinking] = useState(null);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [sortLatest, setSortLatest] = useState(true);    // PR/업데이트 최신순
+  const [showPublic, setShowPublic] = useState(true);
+  const [showPrivate, setShowPrivate] = useState(true);
+  const [pinned, setPinned] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("alpha.pinnedRepos") || "[]"); } catch { return []; }
+  });
 
   useEffect(() => {
     (async () => {
@@ -227,7 +234,25 @@ function RepoPicker({ workspaceId, onLinked }) {
     })();
   }, []);
 
-  const filtered = repos.filter(r => !q || r.fullName.toLowerCase().includes(q.toLowerCase()));
+  const togglePin = (e, fullName) => {
+    e.stopPropagation();
+    setPinned(prev => {
+      const next = prev.includes(fullName) ? prev.filter(n => n !== fullName) : [...prev, fullName];
+      try { localStorage.setItem("alpha.pinnedRepos", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
+  // 검색 + 공개/비공개 필터 → 핀 우선 → (최신순 | 이름순) 정렬
+  const visible = repos
+    .filter(r => !q || r.fullName.toLowerCase().includes(q.toLowerCase()))
+    .filter(r => (r.isPrivate ? showPrivate : showPublic));
+  const sorted = [...visible].sort((a, b) => {
+    const pa = pinned.includes(a.fullName), pb = pinned.includes(b.fullName);
+    if (pa !== pb) return pa ? -1 : 1;
+    if (sortLatest) return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+    return a.fullName.localeCompare(b.fullName);
+  });
 
   const link = async (repo) => {
     setLinking(repo.fullName);
@@ -243,41 +268,237 @@ function RepoPicker({ workspaceId, onLinked }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      <div style={{ padding: "10px 12px 6px", fontSize: 11.5, color: "#e2e8f0", fontWeight: 700 }}>
-        이 워크스페이스에 연결할 레포
+      <div style={{ padding: "10px 12px 6px", fontSize: 13.5, color: "#e2e8f0", fontWeight: 700 }}>
+        이 워크스페이스에 연결할 repo
       </div>
-      <div style={{ padding: "0 10px 8px", display: "flex", alignItems: "center", gap: 4 }}>
-        <Search size={12} color="#64748b" />
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="검색"
-          style={{
-            flex: 1, padding: "4px 8px", background: "#0f1117",
-            border: "1px solid rgba(255,255,255,0.08)", borderRadius: 4,
-            color: "#e2e8f0", fontSize: 11, boxSizing: "border-box",
-          }} />
-      </div>
-      <div style={{ flex: 1, overflow: "auto" }}>
-        {filtered.map(r => (
-          <div key={r.fullName} onClick={() => link(r)}
+      <div style={{ padding: "0 10px 8px", position: "relative" }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6, background: "#0f1117",
+          border: "1px solid rgba(255,255,255,0.1)", borderRadius: 7, padding: "2px 5px 2px 9px",
+        }}>
+          <Search size={14} color="#64748b" style={{ flexShrink: 0 }} />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="검색"
             style={{
-              padding: "8px 12px", cursor: linking === r.fullName ? "wait" : "pointer",
-              borderBottom: "1px solid rgba(255,255,255,0.04)",
-              opacity: linking === r.fullName ? 0.5 : 1,
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = "rgba(96,165,250,0.08)"}
-            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "#e2e8f0", fontWeight: 600 }}>
-              {r.isPrivate ? "🔒" : "📂"} {r.fullName}
-            </div>
-            <div style={{ fontSize: 10.5, color: "#64748b", marginTop: 2 }}>
-              {r.defaultBranch} · {r.updatedAt?.slice(0, 10)}
-            </div>
+              flex: 1, minWidth: 0, padding: "7px 4px", background: "transparent", border: "none", outline: "none",
+              color: "#e2e8f0", fontSize: 13, boxSizing: "border-box",
+            }} />
+          <button onClick={() => setFilterOpen(o => !o)} title="필터"
+            style={{
+              background: filterOpen ? "rgba(96,165,250,0.15)" : "transparent", border: "none",
+              borderRadius: 5, cursor: "pointer", color: filterOpen ? "#60a5fa" : "#64748b",
+              padding: "5px 6px", display: "flex", flexShrink: 0,
+            }}>
+            <Filter size={14} />
+          </button>
+        </div>
+        {filterOpen && (
+          <div style={{
+            position: "absolute", right: 10, top: "100%", zIndex: 20, marginTop: 3,
+            minWidth: 180, background: "#161b22", border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 8, padding: 6, boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          }}>
+            <FilterRow label="PR/업데이트 최신순" checked={sortLatest} onClick={() => setSortLatest(v => !v)} />
+            <div style={{ height: 1, background: "rgba(255,255,255,0.06)", margin: "4px 0" }} />
+            <FilterRow label="Public 표시" checked={showPublic} onClick={() => setShowPublic(v => !v)} />
+            <FilterRow label="Private 표시" checked={showPrivate} onClick={() => setShowPrivate(v => !v)} />
           </div>
-        ))}
-        {filtered.length === 0 && (
-          <div style={{ padding: 14, fontSize: 11, color: "#64748b", textAlign: "center" }}>repo 없음</div>
+        )}
+      </div>
+      <div className="dark-scroll" style={{ flex: 1, overflow: "auto" }}>
+        {sorted.map(r => {
+          const isPinned = pinned.includes(r.fullName);
+          return (
+            <div key={r.fullName} onClick={() => link(r)}
+              style={{
+                padding: "8px 12px", cursor: linking === r.fullName ? "wait" : "pointer",
+                borderBottom: "1px solid rgba(255,255,255,0.04)",
+                opacity: linking === r.fullName ? 0.5 : 1,
+                display: "flex", alignItems: "flex-start", gap: 6,
+              }}
+              onMouseEnter={e => e.currentTarget.style.background = "rgba(96,165,250,0.08)"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13.5, color: "#e2e8f0", fontWeight: 600 }}>
+                  {r.isPrivate ? "🔒" : "📂"}
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.fullName}</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: "#64748b", marginTop: 2 }}>
+                  {r.defaultBranch} · {r.updatedAt?.slice(0, 10)}
+                </div>
+              </div>
+              <button onClick={(e) => togglePin(e, r.fullName)} title={isPinned ? "고정 해제" : "상단 고정"}
+                style={{
+                  background: "transparent", border: "none", cursor: "pointer", padding: 3, flexShrink: 0,
+                  color: isPinned ? "#f59e0b" : "#3a424d",
+                }}>
+                <Pin size={13} fill={isPinned ? "#f59e0b" : "none"} />
+              </button>
+            </div>
+          );
+        })}
+        {sorted.length === 0 && (
+          <div style={{ padding: 14, fontSize: 13, color: "#64748b", textAlign: "center" }}>repo 없음</div>
         )}
       </div>
     </div>
+  );
+}
+
+function FilterRow({ label, checked, onClick }) {
+  return (
+    <div onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",
+        cursor: "pointer", borderRadius: 5, fontSize: 12, color: "#cbd5e1",
+      }}
+      onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      <span style={{
+        width: 15, height: 15, borderRadius: 4, flexShrink: 0,
+        border: checked ? "none" : "1.5px solid #3a424d",
+        background: checked ? "#60a5fa" : "transparent",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        {checked && <Check size={11} color="#0f1117" strokeWidth={3} />}
+      </span>
+      {label}
+    </div>
+  );
+}
+
+// ───────────────────────────── Git Graph (multi-lane, parent-SHA based)
+
+const _GP   = ["#60a5fa","#34d399","#f59e0b","#f472b6","#fb923c","#38bdf8","#4ade80","#e879f9"];
+const _LSEP = 13;   // lane gap px
+const _LX0  = 10;   // lane-0 x
+const _RH   = 56;   // row height px
+const _DR   = 3.5;  // dot radius
+const gLX   = j => _LX0 + j * _LSEP;
+
+/**
+ * parent SHA를 사용해 커밋별 레인·색상을 결정한다.
+ * lanes[j] = { sha, color } | null  (각 레인이 다음으로 기대하는 SHA)
+ */
+function buildGraphLayout(rawCommits) {
+  if (!rawCommits?.length) return { commits: [], svgW: _LX0 + _LSEP + 4 };
+
+  const lanes = [{ sha: rawCommits[0].sha, color: _GP[0] }];
+  let cIdx = 1, maxLane = 0;
+
+  const result = rawCommits.map((c) => {
+    const parents   = (c.parents || []).filter(Boolean);
+    const isMerge   = parents.length >= 2;
+
+    // 이 커밋의 SHA를 기대하는 레인 전부
+    const myLanes = lanes.reduce((a, l, j) => { if (l?.sha === c.sha) a.push(j); return a; }, []);
+    let laneIdx = myLanes[0] ?? lanes.length;
+
+    if (!myLanes.length) {
+      // 매핑 없음(고아 커밋 등) → 새 레인
+      lanes.push({ sha: c.sha, color: _GP[cIdx++ % _GP.length] });
+      laneIdx = lanes.length - 1;
+    }
+
+    const myColor      = lanes[laneIdx]?.color ?? _GP[0];
+    const lanesBefore  = lanes.map(l => l ? { ...l } : null);
+
+    // 수렴 레인: 동일 SHA를 기대하던 추가 레인들 → 닫기
+    const convergingLanes = myLanes.slice(1);
+    convergingLanes.forEach(j => { lanes[j] = null; });
+
+    // 1차 부모로 레인 계속
+    let newLaneForMerge = null;
+    if (!parents.length) {
+      lanes[laneIdx] = null;
+    } else {
+      lanes[laneIdx] = { sha: parents[0], color: myColor };
+
+      if (parents.length >= 2) {
+        // 2차 부모(피처 브랜치)를 위한 새 레인을 오른쪽에 확보
+        let nj = lanes.findIndex((l, j) => j > laneIdx && l === null);
+        if (nj === -1) { nj = lanes.length; lanes.push(null); }
+        const nc = _GP[cIdx++ % _GP.length];
+        lanes[nj] = { sha: parents[1], color: nc };
+        newLaneForMerge = nj;
+        maxLane = Math.max(maxLane, nj);
+      }
+    }
+
+    const lanesAfter = lanes.map(l => l ? { ...l } : null);
+    maxLane = Math.max(maxLane, laneIdx);
+
+    return { ...c, laneIdx, color: myColor, isMerge, lanesBefore, lanesAfter, convergingLanes, newLaneForMerge };
+  });
+
+  return { commits: result, svgW: _LX0 + (maxLane + 1) * _LSEP + 6 };
+}
+
+/** 전체 커밋 목록을 하나의 SVG로 렌더링 */
+function GitGraphSVG({ laned, svgW }) {
+  const total = laned.length;
+  const els   = [];
+
+  laned.forEach((c, i) => {
+    const y0 = i * _RH, yC = y0 + _RH / 2, yH = y0 + _RH;
+    const { laneIdx, color, isMerge, lanesBefore, lanesAfter, convergingLanes, newLaneForMerge } = c;
+    const dx   = gLX(laneIdx);
+    const maxJ = Math.max(lanesBefore.length, lanesAfter.length);
+
+    // ── 각 레인의 수직선 ──────────────────────────────────────────
+    for (let j = 0; j < maxJ; j++) {
+      const bef = lanesBefore[j] ?? null;
+      const aft = lanesAfter[j]  ?? null;
+      const lc  = ((bef || aft)?.color ?? _GP[0]);
+
+      if (j === laneIdx) {
+        // 이 커밋의 레인: 점 위아래로 나눔
+        if (i > 0       && bef) els.push(<line key={`t${i}_${j}`} x1={dx} y1={y0} x2={dx} y2={yC-_DR-1} stroke={lc+"c0"} strokeWidth={1.5}/>);
+        if (i < total-1 && aft) els.push(<line key={`b${i}_${j}`} x1={dx} y1={yC+_DR+1} x2={dx} y2={yH} stroke={lc+"c0"} strokeWidth={1.5}/>);
+      } else if (convergingLanes.includes(j) || j === newLaneForMerge) {
+        // 곡선이 담당 → 직선 생략
+      } else if (bef && aft) {
+        // 통과 레인: 전체 높이
+        els.push(<line key={`p${i}_${j}`} x1={gLX(j)} y1={y0} x2={gLX(j)} y2={yH} stroke={lc+"80"} strokeWidth={1.5}/>);
+      } else if (bef && !aft && i > 0) {
+        // 이 행에서 레인 종료 (루트 커밋 등)
+        els.push(<line key={`e${i}_${j}`} x1={gLX(j)} y1={y0} x2={gLX(j)} y2={yC} stroke={lc+"80"} strokeWidth={1.5}/>);
+      } else if (!bef && aft && i < total-1) {
+        els.push(<line key={`s${i}_${j}`} x1={gLX(j)} y1={yC} x2={gLX(j)} y2={yH} stroke={lc+"80"} strokeWidth={1.5}/>);
+      }
+    }
+
+    // ── 수렴 곡선: 다른 레인 → 이 커밋 (공통 조상) ──────────────
+    convergingLanes.forEach((j, ci) => {
+      const fx = gLX(j);
+      const fc = (lanesBefore[j]?.color ?? _GP[0]) + "b0";
+      els.push(<path key={`cv${i}_${ci}`} d={`M ${fx} ${y0} Q ${fx} ${yC} ${dx} ${yC-_DR-1}`} stroke={fc} fill="none" strokeWidth={1.5}/>);
+    });
+
+    // ── 분기 곡선: 머지 → 새 레인(피처 브랜치) 아래쪽 ──────────
+    if (isMerge && newLaneForMerge !== null) {
+      const tx = gLX(newLaneForMerge);
+      const tc = (lanesAfter[newLaneForMerge]?.color ?? _GP[1]) + "b0";
+      els.push(<path key={`dv${i}`} d={`M ${dx} ${yC+_DR+1} Q ${dx} ${yH} ${tx} ${yH}`} stroke={tc} fill="none" strokeWidth={1.5}/>);
+    }
+
+    // ── 점 ────────────────────────────────────────────────────────
+    if (isMerge) {
+      els.push(
+        <g key={`d${i}`}>
+          <rect x={dx-5} y={yC-5} width={10} height={10} transform={`rotate(45 ${dx} ${yC})`} fill="#120d2e" stroke="#a78bfa" strokeWidth={1.8} rx={1}/>
+          <circle cx={dx} cy={yC} r={2} fill="#a78bfa"/>
+        </g>
+      );
+    } else {
+      els.push(<circle key={`d${i}`} cx={dx} cy={yC} r={_DR} fill={color} stroke="#0d1117" strokeWidth={1.5}/>);
+    }
+  });
+
+  return (
+    <svg width={svgW} height={total * _RH}
+         style={{ position:"absolute", top:0, left:0, pointerEvents:"none" }}>
+      {els}
+    </svg>
   );
 }
 
@@ -363,9 +584,9 @@ function CommitList({
 
       {/* 레포 + 브랜치 헤더 */}
       <div style={{ padding: "10px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "#e2e8f0", fontWeight: 600 }}>
-          <Link2 size={12} color="#60a5fa" />
-          {wsStatus.repoFullName}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "#e2e8f0", fontWeight: 600, overflow: "hidden" }}>
+          <Link2 size={12} color="#60a5fa" style={{ flexShrink: 0 }} />
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{wsStatus.repoFullName}</span>
         </div>
         <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
           <button onClick={() => setShowBranches(s => !s)}
@@ -397,7 +618,6 @@ function CommitList({
           </div>
         )}
       </div>
-
       {/* 변경된 파일 목록 */}
       {modifiedPaths.length > 0 && (
         <div style={{ padding: "8px 12px", borderBottom: "1px solid rgba(255,255,255,0.05)", flexShrink: 0 }}>
@@ -449,7 +669,7 @@ function CommitList({
           value={commitMsg}
           onChange={e => setCommitMsg(e.target.value)}
           placeholder="커밋 메시지 (생략 시 기본값)"
-          onKeyDown={e => e.key === "Enter" && handlePush()}
+          onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") handlePush(); }}
           style={{
             width: "100%", padding: "5px 8px", marginBottom: 6,
             background: "#0f1117", border: "1px solid rgba(255,255,255,0.08)",
@@ -500,42 +720,86 @@ function CommitList({
       </div>
 
       {/* 커밋 히스토리 */}
-      <div style={{ flex: 1, overflow: "auto", marginTop: 8 }}>
+      <div className="dark-scroll" style={{ flex: 1, overflow: "auto", marginTop: 8 }}>
         <div style={{ padding: "6px 12px 2px", fontSize: 10, fontWeight: 700, color: "#4B5563", textTransform: "uppercase", letterSpacing: "0.06em" }}>
           히스토리
         </div>
         {commits.length === 0 && (
           <div style={{ padding: 14, fontSize: 11, color: "#64748b", textAlign: "center" }}>커밋 없음</div>
         )}
-        {commits.map(c => (
-          <div key={c.sha} onClick={() => onOpenCommit?.(c)}
-            style={{
-              padding: "8px 12px", cursor: "pointer",
-              borderBottom: "1px solid rgba(255,255,255,0.04)",
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = "rgba(96,165,250,0.06)"}
-            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
-              <GitCommit size={11} color="#60a5fa" style={{ marginTop: 2, flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontSize: 11.5, color: "#e2e8f0", fontWeight: 500,
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }} title={c.message}>
-                  {c.message?.split("\n")[0]}
-                </div>
-                <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
-                  {c.authorName} · {fmtAgo(c.authoredAt)} · <code>{c.sha?.slice(0, 7)}</code>
-                </div>
-              </div>
-              <a href={c.htmlUrl} target="_blank" rel="noopener noreferrer"
-                onClick={e => e.stopPropagation()}
-                style={{ color: "#64748b", flexShrink: 0 }} title="GitHub에서 보기">
-                <ExternalLink size={10} />
-              </a>
+        {commits.length > 0 && (() => {
+          const { commits: laned, svgW } = buildGraphLayout(commits);
+          return (
+            <div style={{ position: "relative" }}>
+              {/* 전체 레이아웃을 커버하는 단일 SVG */}
+              <GitGraphSVG laned={laned} svgW={svgW} />
+
+              {laned.map((c, i) => {
+                const isMergeToMain = /Merge (pull request|branch).*(main|master)/i.test(c.message || "");
+                const initials = (c.authorName || "?").slice(0, 1).toUpperCase();
+                return (
+                  <div key={c.sha} onClick={() => onOpenCommit?.(c)}
+                    style={{
+                      display: "flex", height: _RH, alignItems: "center",
+                      cursor: "pointer", borderBottom: "1px solid rgba(255,255,255,0.03)",
+                      overflow: "hidden",
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = "rgba(96,165,250,0.05)"}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+
+                    {/* SVG 너비만큼 스페이서 */}
+                    <div style={{ width: svgW, flexShrink: 0 }} />
+
+                    {/* 커밋 내용 */}
+                    <div style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                      {c.isMerge && (
+                        <span style={{
+                          display: "inline-block", fontSize: 9, fontWeight: 700,
+                          padding: "1px 5px", marginBottom: 2,
+                          background: isMergeToMain ? "rgba(167,139,250,0.18)" : "rgba(167,139,250,0.1)",
+                          border: `1px solid ${isMergeToMain ? "rgba(167,139,250,0.5)" : "rgba(167,139,250,0.3)"}`,
+                          borderRadius: 3, color: "#a78bfa",
+                        }}>
+                          {isMergeToMain ? "↳ main" : "MERGE"}
+                        </span>
+                      )}
+                      <div style={{
+                        fontSize: 11.5, color: "#e2e8f0", fontWeight: 500,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }} title={c.message}>
+                        {c.message?.split("\n")[0]}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, overflow: "hidden", minWidth: 0 }}>
+                        {c.authorAvatar ? (
+                          <img src={c.authorAvatar} alt={c.authorName}
+                            style={{ width: 13, height: 13, borderRadius: 999, flexShrink: 0 }} />
+                        ) : (
+                          <div style={{
+                            width: 13, height: 13, borderRadius: 999, flexShrink: 0,
+                            background: `hsl(${initials.charCodeAt(0) * 37 % 360},55%,38%)`,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontSize: 7, color: "#fff", fontWeight: 700,
+                          }}>{initials}</div>
+                        )}
+                        <span style={{ fontSize: 10, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{c.authorLogin || c.authorName}</span>
+                        <span style={{ fontSize: 10, color: "#2d3748", flexShrink: 0 }}>·</span>
+                        <span style={{ fontSize: 10, color: "#4B5563", flexShrink: 0, whiteSpace: "nowrap" }}>{fmtAgo(c.authoredAt)}</span>
+                        <span style={{ fontSize: 10, color: "#2d3748", flexShrink: 0 }}>·</span>
+                        <code style={{ fontSize: 9.5, color: "#475569", flexShrink: 0, whiteSpace: "nowrap" }}>{c.sha?.slice(0, 7)}</code>
+                      </div>
+                    </div>
+
+                    <a href={c.htmlUrl} target="_blank" rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      style={{ color: "#374151", flexShrink: 0, paddingRight: 8 }} title="GitHub에서 보기">
+                      <ExternalLink size={10} />
+                    </a>
+                  </div>
+                );
+              })}
             </div>
-          </div>
-        ))}
+          );
+        })()}
       </div>
     </div>
   );

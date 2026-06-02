@@ -1,25 +1,16 @@
 package com.DevBridge.devbridge.domain.user.service;
 
 import com.DevBridge.devbridge.domain.chat.service.StreamChatService;
-import com.DevBridge.devbridge.domain.git.client.GithubApiClient;
 import com.DevBridge.devbridge.domain.user.entity.User;
 import com.DevBridge.devbridge.domain.client.entity.ClientProfile;
 import com.DevBridge.devbridge.domain.user.dto.LoginRequest;
 import com.DevBridge.devbridge.domain.user.dto.SignupRequest;
-import com.DevBridge.devbridge.domain.user.entity.*;
-import com.DevBridge.devbridge.domain.client.entity.*;
-import com.DevBridge.devbridge.domain.user.repository.*;
-import com.DevBridge.devbridge.domain.client.repository.*;
+import com.DevBridge.devbridge.domain.user.repository.UserRepository;
+import com.DevBridge.devbridge.domain.client.repository.ClientProfileRepository;
+import com.DevBridge.devbridge.global.security.AesGcmCryptoService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestClient;
-
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -28,17 +19,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final ClientProfileRepository clientProfileRepository;
     private final StreamChatService streamChatService;
-    private final GithubApiClient githubApiClient;
-
-    @Value("${github.client-id:}")
-    private String githubClientId;
-
-    @Value("${github.client-secret:}")
-    private String githubClientSecret;
-
-    private final RestClient githubOAuth = RestClient.builder()
-            .defaultHeader(HttpHeaders.ACCEPT, "application/json")
-            .build();
+    private final AesGcmCryptoService crypto;
 
     @Transactional
     public User signup(SignupRequest request) {
@@ -55,13 +36,12 @@ public class AuthService {
                 .username(request.getUsername())
                 .password(request.getPassword())
                 .userType(request.getUserType())
-                .interests(request.getInterests())
                 .birthDate(request.getBirthDate())
                 .build();
 
         User savedUser = userRepository.save(user);
 
-        if (request.getUserType() == User.UserType.CLIENT) {
+        if (request.getUserType() == User.UserType.FREE) {
             createClientProfile(savedUser, request);
         }
 
@@ -80,7 +60,6 @@ public class AuthService {
         ClientProfile clientProfile = ClientProfile.builder()
                 .user(user)
                 .clientType(mapClientType(request.getClientType()))
-                .slogan(request.getSlogan())
                 .industry(request.getIndustry())
                 .heroKey("hero_check.png")
                 .build();
@@ -90,12 +69,13 @@ public class AuthService {
     // --- 매핑 도우미 메서드 (프론트엔드 한글/설명 -> Enum) ---
 
     private ClientProfile.ClientType mapClientType(String type) {
+        if (type == null || type.isBlank()) return ClientProfile.ClientType.INDIVIDUAL;
         return switch (type) {
             case "법인사업자" -> ClientProfile.ClientType.CORPORATION;
             case "개인 사업자" -> ClientProfile.ClientType.SOLE_PROPRIETOR;
             case "개인" -> ClientProfile.ClientType.INDIVIDUAL;
             case "팀" -> ClientProfile.ClientType.TEAM;
-            default -> ClientProfile.ClientType.valueOf(type);
+            default -> ClientProfile.ClientType.INDIVIDUAL;
         };
     }
 
@@ -121,47 +101,54 @@ public class AuthService {
     }
 
     /**
-     * GitHub OAuth 로그인.
-     * 1) code를 GitHub access token으로 교환
-     * 2) GitHub /user + /user/emails API로 이메일 확보
-     * 3) 기존 이메일 계정이 있으면 로그인, 없으면 예외(호출부에서 회원가입 안내)
+     * GitHub OAuth 전용 — 이메일로 기존 계정을 찾고, 없으면 GitHub 정보로 자동 생성.
+     * 신규·기존 모두 github_username / github_token_encrypted / github_connected_at 을 최신값으로 갱신한다.
      */
-    public User githubLogin(String code, String redirectUri) {
-        if (githubClientId == null || githubClientId.isBlank()) {
-            throw new RuntimeException("GitHub OAuth가 설정되지 않았습니다.");
+    @Transactional
+    public User findOrCreateGithubUser(String email, String githubLogin, String accessToken) {
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        byte[] encryptedToken = null;
+        if (accessToken != null && !accessToken.isBlank()) {
+            try { encryptedToken = crypto.encrypt(accessToken); } catch (Exception ignored) {}
         }
+        final byte[] tokenBytes = encryptedToken;
 
-        // 1. code → access token
-        Map<String, Object> tokenResp = githubOAuth.post()
-                .uri("https://github.com/login/oauth/access_token")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of(
-                        "client_id", githubClientId,
-                        "client_secret", githubClientSecret,
-                        "code", code,
-                        "redirect_uri", redirectUri
-                ))
-                .retrieve()
-                .body(new ParameterizedTypeReference<Map<String, Object>>() {});
-
-        String accessToken = (String) tokenResp.get("access_token");
-        if (accessToken == null || accessToken.isBlank()) {
-            String err = (String) tokenResp.getOrDefault("error_description", "GitHub 인증 코드가 유효하지 않습니다.");
-            throw new RuntimeException(err);
-        }
-
-        // 2. 사용자 이메일 확보 (공개 이메일 → 없으면 /user/emails에서 primary 추출)
-        Map<String, String> userInfo = githubApiClient.getOAuthUserInfo(accessToken);
-        String email = userInfo.get("email");
-        if (email == null || email.isBlank()) {
-            email = githubApiClient.getPrimaryEmail(accessToken);
-        }
-        if (email == null || email.isBlank()) {
-            throw new RuntimeException("GitHub 계정에 이메일이 없습니다. GitHub 설정에서 이메일을 공개로 변경하거나, 인증된 이메일을 추가해 주세요.");
-        }
-
-        // 3. 기존 계정 조회
         return userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("가입되지 않은 이메일입니다."));
+                .map(existing -> {
+                    existing.setGithubUsername(githubLogin);
+                    existing.setGithubConnectedAt(now);
+                    if (tokenBytes != null) existing.setGithubTokenEncrypted(tokenBytes);
+                    return userRepository.save(existing);
+                })
+                .orElseGet(() -> {
+                    String baseUsername = githubLogin.toLowerCase().replaceAll("[^a-z0-9_]", "_");
+                    String username = baseUsername;
+                    int suffix = 2;
+                    while (userRepository.findByUsername(username).isPresent()) {
+                        username = baseUsername + suffix++;
+                    }
+
+                    User newUser = User.builder()
+                            .email(email)
+                            .username(username)
+                            .password(java.util.UUID.randomUUID().toString())
+                            .phone("00000000000")
+                            .userType(User.UserType.FREE)
+                            .githubUsername(githubLogin)
+                            .githubTokenEncrypted(tokenBytes)
+                            .githubConnectedAt(now)
+                            .build();
+
+                    User saved = userRepository.save(newUser);
+
+                    try {
+                        streamChatService.upsertStreamUser(saved);
+                    } catch (Exception e) {
+                        System.err.println("[StreamChat] Warning: upsertStreamUser failed for github user "
+                                + saved.getId() + ": " + e.getMessage());
+                    }
+
+                    return saved;
+                });
     }
 }

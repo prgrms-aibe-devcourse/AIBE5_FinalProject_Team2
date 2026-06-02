@@ -17,6 +17,7 @@ public class AuthResponse {
     private String phone;
     private LocalDate birthDate;
     private User.UserType userType;
+    private String githubUsername;
     private String token;     // JWT (Bearer 토큰)
     private String message;
 }

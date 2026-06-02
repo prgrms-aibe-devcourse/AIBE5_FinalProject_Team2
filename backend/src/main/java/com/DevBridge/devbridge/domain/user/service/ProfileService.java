@@ -3,6 +3,7 @@ package com.DevBridge.devbridge.domain.user.service;
 import com.DevBridge.devbridge.domain.user.entity.User;
 import com.DevBridge.devbridge.domain.user.entity.UserProfileDetail;
 import com.DevBridge.devbridge.domain.client.entity.ClientProfile;
+import com.DevBridge.devbridge.domain.client.entity.ClientProfileStats;
 import com.DevBridge.devbridge.domain.user.dto.UserProfileDetailRequest;
 import com.DevBridge.devbridge.domain.user.dto.UserProfileDetailResponse;
 import com.DevBridge.devbridge.domain.user.repository.UserRepository;
@@ -18,6 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 
+/**
+ * 사용자 프로필 세부 정보 (UserProfileDetail) 일괄 처리.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -30,7 +34,7 @@ public class ProfileService {
 
     private static final ObjectMapper OM = new ObjectMapper();
 
-    /** username 으로 다른 사용자의 프로필 상세를 조회. */
+    /** username 으로 다른 사용자의 프로필 상세를 조회 (public 조회). */
     @Transactional(readOnly = true)
     public UserProfileDetailResponse getDetailByUsername(String username) {
         User u = userRepository.findByUsername(username)
@@ -54,28 +58,21 @@ public class ProfileService {
                     .build();
         }
 
-        // CLIENT인 경우 ClientProfile에서 industry, slogan 가져오기
         String industry = null;
         String slogan = null;
         String shortBio = detail != null ? detail.getShortBio() : null;
         String strengthDescFromProfile = null;
-        if (user.getUserType() == User.UserType.CLIENT) {
-            ClientProfile clientProfile = clientProfileRepository.findByUser(user).orElse(null);
-            if (clientProfile != null) {
-                industry = clientProfile.getIndustry();
-                slogan = clientProfile.getSlogan();
-                if (shortBio == null) shortBio = clientProfile.getShortBio();
-                strengthDescFromProfile = clientProfile.getStrengthDesc();
-            }
-        }
-
         String grade = null;
         Integer completedProjects = null;
         Double rating = null;
-        ClientProfile clientProfile2 = clientProfileRepository.findByUser(user).orElse(null);
-        if (clientProfile2 != null) {
-            grade = clientProfile2.getGrade() != null ? clientProfile2.getGrade().name() : null;
-            var statsOpt = clientProfileStatsRepository.findByClientProfile(clientProfile2);
+
+        ClientProfile clientProfile = clientProfileRepository.findByUser(user).orElse(null);
+        if (clientProfile != null) {
+            industry = clientProfile.getIndustry();
+            if (shortBio == null) shortBio = clientProfile.getShortBio();
+            strengthDescFromProfile = clientProfile.getStrengthDesc();
+            grade = clientProfile.getGrade() != null ? clientProfile.getGrade().name() : null;
+            var statsOpt = clientProfileStatsRepository.findByClientProfile(clientProfile);
             if (statsOpt.isPresent()) {
                 var stats = statsOpt.get();
                 completedProjects = stats.getCompletedProjects();
@@ -85,6 +82,9 @@ public class ProfileService {
 
         return UserProfileDetailResponse.builder()
                 .userId(userId)
+                .username(user.getUsername())
+                .email(user.getEmail())
+                .userType(user.getUserType() != null ? user.getUserType().name() : "FREE")
                 .phone(user.getPhone())
                 .birthDate(user.getBirthDate() != null ? user.getBirthDate().toString() : null)
                 .region(user.getRegion())
@@ -92,7 +92,7 @@ public class ProfileService {
                 .taxEmail(user.getTaxEmail())
                 .contactEmail(user.getContactEmail())
                 .profileImageUrl(user.getProfileImageUrl())
-                .serviceField(null)
+                .githubUsername(user.getGithubUsername())
                 .grade(grade)
                 .completedProjects(completedProjects)
                 .rating(rating)
@@ -118,6 +118,9 @@ public class ProfileService {
         resetMyProfile(user.getId());
     }
 
+    /**
+     * 본인 프로필 데이터 일괄 초기화.
+     */
     @Transactional
     public void resetMyProfile(Long userId) {
         User user = userRepository.findById(userId)
@@ -136,6 +139,9 @@ public class ProfileService {
         });
     }
 
+    /**
+     * 전체 프로필 세부 정보 일괄 저장 (upsert).
+     */
     @Transactional
     public UserProfileDetailResponse saveDetail(Long userId, UserProfileDetailRequest req) {
         User user = userRepository.findById(userId)
@@ -157,23 +163,19 @@ public class ProfileService {
         }
         userProfileDetailRepository.save(detail);
 
-        syncToLegacyProfile(user, req);
+        syncToClientProfile(user, req);
 
         return getDetail(userId);
     }
 
-    private void syncToLegacyProfile(User user, UserProfileDetailRequest req) {
-        if (user == null || user.getUserType() == null) return;
-
-        if (user.getUserType() == User.UserType.CLIENT) {
-            clientProfileRepository.findByUser(user).ifPresent(cp -> {
-                if (req.getBio() != null) cp.setBio(req.getBio());
-                if (req.getStrengthDesc() != null) cp.setStrengthDesc(req.getStrengthDesc());
-                if (req.getShortBio() != null) cp.setShortBio(req.getShortBio());
-                if (req.getIndustry() != null) cp.setIndustry(req.getIndustry());
-                clientProfileRepository.save(cp);
-            });
-        }
+    private void syncToClientProfile(User user, UserProfileDetailRequest req) {
+        clientProfileRepository.findByUser(user).ifPresent(cp -> {
+            if (req.getBio() != null) cp.setBio(req.getBio());
+            if (req.getStrengthDesc() != null) cp.setStrengthDesc(req.getStrengthDesc());
+            if (req.getShortBio() != null) cp.setShortBio(req.getShortBio());
+            if (req.getIndustry() != null) cp.setIndustry(req.getIndustry());
+            clientProfileRepository.save(cp);
+        });
     }
 
     private static String toJson(Object value) {
@@ -194,11 +196,32 @@ public class ProfileService {
         }
     }
 
+    /**
+     * 마이페이지에서 사용자 기본 정보 업데이트.
+     */
     @Transactional
     public Map<String, Object> updateBasicInfo(Long userId, com.DevBridge.devbridge.domain.user.dto.UpdateUserBasicInfoRequest req) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
 
+        if (req.getEmail() != null && !req.getEmail().isBlank()) {
+            String newEmail = req.getEmail().trim();
+            if (!newEmail.equals(user.getEmail())) {
+                if (userRepository.findByEmail(newEmail).isPresent()) {
+                    throw new RuntimeException("이미 사용 중인 이메일입니다: " + newEmail);
+                }
+                user.setEmail(newEmail);
+            }
+        }
+        if (req.getUsername() != null && !req.getUsername().isBlank()) {
+            String newUsername = req.getUsername().trim();
+            if (!newUsername.equals(user.getUsername())) {
+                if (userRepository.findByUsername(newUsername).isPresent()) {
+                    throw new RuntimeException("이미 사용 중인 닉네임입니다: " + newUsername);
+                }
+                user.setUsername(newUsername);
+            }
+        }
         if (req.getPhone() != null && !req.getPhone().isBlank()) {
             user.setPhone(req.getPhone());
         }
@@ -231,17 +254,17 @@ public class ProfileService {
         if (req.getProfileImageUrl() != null && !req.getProfileImageUrl().isBlank()) {
             user.setProfileImageUrl(req.getProfileImageUrl());
         }
+        if (req.getGithubNickname() != null) {
+            String trimmed = req.getGithubNickname().trim();
+            user.setGithubUsername(trimmed.isEmpty() ? null : trimmed);
+        }
         userRepository.save(user);
 
-        String updatedServiceField = null;
         String updatedIndustry = null;
-        if (user.getUserType() == User.UserType.CLIENT) {
+        if (user.getUserType() == User.UserType.FREE) {
             clientProfileRepository.findByUser(user).ifPresent(cp -> {
                 if (req.getIndustry() != null && !req.getIndustry().isBlank()) {
                     cp.setIndustry(req.getIndustry());
-                }
-                if (req.getSlogan() != null && !req.getSlogan().isBlank()) {
-                    cp.setSlogan(req.getSlogan());
                 }
                 clientProfileRepository.save(cp);
             });
@@ -250,17 +273,19 @@ public class ProfileService {
 
         Map<String, Object> response = new HashMap<>();
         response.put("message", "기본 정보가 업데이트되었습니다.");
-        response.put("data", Map.of(
-            "phone", user.getPhone() != null ? user.getPhone() : "",
-            "birthDate", user.getBirthDate() != null ? user.getBirthDate().toString() : "",
-            "region", user.getRegion() != null ? user.getRegion() : "",
-            "gender", user.getGender() != null ? user.getGender().name() : "",
-            "taxEmail", user.getTaxEmail() != null ? user.getTaxEmail() : "",
-            "contactEmail", user.getContactEmail() != null ? user.getContactEmail() : "",
-            "profileImageUrl", user.getProfileImageUrl() != null ? user.getProfileImageUrl() : "",
-            "serviceField", updatedServiceField != null ? updatedServiceField : "",
-            "industry", updatedIndustry != null ? updatedIndustry : ""
-        ));
+        Map<String, Object> data = new HashMap<>();
+        data.put("email", user.getEmail() != null ? user.getEmail() : "");
+        data.put("username", user.getUsername() != null ? user.getUsername() : "");
+        data.put("phone", user.getPhone() != null ? user.getPhone() : "");
+        data.put("birthDate", user.getBirthDate() != null ? user.getBirthDate().toString() : "");
+        data.put("region", user.getRegion() != null ? user.getRegion() : "");
+        data.put("gender", user.getGender() != null ? user.getGender().name() : "");
+        data.put("taxEmail", user.getTaxEmail() != null ? user.getTaxEmail() : "");
+        data.put("contactEmail", user.getContactEmail() != null ? user.getContactEmail() : "");
+        data.put("profileImageUrl", user.getProfileImageUrl() != null ? user.getProfileImageUrl() : "");
+        data.put("githubUsername", user.getGithubUsername() != null ? user.getGithubUsername() : "");
+        data.put("industry", updatedIndustry != null ? updatedIndustry : "");
+        response.put("data", data);
         return response;
     }
 }

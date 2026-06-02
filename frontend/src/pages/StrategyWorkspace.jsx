@@ -413,7 +413,7 @@ function ChatPanel({ id, cfg, onAfterFormalize }) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") onSend(); }}
+          onKeyDown={(e) => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") onSend(); }}
           placeholder="전략을 수정하거나 질문해보세요…"
           disabled={busy}
           style={{

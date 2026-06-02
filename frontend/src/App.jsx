@@ -39,7 +39,6 @@ const Loading               = lazy(() => import("./pages/Loading"));
 const FindPassword          = lazy(() => import("./pages/FindPassword"));
 const PrivacyPolicy         = lazy(() => import("./pages/PrivacyPolicy"));
 const TermsOfService        = lazy(() => import("./pages/TermsOfService"));
-const TossPaymentSuccess    = lazy(() => import("./pages/TossPaymentSuccess"));
 const TossPaymentFail       = lazy(() => import("./pages/TossPaymentFail"));
 const WorkHome              = lazy(() => import("./pages/WorkHome"));
 const StrategyWorkspace     = lazy(() => import("./pages/StrategyWorkspace"));
@@ -102,7 +101,6 @@ function App() {
         <Route path="/subscription/fail"       element={<SubscriptionFail />} />
         <Route path="/privacy"                 element={<PrivacyPolicy />} />
         <Route path="/terms"                   element={<TermsOfService />} />
-        <Route path="/payments/toss/success"   element={<TossPaymentSuccess />} />
         <Route path="/payments/toss/fail"      element={<TossPaymentFail />} />
       </Routes>
     </Suspense>
