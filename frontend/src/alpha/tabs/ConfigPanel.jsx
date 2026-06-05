@@ -5,7 +5,7 @@ import {
   listBrokerAccounts, linkWorkspaceBroker, setBrokerTrading,
   updateGoalProfile, patchBrokerLimits,
 } from "../alphaApi";
-import { Play } from "lucide-react";
+import { Play, RefreshCw } from "lucide-react";
 import { PanelHeader, Card, Empty, primaryBtn, DonutChart } from "./helpers";
 
 // ─── GoalProfileSummary ──────────────────────────────────────────────
@@ -125,7 +125,7 @@ function GoalProfileSummary({ profile, theme, wsId, onChange }) {
             onClick={() => { if (wsId && !isEditing) startEdit(r.key, r.raw); }}
             title={wsId ? "클릭해서 수정" : ""}
             >
-              <div style={{ fontSize: 11, color: theme.textMuted, marginBottom: 3, fontWeight: 600, display: "flex", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 3, fontWeight: 700, display: "flex", justifyContent: "space-between" }}>
                 <span>{r.label}</span>
                 {wsId && !isEditing && <span style={{ opacity: 0.5 }}>✏️</span>}
               </div>
@@ -435,7 +435,7 @@ export default function ConfigPanel({ id, ws, onChange, setTab, topSummary }) {
         theme={theme}
         action={
           <button onClick={onFormalize} disabled={!ws.goalProfile || busy} style={primaryBtn(theme, busy)}>
-            <Play size={14} /> {headerBtnLabel}
+            {candidates.length > 0 ? <RefreshCw size={14} /> : <Play size={14} />} {headerBtnLabel}
           </button>
         }
       />
@@ -448,6 +448,7 @@ export default function ConfigPanel({ id, ws, onChange, setTab, topSummary }) {
             ? <GoalProfileSummary profile={ws.goalProfile} theme={theme} wsId={id} onChange={onChange} />
             : <Empty msg="오른쪽 Heli 대화창에서 8가지 항목(목표/기간/초기금/적립금/성향/MDD/자산/방향)을 채워주세요" theme={theme} />}
         </Card>
+        <div data-tutorial-id="tutorial-backtest-candidates">
         <Card title="Strategy 후보 (선택 → 백테스트)" theme={theme}>
           {candidates.length === 0 ? (
             <Empty msg="Goal Profile이 채워지면 상단의 Goal → Strategy 버튼으로 3개 후보를 생성합니다" theme={theme} />
@@ -504,6 +505,7 @@ export default function ConfigPanel({ id, ws, onChange, setTab, topSummary }) {
             </div>
           )}
         </Card>
+        </div>
 
         <Card title="🔗 자동주문 BrokerAccount 연결" theme={theme}>
           <p style={{ fontSize: 12, color: theme.textMuted, marginTop: 0, marginBottom: 12, lineHeight: 1.6 }}>

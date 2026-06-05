@@ -10,6 +10,7 @@ const PERIOD_OPTIONS = [
   { value: "2y", label: "2년" },
   { value: "5y", label: "5년" },
   { value: "10y", label: "10년 (권장)" },
+  { value: "custom", label: "직접 지정 (달력)" },
 ];
 
 export default function RegimePanel({ id, ws, onChange }) {
@@ -17,17 +18,23 @@ export default function RegimePanel({ id, ws, onChange }) {
   const [data, setData] = useState(ws?.lastRegime ?? null);
   const [busy, setBusy] = useState(false);
   const [period, setPeriod] = useState("10y");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
   const [showRaw, setShowRaw] = useState(false);
+  const custom = period === "custom";
   const onRun = async () => {
+    if (custom && (!start || !end)) { alert("시작일과 종료일을 선택하세요"); return; }
     setBusy(true);
     try {
-      const result = await runRegime(id, { period });
+      const result = await runRegime(id, custom ? { start, end } : { period });
       setData(result);
       if (onChange) onChange();
     }
     catch (e) { alert("Regime 분석 실패: " + (e?.response?.data?.error || e.message)); }
     finally { setBusy(false); }
   };
+  const dateStyle = { padding: "6px 8px", borderRadius: 8, fontSize: 12.5,
+    border: `1px solid ${theme.panelBorder}`, background: theme.cardBg, color: theme.text };
   const labels = { bull: "🐂 상승장", bear: "🐻 하락장", sideways: "↔ 횡보장", high_vol_unstable: "⚡ 고변동성 불안정장" };
   const ALL_KEYS = ["bull", "bear", "sideways", "high_vol_unstable"];
   return (
@@ -38,7 +45,7 @@ export default function RegimePanel({ id, ws, onChange }) {
         description="시장 국면별로 전략의 강점/약점을 분석합니다 (MA200 추세 + 60일 변동성 기반 5분류). 데이터 소스: Polygon.io (yfinance 폴백)."
         theme={theme}
         action={
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <select
               value={period}
               onChange={e => setPeriod(e.target.value)}
@@ -53,7 +60,13 @@ export default function RegimePanel({ id, ws, onChange }) {
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
-            <button onClick={onRun} disabled={busy} style={primaryBtn(theme, busy)}>
+            {custom && (
+              <>
+                <input type="date" value={start} max={end || undefined} disabled={busy} onChange={e => setStart(e.target.value)} style={dateStyle} />
+                <input type="date" value={end} min={start || undefined} disabled={busy} onChange={e => setEnd(e.target.value)} style={dateStyle} />
+              </>
+            )}
+            <button data-tutorial-id="tutorial-regime-run-btn" onClick={onRun} disabled={busy} style={primaryBtn(theme, busy)}>
               <Play size={14} /> {busy ? "분석 중…" : "Regime 실행"}
             </button>
           </div>
@@ -65,6 +78,7 @@ export default function RegimePanel({ id, ws, onChange }) {
           <Card
             title="🌤 자연어 요약"
             theme={theme}
+            titleSize={20}
             action={
               <button
                 onClick={() => setShowRaw(v => !v)}
@@ -85,15 +99,14 @@ export default function RegimePanel({ id, ws, onChange }) {
             }
           </Card>
           {data.regime_timeline && data.regime_timeline.length > 0 && (
-            <Card title="📈 국면 타임라인" theme={theme}>
+            <Card title="📈 국면 타임라인" theme={theme} titleSize={20}>
               <p style={{ margin: "0 0 10px", fontSize: 12, color: theme.textMuted, lineHeight: 1.55 }}>
                 각 색깔 배경이 시장 국면을 나타냅니다. 파란 선은 종가입니다. 마우스를 올리면 상세 정보가 표시됩니다.
-                {data.analysis_basis && <span> · 분석 기준: <b>{data.analysis_basis}</b></span>}
               </p>
               <RegimeTimelineChart timeline={data.regime_timeline} theme={theme} ticker={data.ticker} />
             </Card>
           )}
-          <Card title="ℹ️ 어떻게 계산했나요?" theme={theme}>
+          <Card title="ℹ️ 어떻게 계산했나요?" theme={theme} titleSize={20}>
             <div style={{ fontSize: 12.5, color: theme.text, lineHeight: 1.75 }}>
               <p style={{ margin: "0 0 8px" }}>
                 과거 가격 데이터(Polygon.io 우선, yfinance 폴백)에서 매일 두 가지 지표를 계산해 시장 국면을 <b>5가지</b>로 자동 분류합니다.
@@ -113,7 +126,7 @@ export default function RegimePanel({ id, ws, onChange }) {
                 ].map((x) => (
                   <div key={x.k} style={{
                     padding: "8px 10px", borderRadius: 8, background: theme.codeBg || "#f8fafc",
-                    border: `1px solid ${theme.panelBorder}`, fontSize: 11.5,
+                    border: `1px solid ${theme.panelBorder}`, fontSize: 12,
                   }}>
                     <div style={{ fontWeight: 700, color: theme.text }}>{x.k}</div>
                     <div style={{ color: theme.textMuted, marginTop: 2 }}>{x.v}</div>
@@ -131,11 +144,11 @@ export default function RegimePanel({ id, ws, onChange }) {
               const v = data.per_regime?.[k];
               const missing = !v;
               return (
-                <Card key={k} title={labels[k] || k} theme={theme}
+                <Card key={k} title={labels[k] || k} theme={theme} titleSize={20}
                   badge={data.weakest_regime === k ? "취약" : null}>
                   {missing ? <Empty msg="이 국면이 분석 기간 동안 발생하지 않았습니다." theme={theme} /> :
                    v?.note ? <Empty msg={v.note} theme={theme} /> : (
-                    <div style={{ fontSize: 12, lineHeight: 1.8, color: theme.text }}>
+                    <div style={{ fontSize: 13, lineHeight: 1.8, color: theme.text }}>
                       <Row k="기간(일)" v={v.days} theme={theme} />
                       <Row k="누적 수익" v={`${v.cumulative_return_pct}%`} theme={theme} />
                       <Row k="연환산" v={`${v.annualized_return_pct}%`} theme={theme} />

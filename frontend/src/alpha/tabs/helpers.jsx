@@ -4,14 +4,14 @@ import { BRAND_GRADIENT } from "../ThemeContext";
 // ──────────────────────────────────────────────
 // 기본 프리미티브
 // ──────────────────────────────────────────────
-export function Card({ title, children, theme, action, badge }) {
+export function Card({ title, children, theme, action, badge, titleSize = 13 }) {
   return (
     <div style={{
       background: theme.panel, border: `1px solid ${theme.panelBorder}`,
       borderRadius: 12, padding: 16, marginBottom: 12, backdropFilter: "blur(8px)",
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800, color: theme.text }}>
+        <h3 style={{ margin: 0, fontSize: titleSize, fontWeight: 800, color: theme.text }}>
           {title}{badge && <span style={{ marginLeft: 8, padding: "2px 8px", borderRadius: 999, background: theme.accent, color: "white", fontSize: 10 }}>{badge}</span>}
         </h3>
         {action}
@@ -42,7 +42,7 @@ export function Stat({ label, value, unit = "", theme, positive, negative, hint 
   const [show, setShow] = useState(false);
   return (
     <div style={{ padding: 10, background: theme.codeBg, borderRadius: 8 }}>
-      <div style={{ fontSize: 11, color: theme.textMuted, display: "flex", alignItems: "center", gap: 3, marginBottom: 2 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: theme.textMuted, display: "flex", alignItems: "center", gap: 3, marginBottom: 2 }}>
         {label}
         {hint && (
           <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
@@ -84,9 +84,9 @@ export function Stat({ label, value, unit = "", theme, positive, negative, hint 
 
 export function Row({ k, v, theme }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
-      <span style={{ color: theme.textMuted }}>{k}</span>
-      <b>{v}</b>
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
+      <span style={{ fontSize: 12, fontWeight: 700, color: theme.textMuted }}>{k}</span>
+      <b style={{ fontSize: 13, fontWeight: 700, color: theme.text }}>{v}</b>
     </div>
   );
 }
@@ -110,8 +110,8 @@ export function SubScoreBar({ label, value, theme }) {
   const hint = HINT[label] || "";
   return (
     <div style={{ marginBottom: 10 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
-        <span style={{ color: theme.text, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+        <span style={{ color: theme.text, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}>
           {KO[label] || label}
           {hint && (
             <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
@@ -146,7 +146,7 @@ export function SubScoreBar({ label, value, theme }) {
             </span>
           )}
         </span>
-        <b style={{ color: theme.accent }}>{value}/100</b>
+        <b style={{ fontSize: 13, fontWeight: 700, color: theme.accent }}>{value}/100</b>
       </div>
       <div style={{ height: 6, background: theme.codeBg, borderRadius: 3, overflow: "hidden" }}>
         <div style={{ width: `${value}%`, height: "100%", background: theme.accent, transition: "width 0.4s" }} />
@@ -175,7 +175,7 @@ export function PanelHeader({ icon, title, description, action, theme }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2 style={{
             margin: 0, fontSize: 26, fontWeight: 900, lineHeight: 1.25, letterSpacing: -0.5,
-            background: theme.accentGradient || BRAND_GRADIENT,
+            background: "linear-gradient(90deg, #1d4ed8, #4338ca, #6d28d9)",
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
             backgroundClip: "text",
             display: "inline-flex", alignItems: "center", gap: 8,
@@ -286,8 +286,9 @@ export function DonutChart({ items, size = 180, thickness = 26, centerLabel, cen
 /**
  * 추세 라인차트 — series: [{name, color, points: [{x:Date|number, y:number}]}]
  */
-export function TrendLineChart({ series, height = 240, theme }) {
+export function TrendLineChart({ series, height = 240, theme, toggleable = false, initialHidden = [] }) {
   const [hoverIdx, setHoverIdx] = useState(null);
+  const [hidden, setHidden] = useState(() => new Set(initialHidden));   // 토글로 숨긴 시리즈 이름
   const [zoom, setZoom] = useState(null);   // {s,e} 보이는 인덱스 구간 (null = 전체)
   const [drag, setDrag] = useState(null);   // 드래그 브러시 {x0,x1} (viewBox px)
   const svgRef = useRef(null);
@@ -299,12 +300,14 @@ export function TrendLineChart({ series, height = 240, theme }) {
   }
   const base = valid[0].points;
   const N = base.length;
+  // 토글로 숨긴 시리즈 제외(전부 끄면 스케일 깨지지 않게 폴백)
+  const drawn = (() => { const v = valid.filter((s) => !hidden.has(s.name)); return v.length ? v : valid; })();
   // 보이는 인덱스 구간(줌). 줌하면 Y축도 해당 구간 기준으로 재스케일 → 디테일이 확대된다.
   const vs = zoom ? Math.max(0, Math.min(zoom.s, N - 2)) : 0;
   const ve = zoom ? Math.min(N - 1, Math.max(zoom.e, vs + 1)) : N - 1;
   const span = Math.max(1, ve - vs);
   let yMin = Infinity, yMax = -Infinity;
-  valid.forEach((s) => {
+  drawn.forEach((s) => {
     for (let i = vs; i <= ve; i++) {
       const y = s.points[i]?.y;
       if (y == null || Number.isNaN(y)) continue;
@@ -425,15 +428,16 @@ export function TrendLineChart({ series, height = 240, theme }) {
             <text key={i} x={xAt(i)} y={H - 10} textAnchor={anchor} fontSize={10} fill={theme?.textMuted || "#94a3b8"}>{label}</text>
           );
         })}
-        {valid.map((s, idx) => {
+        {drawn.map((s, idx) => {
           const firstIdx = s.points.findIndex(p => p.y != null && !Number.isNaN(p.y));
           const firstPt = firstIdx >= vs && firstIdx <= ve ? s.points[firstIdx] : null;
           return firstPt ? (
             <circle key={`start-${idx}`} cx={xAt(firstIdx)} cy={yAt(firstPt.y)} r={2.5} fill={s.color} />
           ) : null;
         })}
-        {valid.map((s, idx) => (
-          <path key={idx} d={pathFor(s.points)} fill="none" stroke={s.color} strokeWidth={s.width || 1.8} opacity={s.opacity ?? 0.95}>
+        {drawn.map((s, idx) => (
+          <path key={idx} d={pathFor(s.points)} fill="none" stroke={s.color} strokeWidth={s.width || 1.8}
+            strokeDasharray={s.dash || undefined} opacity={s.opacity ?? 0.95}>
             <title>{s.name}</title>
           </path>
         ))}
@@ -444,33 +448,66 @@ export function TrendLineChart({ series, height = 240, theme }) {
         {hoverIdx != null && !drag && (
           <line x1={xAt(hoverIdx)} x2={xAt(hoverIdx)} y1={PADT} y2={H - PADB} stroke={theme?.accent || "#3b82f6"} strokeDasharray="3 3" strokeWidth={1} opacity={0.7} />
         )}
-        {hoverIdx != null && !drag && valid.map((s, idx) => {
+        {hoverIdx != null && !drag && drawn.map((s, idx) => {
           const p = s.points[hoverIdx];
           if (!p || p.y == null) return null;
           return <circle key={idx} cx={xAt(hoverIdx)} cy={yAt(p.y)} r={3.5} fill={s.color} stroke="white" strokeWidth={1.5} />;
         })}
       </svg>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 6, fontSize: 11, alignItems: "center" }}>
+
+      {/* image2 식 검정 호버 툴팁 — 그날의 날짜 + 각 라인 값 */}
+      {hoverIdx != null && !drag && (() => {
+        const lbl = base[hoverIdx]?.x;
+        const dateStr = lbl instanceof Date ? lbl.toISOString().slice(0, 10) : String(lbl ?? "");
+        const leftPct = (xAt(hoverIdx) / W) * 100;
+        const flip = leftPct > 60;
+        return (
+          <div style={{
+            position: "absolute", top: 12, left: `${leftPct}%`,
+            transform: flip ? "translateX(-100%) translateX(-14px)" : "translateX(14px)",
+            background: "#111827", color: "#fff", borderRadius: 9, padding: "8px 12px",
+            fontSize: 11.5, lineHeight: 1.55, boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            pointerEvents: "none", zIndex: 4, minWidth: 150, border: "1px solid rgba(255,255,255,0.12)",
+          }}>
+            <div style={{ fontWeight: 800, marginBottom: 6, fontSize: 12.5 }}>{dateStr}</div>
+            {drawn.map((s, idx) => (
+              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap" }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                <span style={{ color: "#cbd5e1" }}>{s.name}</span>
+                <span style={{ marginLeft: "auto", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(s.points[hoverIdx]?.y)}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 6, fontSize: 11, alignItems: "center" }}>
         {valid.map((s, idx) => {
-          const v = hoverIdx != null ? s.points[hoverIdx]?.y : s.points[s.points.length - 1]?.y;
+          const off = hidden.has(s.name);
+          // 값·날짜는 호버 말풍선이 보여주므로 범례엔 표시 안 함(보조선 토글 칩만 슬림하게).
+          const inner = (
+            <>
+              <span style={{ width: 14, height: 3, background: s.color, borderRadius: 2, opacity: off ? 0.45 : 1 }} />
+              <b style={{ textDecoration: off ? "line-through" : "none" }}>{s.name}</b>
+            </>
+          );
+          if (!toggleable) {
+            return <span key={idx} style={{ display: "inline-flex", alignItems: "center", gap: 6, color: theme?.text }}>{inner}</span>;
+          }
           return (
-            <span key={idx} style={{ display: "inline-flex", alignItems: "center", gap: 6, color: theme?.text }}>
-              <span style={{ width: 14, height: 3, background: s.color, borderRadius: 2 }} />
-              <b>{s.name}</b>
-              <span style={{ color: theme?.textMuted }}>· {fmt(v)}</span>
-            </span>
+            <button key={idx} type="button"
+              onClick={() => setHidden((h) => { const n = new Set(h); n.has(s.name) ? n.delete(s.name) : n.add(s.name); return n; })}
+              title={off ? "표시" : "숨기기"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6, color: theme?.text,
+                background: off ? "transparent" : (theme?.panelAlt || "rgba(59,130,246,0.06)"),
+                border: `1px solid ${theme?.panelBorder || "#e2e8f0"}`, borderRadius: 999, padding: "3px 10px",
+                cursor: "pointer", opacity: off ? 0.55 : 1, fontSize: 11, lineHeight: 1,
+              }}>{inner}</button>
           );
         })}
-        {hoverIdx != null && (
-          <span style={{ color: theme?.textMuted }}>
-            ({(() => {
-              const lbl = base[hoverIdx]?.x;
-              return lbl instanceof Date ? lbl.toISOString().slice(0, 10) : String(lbl ?? "");
-            })()})
-          </span>
-        )}
         <span style={{ marginLeft: "auto", color: theme?.textMuted, fontSize: 10, whiteSpace: "nowrap" }}>
-          {zoomed ? `🔍 ${span + 1}개 구간 확대됨 · 더블클릭/전체보기로 해제` : "휠로 확대/축소 · 드래그로 구간 선택 🔍"}
+          {zoomed ? `🔍 ${span + 1}개 구간 확대됨 · 더블클릭/전체보기로 해제`
+            : (toggleable ? "범례 클릭=보조선 토글 · 휠 확대 · 드래그 구간선택 🔍" : "휠로 확대/축소 · 드래그로 구간 선택 🔍")}
         </span>
       </div>
     </div>
@@ -494,6 +531,175 @@ export function calcSMA(values, window) {
     if (buf.length === window && cnt >= window * 0.7) out[i] = sum / cnt;
   }
   return out;
+}
+
+/** 지수 이동평균(EMA). window 만큼 단순평균으로 시드 후 가중. */
+export function calcEMA(values, window) {
+  const out = new Array(values.length).fill(null);
+  const k = 2 / (window + 1);
+  let ema = null, seedSum = 0, seeded = 0;
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (v == null || Number.isNaN(v)) { out[i] = ema; continue; }
+    if (ema == null) {
+      seedSum += v; seeded++;
+      if (seeded >= window) { ema = seedSum / seeded; out[i] = ema; }
+    } else {
+      ema = v * k + ema * (1 - k);
+      out[i] = ema;
+    }
+  }
+  return out;
+}
+
+/** 볼린저밴드: 중간=SMA(window), 상/하 = ±mult·표준편차. {mid, upper, lower} 반환. */
+export function calcBollinger(values, window = 20, mult = 2) {
+  const mid = calcSMA(values, window);
+  const upper = new Array(values.length).fill(null);
+  const lower = new Array(values.length).fill(null);
+  for (let i = 0; i < values.length; i++) {
+    if (mid[i] == null) continue;
+    let sum = 0, cnt = 0;
+    for (let j = Math.max(0, i - window + 1); j <= i; j++) {
+      const v = values[j];
+      if (v == null || Number.isNaN(v)) continue;
+      sum += (v - mid[i]) ** 2; cnt++;
+    }
+    if (cnt > 1) {
+      const sd = Math.sqrt(sum / cnt);
+      upper[i] = mid[i] + mult * sd;
+      lower[i] = mid[i] - mult * sd;
+    }
+  }
+  return { mid, upper, lower };
+}
+
+/** RSI(Wilder). values 는 종가/에쿼티 값. 0~100. */
+export function calcRSI(values, period = 14) {
+  const out = new Array(values.length).fill(null);
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i < values.length; i++) {
+    const a = values[i], b = values[i - 1];
+    if (a == null || b == null || Number.isNaN(a) || Number.isNaN(b)) { out[i] = out[i - 1]; continue; }
+    const ch = a - b, g = ch > 0 ? ch : 0, l = ch < 0 ? -ch : 0;
+    if (i <= period) {
+      avgGain += g; avgLoss += l;
+      if (i === period) { avgGain /= period; avgLoss /= period; out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss); }
+    } else {
+      avgGain = (avgGain * (period - 1) + g) / period;
+      avgLoss = (avgLoss * (period - 1) + l) / period;
+      out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+    }
+  }
+  return out;
+}
+
+/** MACD = EMA(fast)-EMA(slow), signal=EMA(macd), hist=macd-signal. */
+export function calcMACD(values, fast = 12, slow = 26, signalP = 9) {
+  const ef = calcEMA(values, fast), es = calcEMA(values, slow);
+  const macd = values.map((_, i) => (ef[i] != null && es[i] != null) ? ef[i] - es[i] : null);
+  const signal = calcEMA(macd.map((v) => (v == null ? NaN : v)), signalP);
+  const hist = macd.map((v, i) => (v != null && signal[i] != null) ? v - signal[i] : null);
+  return { macd, signal, hist };
+}
+
+/** Stochastic — 단일 값 시리즈라 롤링 min/max 를 저/고가 대용으로. {k,d}, 0~100. */
+export function calcStochastic(values, kPeriod = 14, dPeriod = 3) {
+  const k = new Array(values.length).fill(null);
+  for (let i = kPeriod - 1; i < values.length; i++) {
+    let lo = Infinity, hi = -Infinity, ok = true;
+    for (let j = i - kPeriod + 1; j <= i; j++) {
+      const v = values[j];
+      if (v == null || Number.isNaN(v)) { ok = false; break; }
+      if (v < lo) lo = v; if (v > hi) hi = v;
+    }
+    if (ok) k[i] = hi === lo ? 50 : ((values[i] - lo) / (hi - lo)) * 100;
+  }
+  const d = calcSMA(k.map((v) => (v == null ? NaN : v)), dPeriod);
+  return { k, d };
+}
+
+/**
+ * 하단 보조지표 패널(RSI / MACD / Stochastic) — 메인 차트와 같은 x축 폭, 자체 호버 툴팁.
+ * 삼성 mPOP 식 서브패널. kind: "rsi" | "macd" | "stoch".
+ */
+export function SubIndicatorChart({ kind, values, dates, theme, height = 104 }) {
+  const [hi, setHi] = useState(null);
+  const W = 720, PADL = 56, PADR = 16, PADT = 12, PADB = 18;
+  const N = (values || []).length;
+  if (N < 3) return null;
+
+  let lines = [], bars = null, guides = [], zero = false, yMin = 0, yMax = 100, title = "";
+  if (kind === "rsi") {
+    lines = [{ name: "RSI(14)", color: "#a78bfa", data: calcRSI(values, 14) }];
+    guides = [30, 50, 70]; title = "RSI";
+  } else if (kind === "stoch") {
+    const { k, d } = calcStochastic(values, 14, 3);
+    lines = [{ name: "%K", color: "#3b82f6", data: k }, { name: "%D", color: "#f59e0b", data: d }];
+    guides = [20, 50, 80]; title = "Stochastic";
+  } else {
+    const { macd, signal, hist } = calcMACD(values, 12, 26, 9);
+    lines = [{ name: "MACD", color: "#3b82f6", data: macd }, { name: "Signal", color: "#f59e0b", data: signal }];
+    bars = hist; zero = true; title = "MACD";
+    let lo = Infinity, hr = -Infinity;
+    [macd, signal, hist].forEach((a) => a.forEach((v) => { if (v != null && !Number.isNaN(v)) { if (v < lo) lo = v; if (v > hr) hr = v; } }));
+    if (!isFinite(lo)) { lo = -1; hr = 1; }
+    const pad = (hr - lo) * 0.1 || 1; yMin = lo - pad; yMax = hr + pad;
+  }
+  const plotW = W - PADL - PADR, plotH = height - PADT - PADB;
+  const xAt = (i) => PADL + (N <= 1 ? 0 : (i / (N - 1)) * plotW);
+  const yAt = (v) => PADT + (1 - (v - yMin) / (yMax - yMin)) * plotH;
+  const pathFor = (arr) => { let d = "", m = true; for (let i = 0; i < N; i++) { const v = arr[i]; if (v == null || Number.isNaN(v)) { m = true; continue; } d += `${m ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)} `; m = false; } return d.trim(); };
+  const onMove = (e) => { const r = e.currentTarget.getBoundingClientRect(); const vx = ((e.clientX - r.left) / r.width) * W; setHi(Math.max(0, Math.min(N - 1, Math.round(((vx - PADL) / plotW) * (N - 1))))); };
+  const fmt = (v) => (v == null || Number.isNaN(v) ? "—" : Number(v).toFixed(2));
+  const bw = Math.max(0.6, (plotW / N) * 0.6);
+  const dateStr = (i) => { const dx = dates?.[i]; return dx instanceof Date ? dx.toISOString().slice(0, 10) : String(dx ?? ""); };
+
+  return (
+    <div style={{ position: "relative", width: "100%" }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: theme?.textMuted, margin: "2px 0 1px 2px" }}>{title}</div>
+      <svg viewBox={`0 0 ${W} ${height}`} width="100%" onMouseMove={onMove} onMouseLeave={() => setHi(null)}
+        style={{ cursor: "crosshair", display: "block" }}>
+        {guides.map((g) => (
+          <g key={g}>
+            <line x1={PADL} x2={W - PADR} y1={yAt(g)} y2={yAt(g)} stroke={theme?.panelBorder || "#e2e8f0"} strokeWidth={0.6} strokeDasharray={g === 50 ? "" : "3 3"} />
+            <text x={PADL - 5} y={yAt(g) + 3} textAnchor="end" fontSize={9} fill={theme?.textMuted || "#94a3b8"}>{g}</text>
+          </g>
+        ))}
+        {zero && <line x1={PADL} x2={W - PADR} y1={yAt(0)} y2={yAt(0)} stroke={theme?.panelBorder || "#e2e8f0"} strokeWidth={0.8} />}
+        {bars && bars.map((v, i) => (v == null || Number.isNaN(v)) ? null : (
+          <rect key={i} x={xAt(i) - bw / 2} y={Math.min(yAt(0), yAt(v))} width={bw} height={Math.abs(yAt(v) - yAt(0))}
+            fill={v >= 0 ? "#10b981" : "#ef4444"} opacity={0.5} />
+        ))}
+        {lines.map((ln, idx) => <path key={idx} d={pathFor(ln.data)} fill="none" stroke={ln.color} strokeWidth={1.4} opacity={0.95} />)}
+        {hi != null && <line x1={xAt(hi)} x2={xAt(hi)} y1={PADT} y2={height - PADB} stroke={theme?.accent || "#3b82f6"} strokeDasharray="3 3" strokeWidth={1} opacity={0.6} />}
+        {hi != null && lines.map((ln, idx) => (ln.data[hi] == null || Number.isNaN(ln.data[hi])) ? null : (
+          <circle key={idx} cx={xAt(hi)} cy={yAt(ln.data[hi])} r={3} fill={ln.color} stroke="#fff" strokeWidth={1.2} />
+        ))}
+      </svg>
+      {hi != null && (() => {
+        const leftPct = (xAt(hi) / W) * 100, flip = leftPct > 60;
+        return (
+          <div style={{
+            position: "absolute", top: 14, left: `${leftPct}%`,
+            transform: flip ? "translateX(-100%) translateX(-12px)" : "translateX(12px)",
+            background: "#111827", color: "#fff", borderRadius: 8, padding: "6px 10px", fontSize: 11, lineHeight: 1.5,
+            boxShadow: "0 6px 18px rgba(0,0,0,0.4)", pointerEvents: "none", zIndex: 4, minWidth: 120, border: "1px solid rgba(255,255,255,0.12)",
+          }}>
+            <div style={{ fontWeight: 800, marginBottom: 4 }}>{dateStr(hi)}</div>
+            {lines.map((ln, idx) => (
+              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: ln.color }} />
+                <span style={{ color: "#cbd5e1" }}>{ln.name}</span>
+                <span style={{ marginLeft: "auto", fontWeight: 700 }}>{fmt(ln.data[hi])}</span>
+              </div>
+            ))}
+            {bars && <div style={{ marginTop: 2, color: "#94a3b8" }}>Hist: <b style={{ color: bars[hi] >= 0 ? "#10b981" : "#ef4444" }}>{fmt(bars[hi])}</b></div>}
+          </div>
+        );
+      })()}
+    </div>
+  );
 }
 
 /**
@@ -544,84 +750,188 @@ export function HelpLabel({ children, hint, theme }) {
  * Trust details — Walk-Forward / Regime / Parameter / Statistical 친화적 카드 표시
  */
 export function TrustDetailsCard({ details, theme }) {
+  const [activeTab, setActiveTab] = useState(null);
   if (!details || typeof details !== "object") return null;
+
   const wf = details.walk_forward || details.walkForward || details.wf;
   const rg = details.regime || details.regime_robustness;
   const pr = details.parameter || details.parameter_stability;
-  const st = details.statistical || details.statistical_confidence;
   const rk = details.risk || details.risk_control;
+  const st = details.statistical || details.statistical_confidence;
   const num = (v, d = 2) => (typeof v === "number" ? v.toFixed(d) : (v ?? "-"));
   const pct = (v) => (typeof v === "number" ? `${v.toFixed(2)}%` : (v ?? "-"));
-  const box = {
-    padding: "10px 12px", borderRadius: 10, background: theme.codeBg || "#f8fafc",
-    border: `1px solid ${theme.panelBorder}`,
+
+  const TAB_DESC = {
+    wf: {
+      summary: "\"과거에 잘됐던 전략이 미래에도 통할까?\"를 직접 확인하는 검증입니다.",
+      detail: "전체 데이터를 훈련 구간(IS)과 검증 구간(OOS)으로 나눠, 훈련에 사용하지 않은 미래 데이터에서 성과를 측정합니다. IS Sharpe와 OOS Sharpe가 비슷할수록 좋고, Gap(차이)이 클수록 과거 데이터에만 과도하게 맞춰진 과적합 전략일 가능성이 높습니다.",
+    },
+    rg: {
+      summary: "\"어떤 시장 환경에서도 버틸 수 있는 전략인가?\"를 확인합니다.",
+      detail: "상승장·하락장·횡보장·고변동 4가지 국면으로 나눠 각각 백테스트합니다. 최악의 국면(취약 국면)에서의 Sharpe가 핵심 지표로, 이 값이 낮을수록 특정 장세에 쏠린 전략입니다. 국면 분산(Sharpe 표준편차)이 작을수록 모든 환경에서 고르게 작동합니다.",
+    },
+    pr: {
+      summary: "\"설정값을 조금만 바꿔도 결과가 확 바뀌진 않나?\"를 점검합니다.",
+      detail: "RSI 기간, SMA 윈도우 같은 주요 파라미터를 ±10% 범위에서 흔들어 봤을 때 Sharpe가 얼마나 변하는지 측정합니다. 민감도와 Sharpe 범위가 작을수록 특정 수치에 우연히 최적화된 게 아닌, 구조적으로 탄탄한 전략입니다.",
+    },
+    rk: {
+      summary: "\"손실이 처음 목표한 한도 안에서 관리됐나?\"를 확인합니다.",
+      detail: "목표 MDD(허용 최대 손실폭)와 실제 백테스트에서 발생한 MDD를 비교합니다. 달성 비율이 1.0 이하면 목표한 리스크 한도를 지킨 것이고, 1.0 초과면 예상보다 손실이 컸다는 의미입니다. 실제 MDD가 낮을수록 안전한 전략입니다.",
+    },
+    st: {
+      summary: "\"이 전략의 수익이 그냥 운인지, 실력인지\"를 수치로 검증합니다.",
+      detail: "일별 수익률의 평균이 0보다 유의미하게 큰지를 t-검정으로 확인합니다. t-statistic 절댓값이 2 이상이면 '통계적으로 유의한 수익'으로 봅니다. PSR(확률적 Sharpe Ratio)이 높을수록 이 수익이 우연이 아닌 진짜 전략적 우위에서 나왔을 가능성이 큽니다.",
+    },
   };
-  const k = { fontSize: 11, color: theme.textMuted, marginBottom: 2, display: "flex", alignItems: "center", gap: 4 };
-  const v = { fontSize: 14, fontWeight: 700, color: theme.text };
-  return (
-    <Card title="🔍 검증 상세" theme={theme}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
-        {wf && (
-          <div style={box}>
-            <div style={{ fontWeight: 700, color: theme.text, marginBottom: 6 }}>🚶 Walk-Forward</div>
-            <div style={k}><HelpLabel hint="In-Sample(과거 훈련구간) Sharpe" theme={theme}>IS Sharpe</HelpLabel></div>
-            <div style={v}>{num(wf.is_sharpe ?? wf.in_sample_sharpe)}</div>
-            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="Out-of-Sample(미래 검증구간) Sharpe — 진짜 일반화 성능" theme={theme}>OOS Sharpe</HelpLabel></div>
-            <div style={v}>{num(wf.oos_sharpe ?? wf.out_of_sample_sharpe)}</div>
-            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="IS와 OOS 차이. 0에 가까울수록 일반화 잘됨, 크면 과적합" theme={theme}>IS↔OOS 차이</HelpLabel></div>
-            <div style={v}>{num(wf.gap ?? wf.train_oos_gap)}</div>
+
+  const TABS = [
+    { key: "wf", emoji: "🚶", label: "Walk-Forward", color: "#3b82f6", soft: "#DBEAFE", data: wf },
+    { key: "rg", emoji: "🌐", label: "시장국면",      color: "#22c55e", soft: "#D1FAE5", data: rg },
+    { key: "pr", emoji: "🎛",  label: "파라미터",     color: "#f59e0b", soft: "#FEF3C7", data: pr },
+    { key: "rk", emoji: "🛡",  label: "리스크",       color: "#10b981", soft: "#D1FAE5", data: rk },
+    { key: "st", emoji: "📐", label: "통계",          color: "#8b5cf6", soft: "#EDE9FE", data: st },
+  ].filter(t => t.data);
+
+  const current = activeTab ?? (TABS[0]?.key || null);
+  const active = TABS.find(t => t.key === current) || TABS[0];
+
+  const kStyle = { fontSize: 12, fontWeight: 700, color: theme.textMuted, marginBottom: 2, display: "flex", alignItems: "center", gap: 4 };
+  const vStyle = { fontSize: 22, fontWeight: 700, color: theme.text, lineHeight: 1.2, marginBottom: 8 };
+
+  const renderContent = () => {
+    if (!active) return null;
+    const d = active.data;
+    if (active.key === "wf") return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        {[
+          { label: "IS Sharpe",   hint: "In-Sample(과거 훈련구간) Sharpe",                                           val: num(d.is_sharpe ?? d.in_sample_sharpe) },
+          { label: "OOS Sharpe",  hint: "Out-of-Sample(미래 검증구간) Sharpe — 진짜 일반화 성능",                    val: num(d.oos_sharpe ?? d.out_of_sample_sharpe) },
+          { label: "IS↔OOS 차이", hint: "IS와 OOS 차이. 0에 가까울수록 일반화 잘됨, 크면 과적합",                   val: num(d.gap ?? d.train_oos_gap) },
+        ].map(({ label, hint, val }) => (
+          <div key={label} style={{ padding: "14px 16px", borderRadius: 10, background: active.soft, border: `1px solid ${active.color}30` }}>
+            <div style={kStyle}><HelpLabel hint={hint} theme={theme}>{label}</HelpLabel></div>
+            <div style={{ ...vStyle, color: active.color }}>{val}</div>
           </div>
-        )}
-        {rg && (
-          <div style={box}>
-            <div style={{ fontWeight: 700, color: theme.text, marginBottom: 6 }}>🌐 시장국면</div>
-            <div style={k}><HelpLabel hint="4가지 국면 중 가장 약했던 국면 이름" theme={theme}>취약 국면</HelpLabel></div>
-            <div style={v}>{rg.weakest ?? rg.weakest_regime ?? "-"}</div>
-            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="가장 약한 국면의 Sharpe" theme={theme}>최약 Sharpe</HelpLabel></div>
-            <div style={v}>{num(rg.weakest_sharpe ?? rg.min_sharpe)}</div>
-            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="국면 간 Sharpe 표준편차 — 작을수록 모든 시장에서 균일" theme={theme}>국면 분산</HelpLabel></div>
-            <div style={v}>{num(rg.sharpe_std ?? rg.dispersion)}</div>
-          </div>
-        )}
-        {pr && (
-          <div style={box}>
-            <div style={{ fontWeight: 700, color: theme.text, marginBottom: 6 }}>🎛 파라미터</div>
-            <div style={k}><HelpLabel hint="파라미터 ±10% 변경 시 Sharpe 변화의 크기. 작을수록 안정" theme={theme}>민감도</HelpLabel></div>
-            <div style={v}>{num(pr.sensitivity)}</div>
-            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="흔든 파라미터 조합에서의 Sharpe 범위(최대-최소)" theme={theme}>Sharpe 범위</HelpLabel></div>
-            <div style={v}>{num(pr.sharpe_range ?? pr.range)}</div>
-          </div>
-        )}
-        {rk && (
-          <div style={box}>
-            <div style={{ fontWeight: 700, color: theme.text, marginBottom: 6 }}>🛡 리스크</div>
-            <div style={k}><HelpLabel hint="실제 MDD (낮을수록 좋음)" theme={theme}>실제 MDD</HelpLabel></div>
-            <div style={v}>{pct(rk.actual_mdd ?? rk.mdd)}</div>
-            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="목표 MDD 한도" theme={theme}>목표 MDD</HelpLabel></div>
-            <div style={v}>{pct(rk.target_mdd)}</div>
-            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="실제/목표 비율. 1.0 이하면 목표 안에서 잘 통제" theme={theme}>달성 비율</HelpLabel></div>
-            <div style={v}>{num(rk.ratio, 2)}</div>
-          </div>
-        )}
-        {st && (
-          <div style={box}>
-            <div style={{ fontWeight: 700, color: theme.text, marginBottom: 6 }}>📐 통계</div>
-            <div style={k}><HelpLabel hint="일별 수익률 평균이 0과 다른지 검정한 t-통계량 (절댓값 2 이상이면 유의)" theme={theme}>t-statistic</HelpLabel></div>
-            <div style={v}>{num(st.t_stat ?? st.t_statistic ?? st.tstat)}</div>
-            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="PSR(확률적 Sharpe Ratio) — 수익이 우연이 아닐 확률. 높을수록 실력에 의한 수익" theme={theme}>PSR (SR&gt;0 확률)</HelpLabel></div>
-            <div style={v}>{st.psr_zero != null ? `${(st.psr_zero * 100).toFixed(1)}%` : "-"}</div>
-            <div style={{ ...k, marginTop: 8 }}><HelpLabel hint="표본 수 (거래일 수)" theme={theme}>표본 수</HelpLabel></div>
-            <div style={v}>{st.n_samples ?? st.n ?? st.data_points ?? "-"}</div>
-            {st.detail && <div style={{ marginTop: 8, fontSize: 11, color: theme.textMuted, lineHeight: 1.5 }}>{st.detail}</div>}
-          </div>
-        )}
-        {wf && wf.detail && !wf.oos_sharpe && (
-          <div style={box}>
-            <div style={{ fontWeight: 700, color: theme.text, marginBottom: 6 }}>📝 Walk-Forward 상세</div>
-            <div style={{ fontSize: 11, color: theme.textMuted, lineHeight: 1.6 }}>{wf.detail}</div>
-          </div>
-        )}
+        ))}
+        {d.detail && !d.oos_sharpe && <div style={{ gridColumn: "1/-1", fontSize: 13, color: theme.textMuted, lineHeight: 1.65 }}>{d.detail}</div>}
       </div>
+    );
+    if (active.key === "rg") return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        {[
+          { label: "취약 국면",  hint: "4가지 국면 중 가장 약했던 국면 이름",                  val: d.weakest ?? d.weakest_regime ?? "-" },
+          { label: "최약 Sharpe",hint: "가장 약한 국면의 Sharpe",                               val: num(d.weakest_sharpe ?? d.min_sharpe) },
+          { label: "국면 분산",  hint: "국면 간 Sharpe 표준편차 — 작을수록 모든 시장에서 균일", val: num(d.sharpe_std ?? d.dispersion) },
+        ].map(({ label, hint, val }) => (
+          <div key={label} style={{ padding: "14px 16px", borderRadius: 10, background: active.soft, border: `1px solid ${active.color}30` }}>
+            <div style={kStyle}><HelpLabel hint={hint} theme={theme}>{label}</HelpLabel></div>
+            <div style={{ ...vStyle, color: active.color }}>{val}</div>
+          </div>
+        ))}
+      </div>
+    );
+    if (active.key === "pr") return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+        {[
+          { label: "민감도",     hint: "파라미터 ±10% 변경 시 Sharpe 변화의 크기. 작을수록 안정",   val: num(d.sensitivity) },
+          { label: "Sharpe 범위",hint: "흔든 파라미터 조합에서의 Sharpe 범위(최대-최소)",           val: num(d.sharpe_range ?? d.range) },
+        ].map(({ label, hint, val }) => (
+          <div key={label} style={{ padding: "14px 16px", borderRadius: 10, background: active.soft, border: `1px solid ${active.color}30` }}>
+            <div style={kStyle}><HelpLabel hint={hint} theme={theme}>{label}</HelpLabel></div>
+            <div style={{ ...vStyle, color: active.color }}>{val}</div>
+          </div>
+        ))}
+      </div>
+    );
+    if (active.key === "rk") return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        {[
+          { label: "실제 MDD", hint: "실제 MDD (낮을수록 좋음)",                           val: pct(d.actual_mdd ?? d.mdd) },
+          { label: "목표 MDD", hint: "목표 MDD 한도",                                      val: pct(d.target_mdd) },
+          { label: "달성 비율",hint: "실제/목표 비율. 1.0 이하면 목표 안에서 잘 통제",     val: num(d.ratio, 2) },
+        ].map(({ label, hint, val }) => (
+          <div key={label} style={{ padding: "14px 16px", borderRadius: 10, background: active.soft, border: `1px solid ${active.color}30` }}>
+            <div style={kStyle}><HelpLabel hint={hint} theme={theme}>{label}</HelpLabel></div>
+            <div style={{ ...vStyle, color: active.color }}>{val}</div>
+          </div>
+        ))}
+      </div>
+    );
+    if (active.key === "st") return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        {[
+          { label: "t-statistic",    hint: "일별 수익률 평균이 0과 다른지 검정한 t-통계량 (절댓값 2 이상이면 유의)",           val: num(d.t_stat ?? d.t_statistic ?? d.tstat) },
+          { label: "PSR (SR>0 확률)",hint: "PSR(확률적 Sharpe Ratio) — 수익이 우연이 아닐 확률. 높을수록 실력에 의한 수익",    val: d.psr_zero != null ? `${(d.psr_zero * 100).toFixed(1)}%` : "-" },
+          { label: "표본 수",        hint: "표본 수 (거래일 수)",                                                               val: d.n_samples ?? d.n ?? d.data_points ?? "-" },
+        ].map(({ label, hint, val }) => (
+          <div key={label} style={{ padding: "14px 16px", borderRadius: 10, background: active.soft, border: `1px solid ${active.color}30` }}>
+            <div style={kStyle}><HelpLabel hint={hint} theme={theme}>{label}</HelpLabel></div>
+            <div style={{ ...vStyle, color: active.color }}>{val}</div>
+          </div>
+        ))}
+        {d.detail && <div style={{ gridColumn: "1/-1", fontSize: 13, color: theme.textMuted, lineHeight: 1.65 }}>{d.detail}</div>}
+      </div>
+    );
+    return null;
+  };
+
+  if (!TABS.length) return null;
+
+  return (
+    <Card title="🔍 검증 상세" theme={theme} titleSize={20}>
+      {/* 탭 바 — Home 헬릭스 설명 스타일 */}
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${TABS.length}, 1fr)`, borderBottom: "1.5px solid #E2E8F0", marginBottom: 0 }}>
+        {TABS.map(t => {
+          const isActive = t.key === current;
+          return (
+            <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              padding: "11px 8px", border: "none",
+              background: isActive ? `linear-gradient(135deg, ${t.soft} 0%, ${t.soft}cc 100%)` : "transparent",
+              fontSize: 14, fontWeight: isActive ? 700 : 500,
+              color: isActive ? t.color : "#64748b",
+              cursor: "pointer",
+              borderBottom: `2px solid ${isActive ? t.color : "transparent"}`,
+              borderTopLeftRadius: 6, borderTopRightRadius: 6,
+              marginBottom: -1.5, transition: "color 0.15s, background 0.2s",
+              whiteSpace: "nowrap",
+            }}>
+              <span>{t.emoji}</span>
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 탭 콘텐츠 */}
+      {active && (
+        <div style={{
+          background: "white", border: "1.5px solid #E2E8F0", borderTop: "none",
+          borderRadius: "0 0 12px 12px", overflow: "hidden",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.04)",
+        }}>
+          <div style={{ height: 3, background: `linear-gradient(90deg, ${active.color}, ${active.color}55)` }} />
+          <div style={{ padding: "20px 18px" }}>
+            {TAB_DESC[active.key] && (
+              <div style={{ marginBottom: 18 }}>
+                <p style={{
+                  margin: "0 0 6px",
+                  fontSize: 15, fontWeight: 700, color: "#0f172a", lineHeight: 1.5,
+                }}>
+                  {TAB_DESC[active.key].summary}
+                </p>
+                <p style={{
+                  margin: 0,
+                  fontSize: 13, color: "#64748b", lineHeight: 1.8, wordBreak: "keep-all",
+                }}>
+                  {TAB_DESC[active.key].detail}
+                </p>
+              </div>
+            )}
+            {renderContent()}
+          </div>
+        </div>
+      )}
     </Card>
   );
 }
