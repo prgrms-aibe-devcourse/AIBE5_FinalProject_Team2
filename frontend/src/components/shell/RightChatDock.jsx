@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { Send, ChevronRight } from "lucide-react";
+import { Send, ChevronRight, Mic } from "lucide-react";
 import heliBase  from "../../assets/heli_ai_base.png";
 import heliWait  from "../../assets/heli_ai_wait.png";
 import heliSorry from "../../assets/heli_ai_sorry.png";
@@ -195,16 +195,24 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [model, setModel] = useState(
-    () => localStorage.getItem("ah.chat.model") || "gemini-2.5-flash"
-  );
+  const VALID_MODELS = new Set([
+    "gemini-2.5-flash", "gemini-2.5-pro",
+    "gpt-4o", "gpt-4o-mini",
+    "claude-sonnet-4", "claude-opus-4",
+  ]);
+  const [model, setModel] = useState(() => {
+    const saved = localStorage.getItem("ah.chat.model");
+    return saved && VALID_MODELS.has(saved) ? saved : "gemini-2.5-flash";
+  });
   const [sendOnEnter, setSendOnEnter] = useState(
     () => localStorage.getItem("ah.chat.sendOnEnter") !== "false"
   );
   useEffect(() => {
     const handler = (e) => {
-      if (e.detail?.key === "ah.chat.model")
-        setModel(localStorage.getItem("ah.chat.model") || "gemini-2.5-flash");
+      if (e.detail?.key === "ah.chat.model") {
+        const v = localStorage.getItem("ah.chat.model");
+        setModel(v && VALID_MODELS.has(v) ? v : "gemini-2.5-flash");
+      }
       if (e.detail?.key === "ah.chat.sendOnEnter")
         setSendOnEnter(localStorage.getItem("ah.chat.sendOnEnter") !== "false");
     };
@@ -274,7 +282,7 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
     e.preventDefault();
     const startX = e.clientX, startW = width;
     const onMove = (ev) => {
-      onResize && onResize(Math.min(900, Math.max(280, startW + (startX - ev.clientX))));
+      onResize && onResize(Math.min(570, Math.max(280, startW + (startX - ev.clientX))));
     };
     const onUp = () => {
       document.removeEventListener("mousemove", onMove);
@@ -304,6 +312,28 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
     document.addEventListener("mouseup", onUp);
     document.body.style.cursor = "row-resize";
     document.body.style.userSelect = "none";
+  };
+
+  // 🎤 음성 입력 (Web Speech API) — 말하면 입력창에 받아쓰기.
+  const [listening, setListening] = useState(false);
+  const recogRef = useRef(null);
+  const toggleMic = () => {
+    const SR = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+    if (!SR) { alert("이 브라우저는 음성 입력을 지원하지 않습니다 (Chrome 권장)."); return; }
+    if (listening) { try { recogRef.current?.stop(); } catch { /* noop */ } return; }
+    const r = new SR();
+    r.lang = "ko-KR"; r.interimResults = true; r.continuous = false;
+    const base = input;
+    r.onresult = (e) => {
+      let txt = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
+      setInput((base ? base + " " : "") + txt);
+    };
+    r.onend = () => setListening(false);
+    r.onerror = () => setListening(false);
+    recogRef.current = r;
+    setListening(true);
+    try { r.start(); } catch { setListening(false); }
   };
 
   const send = async () => {
@@ -474,7 +504,7 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
       <div style={{
         height: 52, padding: "0 14px",
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        background: "linear-gradient(135deg, #4a7bf7 0%, #6c63ff 100%)",
+        background: "linear-gradient(135deg, #B794F4 0%, #A78BFA 100%)",
         flexShrink: 0, zIndex: 1,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -539,7 +569,7 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
                   boxShadow: "0 2px 8px rgba(74,123,247,0.06)",
                   color: "#1e293b",
                 } : {
-                  background: "linear-gradient(135deg, #4a7bf7, #6c63ff)",
+                  background: "linear-gradient(135deg, #A78BFA, #9F7AEA)",
                   borderRadius: "16px 4px 16px 16px",
                   boxShadow: "0 4px 12px rgba(74,123,247,0.25)",
                   color: "white",
@@ -551,6 +581,7 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
                     {m.actions.map((a, ai) => (
                       <button
                         key={ai}
+                        data-tutorial-id={a.id === "formalize" ? "tutorial-formalize-btn" : undefined}
                         onClick={() => runMessageAction(a)}
                         style={{
                           padding: "8px 14px",
@@ -593,6 +624,7 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
               그대로 전송하거나 원하는 값으로 수정한 뒤 보내면 바로 Goal Profile이 생성됩니다.
             </div>
             <button
+              data-tutorial-id="tutorial-fill-example-btn"
               onClick={fillExampleAnswer}
               style={{
                 padding: "9px 16px", borderRadius: 10, border: "none", cursor: "pointer",
@@ -675,23 +707,41 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
               transition: "border-color 0.15s ease",
             }}
           />
+          {/* 🎤 음성 입력 (연하늘 · 듣는 중엔 빨강 펄스) */}
           <button
+            onClick={toggleMic}
+            title={listening ? "음성 입력 중지" : "음성으로 입력"}
+            style={{
+              width: 44, height: 44, borderRadius: 12, border: "none", flexShrink: 0,
+              background: listening ? "#FCA5A5" : "#BAE6FD", cursor: "pointer",
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              transition: "background 0.15s ease",
+            }}
+            onMouseEnter={(e) => { if (!listening) e.currentTarget.style.background = "#7DD3FC"; }}
+            onMouseLeave={(e) => { if (!listening) e.currentTarget.style.background = "#BAE6FD"; }}
+          >
+            <Mic size={18} color={listening ? "#7f1d1d" : "#0C4A6E"} className={listening ? "heli-loading-img" : ""} />
+          </button>
+          {/* 전송 (연하늘 + 호버) */}
+          <button
+            data-tutorial-id="tutorial-chat-send-btn"
             onClick={send}
             disabled={loading || !input.trim()}
             className="heli-send-btn"
             style={{
               width: 44, height: 44,
               borderRadius: 12, border: "none",
-              background: !input.trim() || loading
-                ? "#e2e8f0"
-                : "linear-gradient(135deg, #4a7bf7, #6c63ff)",
+              background: !input.trim() || loading ? "#e2e8f0" : "#7DD3FC",
               cursor: !input.trim() || loading ? "not-allowed" : "pointer",
               display: "inline-flex", alignItems: "center", justifyContent: "center",
               flexShrink: 0,
-              boxShadow: input.trim() && !loading ? "0 4px 12px rgba(74,123,247,0.3)" : "none",
+              transition: "background 0.15s ease",
+              boxShadow: input.trim() && !loading ? "0 4px 12px rgba(56,189,248,0.35)" : "none",
             }}
+            onMouseEnter={(e) => { if (input.trim() && !loading) e.currentTarget.style.background = "#38BDF8"; }}
+            onMouseLeave={(e) => { if (input.trim() && !loading) e.currentTarget.style.background = "#7DD3FC"; }}
           >
-            <Send size={18} color={!input.trim() || loading ? "#94a3b8" : "white"} />
+            <Send size={18} color={!input.trim() || loading ? "#94a3b8" : "#0C4A6E"} />
           </button>
         </div>
       </div>

@@ -5,6 +5,7 @@ import TopBar from "./TopBar";
 import RightChatDock from "./RightChatDock";
 import GuideDock from "./GuideDock";
 import Footer from "../ui/Footer";
+import TutorialOverlay from "../tutorial/TutorialOverlay";
 
 /**
  * VS Code 스타일 셸 wrapper.
@@ -16,6 +17,7 @@ import Footer from "../ui/Footer";
 export default function AppShell({ children, hideChat = false }) {
   const loc = useLocation();
   const isDeveloper = loc.pathname.startsWith("/alpha/developer") || loc.pathname.startsWith("/vision_board");
+  const isWorkspace = loc.pathname.startsWith("/alpha/w/");
   const [chatOpen, setChatOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
 
@@ -24,9 +26,14 @@ export default function AppShell({ children, hideChat = false }) {
     window.addEventListener("alpha:open-chat", handler);
     return () => window.removeEventListener("alpha:open-chat", handler);
   }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("chat-open", chatOpen);
+    return () => document.body.classList.remove("chat-open");
+  }, [chatOpen]);
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = parseInt(localStorage.getItem("aiDockWidth") || "0", 10);
-    return saved >= 280 && saved <= 900 ? saved : 380;
+    return saved >= 280 && saved <= 570 ? saved : 380;
   });
   const guideWidth = 320;
 
@@ -55,11 +62,11 @@ export default function AppShell({ children, hideChat = false }) {
         marginLeft: leftOffset,
         paddingTop: 44,
         marginRight: rightOffset,
-        minHeight: "100vh",
+        ...(isWorkspace ? { height: "100vh", overflow: "hidden" } : { minHeight: "100vh" }),
         transition: "margin-left 0.18s ease, margin-right 0.18s ease",
       }}>
         {children}
-        {!isDeveloper && <Footer />}
+        {!isDeveloper && !isWorkspace && <Footer />}
       </main>
       {!hideChat && (
         <RightChatDock
@@ -69,6 +76,7 @@ export default function AppShell({ children, hideChat = false }) {
           onResize={handleResize}
         />
       )}
+      <TutorialOverlay />
     </div>
   );
 }

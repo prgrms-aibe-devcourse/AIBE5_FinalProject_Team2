@@ -16,47 +16,48 @@ import { useLanguage } from "../../i18n/LanguageContext";
 import { useTheme } from "../../alpha/ThemeContext";
 import { authApi } from "../../api/auth.api";
 import useStore from "../../store/useStore";
+import { useNotificationStore } from "../../store/useNotificationStore";
 
 // Alpha-Helix 테마 프리셋 (ThemeContext 와 키 동일하게 유지)
 const THEME_PRESETS = [
+  { key: "heli",  name: "Heli (기본)",    swatch: "linear-gradient(135deg,#BFDBFE,#A5B4FC,#C4B5FD)" },
   { key: "sky",   name: "Sky (브랜드)",   swatch: "linear-gradient(135deg,#60a5fa,#6366f1)" },
   { key: "alpha", name: "Alpha (노을)",   swatch: "linear-gradient(135deg,#FCA5A5,#F59E0B)" },
-  { key: "helix", name: "Helix (라일락)", swatch: "linear-gradient(135deg,#A78BFA,#F472B6)" },
   { key: "dev",   name: "Dev (Dracula)",  swatch: "linear-gradient(135deg,#FF79C6,#BD93F9)" },
 ];
 
 const TABS = [
-  { key: "home",      label: "홈 (워크스페이스)",       Icon: Home,           route: "/workhome" },
-  { key: "config",    label: "전략 카드",                Icon: Layers,         route: "/alpha" },
-  { key: "report",    label: "백테스트 리포트",          Icon: BarChart3,      tab: "report",   sub: true },
-  { key: "regime",    label: "Regime 분석",             Icon: Activity,       tab: "regime",   sub: true },
-  { key: "trust",     label: "Trust Score",             Icon: ShieldCheck,    tab: "trust",    sub: true },
-  { key: "log",       label: "Decision Log",            Icon: ScrollText,     tab: "log",      sub: true },
-  { key: "developer",    label: "Developer Studio",  Icon: Laptop,         route: "/alpha/developer" },
-  { key: "dev_explorer", label: "파일 탐색기",          Icon: FolderOpen,     route: "/alpha/developer", devPanel: "explorer", devSub: true },
-  { key: "dev_code",     label: "코드 편집기",          Icon: FileCode,       route: "/alpha/developer", devPanel: "code",     devSub: true },
-  { key: "dev_data",     label: "데이터 탐색기",        Icon: Database,       route: "/alpha/developer", devPanel: "data",     devSub: true },
-  { key: "dev_report",   label: "백테스트 결과",        Icon: BarChart3,      route: "/alpha/developer", devPanel: "report",   devSub: true },
-  { key: "dev_console",  label: "콘솔 / 터미널",       Icon: TerminalSquare, route: "/alpha/developer", devPanel: "console",  devSub: true },
-  { key: "vision",    label: "비전 보드",                Icon: ImageIcon,      route: "/vision_board" },
-  { key: "account",   label: "계좌 · 주문",              Icon: Wallet,         route: "/alpha/account" },
-  { key: "proposals", label: "주문 제안 큐",             Icon: Inbox,          route: "/alpha/proposals" },
+  { key: "home",      tKey: "nav.home",         Icon: Home,           route: "/workhome" },
+  { key: "config",    tKey: "nav.config",        Icon: Layers,         route: "/alpha" },
+  { key: "report",    tKey: "nav.report",        Icon: BarChart3,      tab: "report",   sub: true },
+  { key: "regime",    tKey: "nav.regime",        Icon: Activity,       tab: "regime",   sub: true },
+  { key: "trust",     tKey: "nav.trust",         Icon: ShieldCheck,    tab: "trust",    sub: true },
+  { key: "log",       tKey: "nav.log",           Icon: ScrollText,     tab: "log",      sub: true },
+  { key: "developer",    tKey: "nav.developer",     Icon: Laptop,         route: "/alpha/developer" },
+  { key: "dev_explorer", tKey: "nav.dev_explorer",  Icon: FolderOpen,     route: "/alpha/developer", devPanel: "explorer", devSub: true },
+  { key: "dev_code",     tKey: "nav.dev_code",      Icon: FileCode,       route: "/alpha/developer", devPanel: "code",     devSub: true },
+  { key: "dev_data",     tKey: "nav.dev_data",      Icon: Database,       route: "/alpha/developer", devPanel: "data",     devSub: true },
+  { key: "dev_report",   tKey: "nav.dev_report",    Icon: BarChart3,      route: "/alpha/developer", devPanel: "report",   devSub: true },
+  { key: "dev_console",  tKey: "nav.dev_console",   Icon: TerminalSquare, route: "/alpha/developer", devPanel: "console",  devSub: true },
+  { key: "vision",    tKey: "nav.vision",        Icon: ImageIcon,      route: "/vision_board",    tutorialId: "tutorial-sidebar-vision" },
+  { key: "account",   tKey: "nav.account",       Icon: Wallet,         route: "/alpha/account",   tutorialId: "tutorial-sidebar-account" },
+  { key: "proposals", tKey: "nav.proposals",     Icon: Inbox,          route: "/alpha/proposals", tutorialId: "tutorial-sidebar-proposals" },
 ];
 
 const WS_SUBMENUS = [
-  { key: "config",   label: "전략 카드",      Icon: Layers },
-  { key: "report",   label: "백테스트",       Icon: BarChart3 },
-  { key: "regime",   label: "Regime",         Icon: Activity },
-  { key: "trust",    label: "Trust Score",    Icon: ShieldCheck },
-  { key: "log",      label: "Decision Log",   Icon: ScrollText },
+  { key: "config",  tKey: "nav.configSub",  Icon: Layers },
+  { key: "report",  tKey: "nav.reportSub",  Icon: BarChart3 },
+  { key: "regime",  tKey: "nav.regime",     Icon: Activity },
+  { key: "trust",   tKey: "nav.trust",      Icon: ShieldCheck },
+  { key: "log",     tKey: "nav.log",        Icon: ScrollText },
 ];
 
 const DEV_SUBMENUS = [
-  { key: "explorer", label: "파일 탐색기",   Icon: FolderOpen },
-  { key: "code",     label: "코드 편집기",   Icon: FileCode },
-  { key: "data",     label: "데이터 탐색기", Icon: Database },
-  { key: "report",   label: "백테스트 결과",  Icon: BarChart3 },
-  { key: "console",  label: "콘솔 / 터미널",  Icon: TerminalSquare },
+  { key: "explorer", tKey: "nav.dev_explorer", Icon: FolderOpen },
+  { key: "code",     tKey: "nav.dev_code",     Icon: FileCode },
+  { key: "data",     tKey: "nav.dev_data",     Icon: Database },
+  { key: "report",   tKey: "nav.dev_report",   Icon: BarChart3 },
+  { key: "console",  tKey: "nav.dev_console",  Icon: TerminalSquare },
 ];
 
 const LANGS = [
@@ -121,8 +122,9 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
     devHoverOpenTimer.current = setTimeout(() => setDevMenuOpen(true), 500);
   };
   const onDevAreaLeave = () => {
+    // 열기 예약만 취소하고, 자동 닫기는 하지 않는다 — 드롭다운은 바깥을 클릭할 때만 닫힘
+    // (탭을 고르며 마우스가 잠깐 벗어나도 유지: 여러 패널 연속 선택).
     if (devHoverOpenTimer.current) { clearTimeout(devHoverOpenTimer.current); devHoverOpenTimer.current = null; }
-    devHoverCloseTimer.current = setTimeout(() => setDevMenuOpen(false), 200);
   };
 
   const openThemeSub = () => {
@@ -134,7 +136,8 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
     themeCloseTimer.current = setTimeout(() => setThemeSubOpen(false), 220);
   };
   const isAuthed = !!localStorage.getItem("dbId");
-  const { lang, setLang } = useLanguage();
+  const { lang, setLang, t } = useLanguage();
+  const unreadCount = useNotificationStore((s) => s.notifications.filter((n) => !n.read).length);
   // sub-tab(세부 탭)은 /alpha 라우트(전략 카드 또는 워크스페이스) 안에 있을 때만 노출
   const inAlpha = loc.pathname === "/alpha" || loc.pathname.startsWith("/alpha/w/");
   const inDeveloper = loc.pathname === "/alpha/developer" || loc.pathname.startsWith("/alpha/developer/");
@@ -218,7 +221,7 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
 
   return (
     <>
-      <aside style={{
+      <aside data-tut-sidebar style={{
         position: "fixed", top: 0, left: 0, bottom: 0, width,
         background: theme.sidebar,
         borderRight: "1px solid rgba(255,255,255,0.08)",
@@ -235,17 +238,18 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
         </button>
 
         {/* home 탭 */}
-        {TABS.filter(t => t.key === "home").map(t => (
-          <SideIconBtn key={t.key} title={t.label} active={isActive(t)} onClick={() => go(t)}>
-            {isActive(t) && <ActiveIndicator />}
-            <t.Icon size={22} strokeWidth={isActive(t) ? 2.4 : 1.9} />
+        {TABS.filter(tab => tab.key === "home").map(tab => (
+          <SideIconBtn key={tab.key} title={t(tab.tKey)} active={isActive(tab)} onClick={() => go(tab)}>
+            {isActive(tab) && <ActiveIndicator />}
+            <tab.Icon size={22} strokeWidth={isActive(tab) ? 2.4 : 1.9} />
           </SideIconBtn>
         ))}
         {/* 워크스페이스 플라이아웃 버튼 */}
         <div ref={wsBtnRef} onMouseEnter={onWsBtnEnter} onMouseLeave={onWsAreaLeave}>
           <SideIconBtn
-            title="워크스페이스"
+            title={t("nav.workspace")}
             active={wsMenuOpen || inAlpha}
+            tutorialId="tutorial-sidebar-ws"
             onClick={() => {
               if (!isAuthed) { setShowLogin(true); return; }
               nav("/alpha");
@@ -256,10 +260,10 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
           </SideIconBtn>
         </div>
         {/* home·config·developer 제외 나머지 탭 */}
-        {TABS.filter(t => t.key !== "home" && t.key !== "config" && t.key !== "developer" && !t.sub && !t.devSub).map(t => (
-          <SideIconBtn key={t.key} title={t.label} active={isActive(t)} onClick={() => go(t)}>
-            {isActive(t) && <ActiveIndicator />}
-            <t.Icon size={22} strokeWidth={isActive(t) ? 2.4 : 1.9} />
+        {TABS.filter(tab => tab.key !== "home" && tab.key !== "config" && tab.key !== "developer" && !tab.sub && !tab.devSub).map(tab => (
+          <SideIconBtn key={tab.key} title={t(tab.tKey)} active={isActive(tab)} onClick={() => go(tab)} tutorialId={tab.tutorialId}>
+            {isActive(tab) && <ActiveIndicator />}
+            <tab.Icon size={22} strokeWidth={isActive(tab) ? 2.4 : 1.9} />
           </SideIconBtn>
         ))}
         {/* Developer Studio 플라이아웃 버튼 */}
@@ -267,6 +271,7 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
           <SideIconBtn
             title="Developer Studio"
             active={devMenuOpen || inDeveloper}
+            tutorialId="tutorial-sidebar-developer"
             onClick={() => {
               if (!isAuthed) { setShowLogin(true); return; }
               const rect = devBtnRef.current?.getBoundingClientRect();
@@ -286,7 +291,18 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
             <Sparkles size={22} strokeWidth={loc.pathname === "/briefing" ? 2.4 : 1.9} />
           </SideIconBtn>
           <SideIconBtn title="알림함" active={loc.pathname === "/notifications"} onClick={() => { if (!isAuthed) { setShowLogin(true); return; } nav("/notifications"); }}>
-            <Bell size={22} />
+            <div style={{ position: "relative", display: "inline-flex" }}>
+              <Bell size={22} />
+              {unreadCount > 0 && (
+                <span style={{
+                  position: "absolute", top: -3, right: -3,
+                  width: 8, height: 8, borderRadius: "50%",
+                  background: "#EF4444",
+                  border: "1.5px solid white",
+                  display: "block",
+                }} />
+              )}
+            </div>
           </SideIconBtn>
           <SideIconBtn title="이용 가이드" active={!!guideOpen} onClick={onToggleGuide}>
             <MoreHorizontal size={22} />
@@ -520,7 +536,7 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
                   onMouseLeave={e => { if (!active) e.currentTarget.style.background = active ? "#EFF6FF" : "transparent"; }}
                 >
                   <item.Icon size={15} color={active ? "#1d4ed8" : "#475569"} />
-                  <span style={{ flex: 1 }}>{item.label}</span>
+                  <span style={{ flex: 1 }}>{t(item.tKey)}</span>
                   {!item.route && <ChevronRight size={13} color="#94A3B8" />}
                 </button>
               );
@@ -587,8 +603,8 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
               return (
                 <button key={item.key}
                   onClick={() => {
+                    // 패널을 바꿔도 드롭다운은 유지 — 여러 탭을 연속 선택할 수 있게(닫기는 바깥 클릭으로만).
                     nav(`/alpha/developer?panel=${item.key}`);
-                    setDevMenuOpen(false);
                   }}
                   style={{
                     display: "flex", alignItems: "center", gap: 10,
@@ -602,7 +618,7 @@ export default function LeftSidebar({ width = 52, onToggleGuide, guideOpen }) {
                   onMouseLeave={e => { if (!active) e.currentTarget.style.background = active ? "#EFF6FF" : "transparent"; }}
                 >
                   <item.Icon size={15} color={active ? "#1d4ed8" : "#475569"} />
-                  <span style={{ flex: 1 }}>{item.label}</span>
+                  <span style={{ flex: 1 }}>{t(item.tKey)}</span>
                 </button>
               );
             })}
@@ -634,10 +650,11 @@ function MenuItem({ icon, label, hint, right, onClick, danger = false }) {
   );
 }
 
-function SideIconBtn({ children, title, onClick, active = false, sub = false }) {
+function SideIconBtn({ children, title, onClick, active = false, sub = false, tutorialId }) {
   return (
     <button
       onClick={onClick} title={title}
+      data-tutorial-id={tutorialId || undefined}
       style={{
         width: sub ? 28 : 36, height: sub ? 28 : 36, borderRadius: 8, border: "none",
         background: active ? "rgba(255,255,255,0.22)" : "transparent",
