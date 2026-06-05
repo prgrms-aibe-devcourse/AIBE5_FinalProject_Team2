@@ -65,7 +65,7 @@ const useStore = create(
         },
         bio: "",
         strengthDesc: "",
-        githubUrl: "https://github.com/yeona-lee-researcher",
+        githubUrl: "",
         skills: [],          // [{id, techName, customTech, proficiency, experience}]
         careers: [],         // [{id, companyName, jobTitle, startDate, endDate, isCurrent, employmentType, role, level, description, projects:[]}]
         educations: [],      // [{id, schoolType, schoolName, major, degree, graduationDate, isEnrolled}]
@@ -92,7 +92,7 @@ const useStore = create(
         },
         bio: "",
         strengthDesc: "",
-        githubUrl: "https://github.com/yeona-lee-researcher",
+        githubUrl: "",
         skills: [],
         careers: [],
         educations: [],

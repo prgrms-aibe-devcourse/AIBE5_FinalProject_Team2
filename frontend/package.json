@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "translate": "node scripts/auto-translate.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"

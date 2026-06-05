@@ -63,6 +63,7 @@ function Login() {
       // 용어: dbId = 백엔드 User PK(숫자), username = 회원가입 시 입력한 로그인 핸들
       // 잔존 레거시 토큰 정리 (이전 로그인 세션이 남긴 localStorage 토큰 제거)
       localStorage.removeItem('accessToken');
+      localStorage.removeItem("alpha.lastWsId");
       if (data.userId != null) {
         localStorage.setItem('dbId', String(data.userId));      // PK (비민감)
         localStorage.setItem('username', data.username ?? '');   // 핸들 (비민감)
@@ -113,6 +114,7 @@ function Login() {
           const data = await authApi.socialLogin({ accessToken, provider: "google" });
           // JWT는 HttpOnly 쿠키로 자동 set — 잔존 레거시 토큰 정리만.
           localStorage.removeItem('accessToken');
+          localStorage.removeItem("alpha.lastWsId");
           if (data.userId != null) {
             localStorage.setItem('dbId', String(data.userId));     // PK (비민감)
             localStorage.setItem('username', data.username ?? '');  // 핸들
@@ -204,6 +206,7 @@ function Login() {
       onClick: () => {
         googleLogin();
       },
+      hidden: !import.meta.env.VITE_GOOGLE_CLIENT_ID,
     },
     {
       name: "kakao",
@@ -228,6 +231,7 @@ function Login() {
         </svg>
       ),
       onClick: handleGithubLogin,
+      hidden: !import.meta.env.VITE_GITHUB_CLIENT_ID,
     },
     {
       name: "facebook",

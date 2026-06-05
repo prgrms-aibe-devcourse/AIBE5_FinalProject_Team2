@@ -38,6 +38,7 @@ export default function OAuthGithubCallback() {
     authApi.githubLogin({ code, redirectUri })
       .then((data) => {
         localStorage.removeItem("accessToken");
+        localStorage.removeItem("alpha.lastWsId");
         if (data.userId != null) {
           localStorage.setItem("dbId", String(data.userId));
           localStorage.setItem("username", data.username ?? "");

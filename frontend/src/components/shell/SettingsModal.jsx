@@ -197,10 +197,11 @@ const SETTINGS = [
     type: "select", def: "gemini-2.5-flash",
     options: [
       { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (기본·빠름)" },
-      { value: "gemini-1.5-pro",   label: "Gemini 1.5 Pro (정확)" },
+      { value: "gemini-2.5-pro",   label: "Gemini 2.5 Pro (정확)" },
       { value: "gpt-4o",           label: "GPT-4o (OpenAI)" },
-      { value: "claude-sonnet",    label: "Claude Sonnet (Anthropic)" },
-      { value: "perplexity",       label: "Perplexity (검색 특화)" },
+      { value: "gpt-4o-mini",      label: "GPT-4o mini (빠름)" },
+      { value: "claude-sonnet-4",  label: "Claude Sonnet 4 (Anthropic)" },
+      { value: "claude-opus-4",    label: "Claude Opus 4 (최고품질)" },
     ],
   },
   {

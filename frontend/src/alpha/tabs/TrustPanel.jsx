@@ -122,7 +122,7 @@ function TrustNarrative({ trust, theme }) {
               <span style={{ fontSize: 11, fontWeight: 800, color: "#065f46", textTransform: "uppercase", letterSpacing: 0.5 }}>강점</span>
             </div>
             <div style={{ fontSize: 13, fontWeight: 800, color: "#064e3b", marginBottom: 4, wordBreak: "keep-all" }}>{p.strength.header}</div>
-            <div style={{ fontSize: 11.5, color: "#065f46", lineHeight: 1.6, wordBreak: "keep-all" }}>{p.strength.body}</div>
+            <div style={{ fontSize: 12, color: "#065f46", lineHeight: 1.6, wordBreak: "keep-all" }}>{p.strength.body}</div>
           </div>
         )}
         {p.weakness && (
@@ -136,7 +136,7 @@ function TrustNarrative({ trust, theme }) {
               <span style={{ fontSize: 11, fontWeight: 800, color: "#78350f", textTransform: "uppercase", letterSpacing: 0.5 }}>보완 필요</span>
             </div>
             <div style={{ fontSize: 13, fontWeight: 800, color: "#451a03", marginBottom: 4, wordBreak: "keep-all" }}>{p.weakness.header}</div>
-            <div style={{ fontSize: 11.5, color: "#78350f", lineHeight: 1.6, wordBreak: "keep-all" }}>{p.weakness.body}</div>
+            <div style={{ fontSize: 12, color: "#78350f", lineHeight: 1.6, wordBreak: "keep-all" }}>{p.weakness.body}</div>
           </div>
         )}
       </div>
@@ -148,7 +148,7 @@ function TrustNarrative({ trust, theme }) {
             const t = s.trim();
             return (
               <span key={t} style={{
-                padding: "4px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 600,
+                padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600,
                 background: theme.codeBg || "#f8fafc", border: `1px solid ${theme.panelBorder}`,
                 color: theme.text,
               }}>{t}</span>
@@ -176,20 +176,27 @@ const PERIOD_OPTIONS = [
   { value: "20y", label: "20년" },
   { value: "25y", label: "25년" },
   { value: "30y", label: "30년 (최대)" },
+  { value: "custom", label: "직접 지정 (달력)" },
 ];
 
 export default function TrustPanel({ id, ws, onChange }) {
   const { theme } = useTheme();
   const [busy, setBusy] = useState(false);
   const [period, setPeriod] = useState("10y");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
   const trust = ws.lastTrust;
+  const custom = period === "custom";
   const onRun = async () => {
     if (busy) return;
+    if (custom && (!start || !end)) { alert("시작일과 종료일을 선택하세요"); return; }
     setBusy(true);
-    try { await runTrust(id, { period }); onChange(); }
+    try { await runTrust(id, custom ? { start, end } : { period }); onChange(); }
     catch (e) { alert("Trust 계산 실패: " + (e?.response?.data?.error || e.message)); }
     finally { setBusy(false); }
   };
+  const dateStyle = { padding: "6px 8px", borderRadius: 8, fontSize: 12.5,
+    border: `1px solid ${theme.panelBorder}`, background: theme.cardBg, color: theme.text };
   return (
     <div>
       <PanelHeader
@@ -198,7 +205,7 @@ export default function TrustPanel({ id, ws, onChange }) {
         description="Walk-Forward + Regime + Parameter Stability + Statistical Confidence를 종합한 0~100 점수."
         theme={theme}
         action={
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <select
               value={period}
               onChange={e => setPeriod(e.target.value)}
@@ -213,7 +220,13 @@ export default function TrustPanel({ id, ws, onChange }) {
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
-            <button onClick={onRun} disabled={busy} style={primaryBtn(theme, busy)}>
+            {custom && (
+              <>
+                <input type="date" value={start} max={end || undefined} disabled={busy} onChange={e => setStart(e.target.value)} style={dateStyle} />
+                <input type="date" value={end} min={start || undefined} disabled={busy} onChange={e => setEnd(e.target.value)} style={dateStyle} />
+              </>
+            )}
+            <button data-tutorial-id="tutorial-trust-calc-btn" onClick={onRun} disabled={busy} style={primaryBtn(theme, busy)}>
               <Play size={14} /> {busy ? "계산 중… (~1분)" : "Trust Score 계산"}
             </button>
           </div>
@@ -222,10 +235,10 @@ export default function TrustPanel({ id, ws, onChange }) {
       {!trust && <Empty msg="Walk-Forward + Regime + Parameter Stability + Statistical Confidence를 종합한 0~100 점수" theme={theme} />}
       {trust && (
         <>
-          <Card title="신뢰 점수" theme={theme}>
+          <Card title="신뢰 점수 · Trust Score" theme={theme} titleSize={20}>
             <TrustScore {...buildTrustScoreProps(trust)} />
           </Card>
-          <Card title="ℹ️ Trust Score는 어떻게 계산되나요?" theme={theme}>
+          <Card title="ℹ️ Trust Score는 어떻게 계산되나요?" theme={theme} titleSize={20}>
             <div style={{ fontSize: 12.5, color: theme.text, lineHeight: 1.75 }}>
               <p style={{ margin: "0 0 8px" }}>
                 아래 5개 세부 점수(각 0~100)에 가중치를 곱해 합산한 뒤, <b>과적합 패널티</b>(최대 -10)를 차감해 최종 0~100점을 만듭니다.
@@ -246,11 +259,6 @@ export default function TrustPanel({ id, ws, onChange }) {
                 세부 점수 항목의 <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 13, height: 13, borderRadius: "50%", background: "#22c55e", color: "white", fontSize: 7, fontWeight: 900 }}>!</span> 아이콘에 마우스를 올리면 개별 설명이 나타나요.
               </p>
             </div>
-          </Card>
-          <Card title="세부 점수" theme={theme}>
-            {Object.entries(trust.sub_scores || {}).map(([k, v]) => (
-              <SubScoreBar key={k} label={k} value={v} theme={theme} />
-            ))}
           </Card>
           {trust.details && <TrustDetailsCard details={trust.details} theme={theme} />}
         </>

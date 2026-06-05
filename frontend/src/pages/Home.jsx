@@ -3,12 +3,13 @@ import { useNavigate } from "react-router-dom";
 import {
   Layers, MessageSquare, FlaskConical,
   ShieldCheck, TrendingUp, ArrowRight,
-  BarChart3, Brain, Zap, Check,
+  BarChart3, Brain, Zap, Check, Sparkles,
 } from "lucide-react";
 import bannerVideo from "../assets/배너후보.mp4";
 import { useLanguage } from "../i18n/LanguageContext";
 import translations from "../i18n/translations";
 import LoginRequiredModal from "../components/shell/LoginRequiredModal";
+import useTutorialStore from "../store/useTutorialStore";
 
 const BASE_FONT = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
@@ -235,6 +236,7 @@ export default function Home() {
   const [newWsName, setNewWsName]  = useState("");
 
   const isAuthed = !!localStorage.getItem("dbId");
+  const startTutorial = useTutorialStore((s) => s.start);
   const tr = translations[lang]?.home || translations.en.home;
   const projects = tr.projectSection.projects;
   const activeFeature = FEATURE_TABS.find(f => f.key === activeTab);
@@ -324,6 +326,28 @@ export default function Home() {
                 {t("home.clientBtnRegister")}
               </button>
             </div>
+
+            {/* Tutorial trigger — authenticated users only */}
+            {isAuthed && (
+              <button
+                onClick={startTutorial}
+                style={{
+                  marginTop: 16,
+                  padding: "10px 26px", borderRadius: 9,
+                  border: "1px solid rgba(255,255,255,0.22)",
+                  background: "rgba(255,255,255,0.07)", backdropFilter: "blur(10px)",
+                  color: "rgba(255,255,255,0.88)", fontWeight: 600, fontSize: 13.5,
+                  cursor: "pointer", fontFamily: BASE_FONT,
+                  display: "inline-flex", alignItems: "center", gap: 8,
+                  transition: "background 0.15s, transform 0.15s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.14)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.transform = "none"; }}
+              >
+                <Sparkles size={15} style={{ opacity: 0.9 }} />
+                저희 서비스가 처음이신가요? 투자 여정 시작하기 →
+              </button>
+            )}
           </div>
         </div>
       </section>

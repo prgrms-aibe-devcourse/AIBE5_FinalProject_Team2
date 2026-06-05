@@ -47,7 +47,7 @@ export default function GitPanel({
       const g = await getGitStatus();
       setGlobalStatus(g);
       if (!g.connected) { setStage("connect"); setLoading(false); return; }
-      if (workspaceId == null) { setStage("connect"); setLoading(false); return; }
+      if (workspaceId == null) { setStage("no-workspace"); setLoading(false); return; }
       const ws = await getWorkspaceGitStatus(workspaceId);
       setWsStatus(ws);
       if (!ws.repoFullName) {
@@ -78,6 +78,10 @@ export default function GitPanel({
           onDisconnect={globalStatus?.connected ? async () => { await disconnectGit(); refresh(); } : null}
           username={globalStatus?.username}
         />
+      )}
+      {!loading && stage === "no-workspace" && (
+        <NoWorkspaceMsg username={globalStatus?.username}
+          onDisconnect={async () => { await disconnectGit(); refresh(); }} />
       )}
       {!loading && stage === "repos" && (
         <RepoPicker
@@ -162,7 +166,7 @@ function ConnectForm({ onConnect, onDisconnect, username }) {
       ) : (
         <>
           <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 8 }}>
-            Personal Access Token으로 GitHub 레포와 연동하면 파일 트리·커밋·push/pull을 IDE 안에서 직접 관리할 수 있습니다.
+            깃허브 계정으로 로그인을 하거나, Personal Access Token으로 GitHub 레포와 연동하면 파일 트리·커밋·push/pull을 IDE 안에서 직접 관리할 수 있습니다.
           </div>
           <div style={{
             fontSize: 10.5, color: "#93c5fd",
@@ -203,6 +207,35 @@ function ConnectForm({ onConnect, onDisconnect, username }) {
           연결 해제
         </button>
       )}
+    </div>
+  );
+}
+
+// ───────────────────────────── No-Workspace 안내
+
+function NoWorkspaceMsg({ username, onDisconnect }) {
+  return (
+    <div style={{ padding: 14, fontSize: 12, lineHeight: 1.6 }}>
+      <div style={{ fontSize: 11.5, color: "#10b981", marginBottom: 10, display: "flex", alignItems: "center", gap: 4 }}>
+        <CheckCircle2 size={12} /> {username} 로 연결됨
+      </div>
+      <div style={{
+        fontSize: 11, color: "#93c5fd",
+        background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.25)",
+        borderRadius: 6, padding: "8px 10px", marginBottom: 8, lineHeight: 1.6,
+      }}>
+        <strong>워크스페이스를 먼저 선택하세요.</strong>
+        <br/>좌측 상단 드롭다운에서 워크스페이스를 선택하면 이 레포에 연결할 수 있습니다.
+      </div>
+      <button onClick={onDisconnect}
+        style={{
+          width: "100%", marginTop: 4, padding: "6px 12px", background: "transparent",
+          border: "1px solid rgba(239,68,68,0.4)", borderRadius: 6, color: "#ef4444",
+          fontSize: 11, cursor: "pointer",
+        }}>
+        <Unlink size={11} style={{ marginRight: 4, verticalAlign: "middle" }} />
+        연결 해제
+      </button>
     </div>
   );
 }

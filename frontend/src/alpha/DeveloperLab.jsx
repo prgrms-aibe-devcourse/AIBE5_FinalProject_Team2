@@ -5,19 +5,21 @@ import {
   Play, Rocket, Terminal, BarChart3, Code2, Loader, Boxes, Save, Bot,
   FolderOpen, Database, FileCode, ChevronDown, ChevronRight, X,
   ShoppingCart, AlertCircle, CheckCircle2, GitBranch, FilePlus, FolderPlus,
-  ExternalLink,
+  ExternalLink, Send, Plus, Lightbulb,
 } from "lucide-react";
 import { useTheme } from "./ThemeContext";
 import {
   getWorkspace, listWorkspaces, runBacktest, runRegime, runTrust, saveCode, queueOrders,
   getDataStatus, getDataPreview, leanBacktestStart, leanBacktestStatus, leanListStrategies, getLeanHealth,
-  runClaudeAgentStart, runClaudeAgentStatus,
+  runClaudeAgentStart, runClaudeAgentStatus, resetClaudeSession, runImproveProposal, runCompareBacktest,
   getWorkspaceGitStatus, getWorkspaceFileTree, pullWorkspaceFile, deleteWorkspaceFile,
   listBrokerAccounts, getBinanceBalance, getWorkspaceCommit,
 } from "./alphaApi";
 import GitPanel from "./GitPanel";
 import TerminalTabs from "./TerminalTabs";
+import { TrendLineChart, SubIndicatorChart, calcSMA, calcEMA, calcBollinger } from "./tabs/helpers";
 import RepoExplorer from "./RepoExplorer";
+import ClaudeKeyConnect from "./ClaudeKeyConnect";
 
 // ── 언어 감지 ─────────────────────────────────────────────────────────────────
 function detectLang(fileName) {
@@ -296,6 +298,22 @@ function parseParamsFromCode(code) {
   return result;
 }
 
+// parseParamsFromCode 의 역함수 — 선택한 파라미터 값을 코드의 상수에 그대로 반영(P3 적용).
+function applyParamsToCode(code, params) {
+  if (!code || !params) return code;
+  let out = code;
+  const repl = (constName, val) => {
+    if (val == null) return;
+    const re = new RegExp(`^(\\s*${constName}\\s*=\\s*)[\\d.]+`, "m");
+    if (re.test(out)) out = out.replace(re, `$1${val}`);
+  };
+  repl("SMA_FAST", params.sma_fast);   repl("SMA_SLOW", params.sma_slow);
+  repl("RSI_PERIOD", params.rsi_period); repl("RSI_LOW", params.rsi_low); repl("RSI_HIGH", params.rsi_high);
+  repl("MACD_FAST", params.macd_fast); repl("MACD_SLOW", params.macd_slow); repl("MACD_SIGNAL", params.macd_signal);
+  repl("VIX_THRESHOLD", params.vix_threshold);
+  return out;
+}
+
 // ── 에쿼티 커브 변환 ──────────────────────────────────────────────────────────
 function convertEquityCurve(curve) {
   if (!curve || curve.length < 2) return [];
@@ -555,6 +573,7 @@ function DataTableView({ datasetId, datasets }) {
 
 // ── BacktestReportView ────────────────────────────────────────────────────────
 function BacktestReportView({ btResult }) {
+  const [subInd, setSubInd] = useState({ rsi: false, macd: false, stoch: false });
   if (!btResult?.stats) {
     return (
       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,color:"#4B5563"}}>
@@ -565,7 +584,21 @@ function BacktestReportView({ btResult }) {
     );
   }
   const s = btResult.stats;
-  const chartData = convertEquityCurve(btResult.equity_curve || []);
+  // 에쿼티 + 보조선 시리즈 (StrategyWorkspace 리포트와 동일한 TrendLineChart 사용)
+  const IDE_THEME = { accent:"#60a5fa", text:"#e5e7eb", textMuted:"#94a3b8", panel:"#161b22", panelBorder:"rgba(255,255,255,0.12)", panelAlt:"rgba(96,165,250,0.12)" };
+  const eqPts = (btResult.equity_curve || []).map((d, i) => ({ x: d.date ? new Date(d.date) : i, y: Number(d.value) }));
+  const eqVals = eqPts.map((p) => p.y);
+  const eqDates = eqPts.map((p) => p.x);
+  const mkS = (arr, name, color, width, extra) => ({ name, color, width, ...extra, points: eqPts.map((p, i) => ({ x: p.x, y: arr[i] })) });
+  const bbIde = eqVals.length >= 20 ? calcBollinger(eqVals, 20, 2) : null;
+  const ideSeries = eqPts.length > 1 ? [
+    { name: "에쿼티", color: "#60a5fa", width: 2, points: eqPts },
+    ...(eqVals.length >= 20 ? [mkS(calcSMA(eqVals, 20), "SMA 20", "#10b981", 1.4)] : []),
+    ...(eqVals.length >= 50 ? [mkS(calcSMA(eqVals, 50), "SMA 50", "#f59e0b", 1.4)] : []),
+    ...(eqVals.length >= 120 ? [mkS(calcSMA(eqVals, 120), "SMA 120", "#ef4444", 1.4)] : []),
+    ...(eqVals.length >= 20 ? [mkS(calcEMA(eqVals, 20), "EMA 20", "#8b5cf6", 1.4)] : []),
+    ...(bbIde ? [mkS(bbIde.upper, "BB 상단", "#94a3b8", 1, { dash: "4 3", opacity: 0.8 }), mkS(bbIde.lower, "BB 하단", "#94a3b8", 1, { dash: "4 3", opacity: 0.8 })] : []),
+  ] : [];
   const fmtPct = (v) => v == null ? "N/A" : `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
   const fmtNum = (v, d=2) => v == null ? "N/A" : v.toFixed(d);
   const period = `${s.start || ""} – ${s.end || ""}`;
@@ -577,11 +610,25 @@ function BacktestReportView({ btResult }) {
         <span style={{fontSize:10,color:"#4B5563"}}>{period} · {s.engine === "lean" ? `Lean · QC${s.run_id ? " · " + s.run_id : ""}` : "vectorbt"}</span>
         <span style={{fontSize:9,padding:"2px 8px",borderRadius:999,background:"rgba(16,185,129,0.15)",color:"#10B981",fontWeight:700}}>완료</span>
       </div>
-      {chartData.length > 1 && (
+      {ideSeries.length > 1 && (
         <div style={{marginBottom:16,background:"rgba(255,255,255,0.02)",borderRadius:12,
           border:"1px solid rgba(255,255,255,0.06)",padding:"14px 16px"}}>
-          <div style={{fontSize:10,color:"#4B5563",fontWeight:700,marginBottom:8}}>포트폴리오 수익률 커브</div>
-          <SparkChart data={chartData}/>
+          <div style={{fontSize:11,color:"#cbd5e1",fontWeight:700,marginBottom:8}}>📈 에쿼티 추세 &amp; 보조지표</div>
+          <TrendLineChart series={ideSeries} theme={IDE_THEME} height={240}
+            toggleable initialHidden={["EMA 20","BB 상단","BB 하단"]} />
+          {/* 하단 보조지표 패널 (RSI / MACD / Stochastic) */}
+          <div style={{display:"flex",gap:7,alignItems:"center",margin:"12px 0 2px",flexWrap:"wrap"}}>
+            <span style={{fontSize:11,color:"#94a3b8",fontWeight:700}}>보조지표 패널</span>
+            {[["rsi","RSI"],["macd","MACD"],["stoch","Stochastic"]].map(([k,lbl])=>(
+              <button key={k} type="button" onClick={()=>setSubInd(v=>({...v,[k]:!v[k]}))}
+                style={{padding:"3px 12px",borderRadius:999,fontSize:11,fontWeight:700,cursor:"pointer",
+                  border:`1px solid ${subInd[k]?"#60a5fa":"rgba(255,255,255,0.14)"}`,
+                  background:subInd[k]?"#60a5fa":"transparent",color:subInd[k]?"#fff":"#94a3b8"}}>{lbl}</button>
+            ))}
+          </div>
+          {subInd.rsi && <SubIndicatorChart kind="rsi" values={eqVals} dates={eqDates} theme={IDE_THEME} />}
+          {subInd.macd && <SubIndicatorChart kind="macd" values={eqVals} dates={eqDates} theme={IDE_THEME} />}
+          {subInd.stoch && <SubIndicatorChart kind="stoch" values={eqVals} dates={eqDates} theme={IDE_THEME} />}
         </div>
       )}
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:16}}>
@@ -628,7 +675,7 @@ function readEditorOpts(tabSizeDefault = 4) {
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 // ── ClaudeDiffView (Claude 에이전트 변경 before/after · Monaco diff) ──────────────
-function ClaudeDiffView({ changes }) {
+function ClaudeDiffView({ changes, onMeasure, measuring }) {
   if (!changes || changes.length === 0) {
     return (
       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,color:"#4B5563"}}>
@@ -639,6 +686,18 @@ function ClaudeDiffView({ changes }) {
   }
   return (
     <div style={{flex:1,overflow:"auto",background:"#0f1117"}}>
+      {/* P4: 이 패치의 전후 효과를 같은 비교 포맷으로 측정 */}
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",
+        borderBottom:"1px solid rgba(255,255,255,0.08)",background:"#12161f",position:"sticky",top:0,zIndex:2}}>
+        <span style={{fontSize:11.5,color:"#94a3b8",flex:1}}>Claude 패치의 실제 성과 영향을 백테스트로 확인하세요.</span>
+        <button onClick={()=>onMeasure&&onMeasure(changes)} disabled={measuring}
+          style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:7,border:"none",
+            background:measuring?"rgba(245,158,11,0.2)":"linear-gradient(135deg,#F59E0B,#D97706)",
+            color:"#fff",fontSize:11.5,fontWeight:800,cursor:measuring?"wait":"pointer"}}>
+          {measuring ? <Loader size={12} style={{animation:"spin 1s linear infinite"}}/> : <BarChart3 size={12}/>}
+          변경 효과 측정 (전후 백테스트)
+        </button>
+      </div>
       {changes.map((c, i) => (
         <div key={c.path || i} style={{borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
           <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:"#161b22"}}>
@@ -695,6 +754,20 @@ export default function DeveloperLab() {
   const claudeJobRef = useRef(null);          // 현재 폴링 중인 Claude job (새 실행 시 취소)
   const [claudeDiff, setClaudeDiff] = useState(null);  // { changes:[{path,filename,before,after}] }
   const [claudeDockW, setClaudeDockW] = useState(380); // 우측 Claude 도크 너비
+  const [claudeMessages, setClaudeMessages] = useState([]); // 도크 내 대화(VSCode Claude Code 식): {role,content,...}
+  const claudeScrollRef = useRef(null);
+  useEffect(() => { if (claudeScrollRef.current) claudeScrollRef.current.scrollTop = claudeScrollRef.current.scrollHeight; }, [claudeMessages, claudeBusy]);
+  // P3: 전략 개선 제안서
+  const [improveOpen, setImproveOpen] = useState(false);
+  const [improveBusy, setImproveBusy] = useState(false);
+  const [improveData, setImproveData] = useState(null);
+  const [improveErr, setImproveErr] = useState(null);
+  const [improveApplied, setImproveApplied] = useState(null);
+  // P4: Claude 패치 전후 효과 측정
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [compareBusy, setCompareBusy] = useState(false);
+  const [compareData, setCompareData] = useState(null);
+  const [compareErr, setCompareErr] = useState(null);
   const [queueMsg, setQueueMsg] = useState(null);
   const [wsList, setWsList] = useState([]);
   const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
@@ -966,10 +1039,10 @@ export default function DeveloperLab() {
   // ── 워크스페이스 로드 ──
   const loadWorkspace = useCallback((id) => {
     setWsLoading(true);
-    setWsId(id);
-    localStorage.setItem("alpha.lastWsId", id);
     getWorkspace(id)
       .then(data => {
+        setWsId(id);
+        localStorage.setItem("alpha.lastWsId", id);
         setStrategyName(data.name || "AlphaHelix Strategy");
         setBtResult(null);
         if (data.codeJson) {
@@ -979,9 +1052,13 @@ export default function DeveloperLab() {
             ? JSON.parse(data.strategyConfig) : data.strategyConfig;
           const code = generateCodeFromConfig(cfg);
           setFileContents({ main: code });
+          if (code) { saveCode(id, JSON.stringify({ main: code })).catch(() => {}); }
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        localStorage.removeItem("alpha.lastWsId");
+        setWsId(null);
+      })
       .finally(() => setWsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1272,15 +1349,65 @@ export default function DeveloperLab() {
     }
   }, [runStatus, wsId, fileContents, activeTabId, openTabs, leanStrategyId, leanStrategies]);
 
+  // ── P3: 전략 개선 제안서 (진단 + 선택지 + 전후 백테스트 비교) ──
+  const handleImproveProposal = useCallback(async () => {
+    if (improveBusy) return;
+    setImproveOpen(true); setImproveErr(null); setImproveData(null); setImproveApplied(null);
+    if (!wsId) { setImproveErr("워크스페이스가 없습니다."); return; }
+    const activeContent = openTabs.find(t=>t.id===activeTabId);
+    const currentCode = (activeContent?.fileKey && fileContents[activeContent.fileKey]) || fileContents.main || "";
+    const customParams = parseParamsFromCode(currentCode);
+    setImproveBusy(true);
+    try {
+      const data = await runImproveProposal(wsId, customParams, "5y");
+      setImproveData(data);
+    } catch (e) {
+      setImproveErr(e?.response?.data?.error || e?.message || "개선 제안 생성 실패");
+    } finally { setImproveBusy(false); }
+  }, [improveBusy, wsId, openTabs, activeTabId, fileContents]);
+
+  const handleApplyOption = useCallback((option) => {
+    if (!option || !option.params) return;
+    const fileKey = (openTabs.find(t=>t.id===activeTabId)?.fileKey) || "main";
+    const baseCode = fileContents[fileKey] || fileContents.main || "";
+    const newCode = applyParamsToCode(baseCode, option.params);
+    const nextContents = { ...fileContents, [fileKey]: newCode };
+    setFileContents(nextContents);
+    setImproveApplied(option.key);
+    if (wsId) saveCode(wsId, JSON.stringify(nextContents)).catch(()=>{});
+    setImproveOpen(false);
+    // 적용된 파라미터로 바로 백테스트해 결과 확인
+    setTimeout(() => { handleRunBacktest(); }, 120);
+  }, [openTabs, activeTabId, fileContents, wsId, handleRunBacktest]);
+
+  // ── P4: Claude 패치 전후 효과 측정 (같은 비교 포맷) ──
+  const handleMeasureClaudeChange = useCallback(async (changes) => {
+    if (!changes || changes.length === 0) return;
+    // 코드 파일 변경 우선(main 우선), 없으면 첫 변경
+    const target = changes.find(c => /\.py$/.test(c.filename || c.path || "") || (c.path === "main"))
+      || changes.find(c => (c.path || "").includes("main")) || changes[0];
+    const before = parseParamsFromCode(target.before || "");
+    const after = parseParamsFromCode(target.after || "");
+    setCompareOpen(true); setCompareErr(null); setCompareData(null); setCompareBusy(true);
+    if (!wsId) { setCompareErr("워크스페이스가 없습니다."); setCompareBusy(false); return; }
+    try {
+      const data = await runCompareBacktest(wsId, before, after, "5y");
+      setCompareData(data);
+    } catch (e) {
+      setCompareErr(e?.response?.data?.error || e?.message || "효과 측정 실패");
+    } finally { setCompareBusy(false); }
+  }, [wsId]);
+
   // ── Claude Code 에이전트 (헤드리스 claude CLI · 단계별 스트리밍 + diff) ──
   const handleClaudeAgent = useCallback(async () => {
     if (claudeBusy) return;
     const req = claudeReq.trim();
-    const nowTs = () => new Date().toLocaleTimeString();
-    if (!wsId) { setLogLines(prev => [...prev, { type:"error", msg:"워크스페이스가 없습니다.", ts:nowTs() }]); return; }
+    if (!wsId) { setClaudeMessages(prev => [...prev, { role:"error", content:"워크스페이스가 없습니다." }]); return; }
     if (!req) return;
     setClaudeBusy(true);
-    setLogLines(prev => [...prev, { type:"info", msg:`🤖 Claude 에이전트: ${req}`, ts:nowTs() }]);
+    setClaudeReq("");
+    // 대화는 도크 안에 누적 (VSCode Claude Code 식). 콘솔로 보내지 않는다.
+    setClaudeMessages(prev => [...prev, { role:"user", content:req }]);
 
     // 1) 잡 시작
     let jobId;
@@ -1290,20 +1417,18 @@ export default function DeveloperLab() {
       claudeJobRef.current = jobId;
     } catch (e) {
       setClaudeBusy(false);
-      const ts = nowTs();
       if (e?.response?.status === 503) {
         const d = e.response.data || {};
-        setLogLines(prev => [...prev,
-          { type:"error", msg:`[Claude] 비활성: ${d.error || "에이전트가 꺼져 있습니다."}`, ts },
-          { type:"warn",  msg:`[hint] ${d.hint || "app.claude.cli.enabled=true + claude CLI 설치 필요"}`, ts },
-        ]);
+        setClaudeMessages(prev => [...prev, { role:"error", content:`Claude 에이전트 비활성: ${d.error || "꺼져 있음"} ${d.hint ? "("+d.hint+")" : ""}` }]);
+      } else if (e?.response?.status === 402) {
+        setClaudeMessages(prev => [...prev, { role:"error", content: e.response.data?.error || "Developer Studio(Claude)는 STANDARD 구독부터입니다." }]);
       } else {
-        setLogLines(prev => [...prev, { type:"error", msg:`Claude 시작 실패: ${e?.response?.data?.error || e?.message}`, ts }]);
+        setClaudeMessages(prev => [...prev, { role:"error", content:`Claude 시작 실패: ${e?.response?.data?.error || e?.message}` }]);
       }
       return;
     }
 
-    // 2) 단계별 진행 폴링 (1s 간격, since 커서)
+    // 2) 단계별 진행 폴링 (1s 간격, since 커서) → 대화에 진행 단계 누적
     const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     let cursor = 0;
     const MAX_POLLS = 220; // ~3.5분 안전 상한
@@ -1317,8 +1442,7 @@ export default function DeveloperLab() {
 
       const newLogs = Array.isArray(st.logs) ? st.logs : [];
       if (newLogs.length) {
-        const ts = nowTs();
-        setLogLines(prev => [...prev, ...newLogs.map(l => ({ type: l.type || "info", msg: l.msg, ts }))]);
+        setClaudeMessages(prev => [...prev, ...newLogs.map(l => ({ role:"progress", type: l.type || "info", content: l.msg }))]);
       }
       if (typeof st.next === "number") cursor = st.next;
 
@@ -1326,13 +1450,11 @@ export default function DeveloperLab() {
         claudeJobRef.current = null;
         setClaudeBusy(false);
         const r = st.result;
-        const ts = nowTs();
+        const narr = (r.narration || "").trim();
+        let summary = "";
         if (r.hasChanges) {
           const files = (r.changedFiles || []).join(", ");
-          setLogLines(prev => [...prev,
-            { type:"success", msg:`✓ ${(r.changedFiles||[]).length}개 파일 편집 적용 (${files}) · ${(r.elapsedMs/1000).toFixed(1)}s`, ts },
-            { type:"info", msg:`▶ '🔀 Claude diff' 탭에서 변경 확인 · 상단 'Heli 변경' 바에서 [유지]/[실행취소]`, ts },
-          ]);
+          summary = `✓ ${(r.changedFiles||[]).length}개 파일 편집 적용 (${files}) — '🔀 Claude diff' 탭 + 상단 'Heli 변경' 바에서 [유지]/[실행취소]`;
           const changes = Array.isArray(r.changes) ? r.changes : [];
           if (changes.length) {
             const diffId = `tab_diff_${Date.now()}`;
@@ -1342,24 +1464,26 @@ export default function DeveloperLab() {
           }
           window.dispatchEvent(new CustomEvent("alphaPatchApplied", { detail: { wsId: Number(wsId), changeSet: { id: r.changeSetId, title: r.changeSetTitle } } }));
           window.dispatchEvent(new CustomEvent("alphaWorkspaceReload", { detail: { wsId: Number(wsId) } }));
-        } else {
-          setLogLines(prev => [...prev, { type:"warn", msg:`[Claude] 코드 변경 없음 (질문/설명만 수행)`, ts }]);
         }
-        setClaudeReq("");
-        setClaudeOpen(false);
+        setClaudeMessages(prev => [...prev, {
+          role:"assistant",
+          content: narr || (r.hasChanges ? "" : "코드 변경 없이 답변했어요."),
+          summary,
+        }]);
+        // 도크는 닫지 않는다 — 대화 계속.
         return;
       }
       if (st.status === "error") {
         claudeJobRef.current = null;
         setClaudeBusy(false);
-        setLogLines(prev => [...prev, { type:"error", msg:`Claude 실패: ${st.error || "알 수 없는 오류"}`, ts: nowTs() }]);
+        setClaudeMessages(prev => [...prev, { role:"error", content:`Claude 실패: ${st.error || "알 수 없는 오류"}` }]);
         return;
       }
     }
     if (claudeJobRef.current === jobId) {
       claudeJobRef.current = null;
       setClaudeBusy(false);
-      setLogLines(prev => [...prev, { type:"warn", msg:`Claude 폴링 시간 초과 (job=${jobId})`, ts: nowTs() }]);
+      setClaudeMessages(prev => [...prev, { role:"error", content:`Claude 폴링 시간 초과 (job=${jobId})` }]);
     }
   }, [claudeBusy, claudeReq, wsId]);
 
@@ -1588,6 +1712,15 @@ export default function DeveloperLab() {
             ?<><Loader size={11} style={{animation:"spin 1s linear infinite"}}/>실행 중…</>
             :<><Play size={11}/>{engine==="lean" ? "Run Lean" : "Run Backtest"}</>}
         </button>
+        <button onClick={handleImproveProposal} disabled={improveBusy}
+          title="AI 진단 + 안정형/공격형 조정안 + 전후 백테스트 비교"
+          style={{display:"flex",alignItems:"center",gap:4,padding:"5px 13px",borderRadius:6,
+            background:improveBusy?"rgba(245,158,11,0.18)":"linear-gradient(135deg,#F59E0B,#D97706)",border:"none",
+            color:"white",fontSize:12,fontWeight:700,cursor:improveBusy?"wait":"pointer",
+            boxShadow:improveBusy?"none":"0 2px 8px rgba(217,119,6,0.35)"}}>
+          {improveBusy ? <Loader size={11} style={{animation:"spin 1s linear infinite"}}/> : <Lightbulb size={11}/>}
+          개선 제안
+        </button>
         <button onClick={handleDeploy}
           style={{display:"flex",alignItems:"center",gap:4,padding:"5px 13px",borderRadius:6,
             background:"linear-gradient(135deg,#7c3aed,#6d28d9)",border:"none",
@@ -1610,23 +1743,23 @@ export default function DeveloperLab() {
           paddingTop:6, gap:2,
         }}>
           {[
-            { icon:<FolderOpen size={20}/>, title:"파일 탐색기",   act: sidePanel==="explorer", fn: ()=>setSidePanel(p=>p==="explorer"?null:"explorer") },
-            { icon:<FileCode size={20}/>,   title:"코드만 보기",   act: sidePanel===null,        fn: ()=>setSidePanel(null) },
-            { icon:<Database size={20}/>,   title:"데이터 탐색기", act: sidePanel==="data",     fn: ()=>setSidePanel(p=>p==="data"?null:"data") },
-            { icon:<GitBranch size={20}/>,  title:"GitHub 연결",   act: sidePanel==="git",      fn: ()=>setSidePanel(p=>p==="git"?null:"git") },
-            { icon:<BarChart3 size={20}/>,  title:"백테스트 결과", act: openTabs.some(t=>t.type==="report")&&activeTab?.type==="report",
+            { icon:<FolderOpen size={20}/>, title:"파일 탐색기",   tutId:"tutorial-dev-explorer", act: sidePanel==="explorer", fn: ()=>setSidePanel(p=>p==="explorer"?null:"explorer") },
+            { icon:<FileCode size={20}/>,   title:"코드만 보기",   tutId:"tutorial-dev-code",     act: sidePanel===null,        fn: ()=>setSidePanel(null) },
+            { icon:<Database size={20}/>,   title:"데이터 탐색기", tutId:"tutorial-dev-data",     act: sidePanel==="data",     fn: ()=>setSidePanel(p=>p==="data"?null:"data") },
+            { icon:<GitBranch size={20}/>,  title:"GitHub 연결",   tutId:"tutorial-dev-git",      act: sidePanel==="git",      fn: ()=>setSidePanel(p=>p==="git"?null:"git") },
+            { icon:<BarChart3 size={20}/>,  title:"백테스트 결과", tutId:"tutorial-dev-report",   act: openTabs.some(t=>t.type==="report")&&activeTab?.type==="report",
               fn: ()=>{ const t=openTabs.find(tt=>tt.type==="report"); if(t) setActiveTabId(t.id); else handleRunBacktest(); } },
-            { icon:<Terminal size={20}/>,   title:"콘솔 / 터미널", act: false,                   fn: ()=>logEndRef.current?.scrollIntoView({behavior:"smooth"}) },
+            { icon:<Terminal size={20}/>,   title:"콘솔 / 터미널", tutId:"tutorial-dev-console",  act: false,                   fn: ()=>logEndRef.current?.scrollIntoView({behavior:"smooth"}) },
           ].map((b,i)=>(
-            <button key={i} title={b.title} onClick={b.fn} style={{
+            <button key={i} title={b.title} onClick={b.fn} data-tutorial-id={b.tutId || undefined} style={{
               width:36, height:36, borderRadius:6, border:"none",
-              background: b.act ? "rgba(96,165,250,0.12)" : "transparent",
-              color: b.act ? "#60a5fa" : "#4B5563",
+              background: b.act ? "rgba(96,165,250,0.16)" : "transparent",
+              color: b.act ? "#60a5fa" : "#9CA3AF",
               cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
               transition:"color 0.12s, background 0.12s",
             }}
-            onMouseEnter={e=>{e.currentTarget.style.color="#9CA3AF"; e.currentTarget.style.background="rgba(255,255,255,0.05)";}}
-            onMouseLeave={e=>{e.currentTarget.style.color=b.act?"#60a5fa":"#4B5563"; e.currentTarget.style.background=b.act?"rgba(96,165,250,0.12)":"transparent";}}
+            onMouseEnter={e=>{e.currentTarget.style.color="#E5E7EB"; e.currentTarget.style.background="rgba(255,255,255,0.08)";}}
+            onMouseLeave={e=>{e.currentTarget.style.color=b.act?"#60a5fa":"#9CA3AF"; e.currentTarget.style.background=b.act?"rgba(96,165,250,0.16)":"transparent";}}
             >{b.icon}</button>
           ))}
         </div>
@@ -1647,7 +1780,7 @@ export default function DeveloperLab() {
 
             {sidePanel!=="git" && (
               <div style={{
-                padding:"6px 8px 6px 12px", fontSize:9, fontWeight:700, color:"#4B5563",
+                padding:"6px 8px 6px 12px", fontSize:9, fontWeight:700, color:"#CBD5E1",
                 letterSpacing:"0.08em", textTransform:"uppercase", flexShrink:0,
                 borderBottom:"1px solid rgba(255,255,255,0.05)",
                 display:"flex", alignItems:"center",
@@ -1716,7 +1849,7 @@ export default function DeveloperLab() {
                       <div onClick={()=>setFolderOpen(v=>!v)}
                         style={{display:"flex",alignItems:"center",gap:4,
                           padding:"5px 8px",cursor:"pointer",userSelect:"none",
-                          color:"#9CA3AF",fontSize:11,fontWeight:700}}>
+                          color:"#F1F5F9",fontSize:11,fontWeight:700}}>
                         {folderOpen?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
                         <FolderOpen size={12} color="#60a5fa" style={{flexShrink:0}}/>
                         MY_STRATEGY
@@ -1729,7 +1862,7 @@ export default function DeveloperLab() {
                             background:activeTab?.fileKey===key&&activeTab?.type==="code"
                               ?"rgba(96,165,250,0.1)":"transparent",
                             color:activeTab?.fileKey===key&&activeTab?.type==="code"
-                              ?"#e2e8f0":"#6B7280",
+                              ?"#e2e8f0":"#CBD5E1",
                             fontSize:11.5,
                           }}
                           onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
@@ -1739,7 +1872,7 @@ export default function DeveloperLab() {
                           {meta.name}
                         </div>
                       ))}
-                      <div style={{padding:"10px 12px 4px", fontSize:10, color:"#374151"}}>
+                      <div style={{padding:"10px 12px 4px", fontSize:10, color:"#94A3B8"}}>
                         Git 패널에서 레포지토리를 연결하면<br/>파일 트리가 여기에 표시됩니다.
                       </div>
                     </>
@@ -1752,7 +1885,7 @@ export default function DeveloperLab() {
                 <div>
                   <div onClick={()=>setDataGroupOpen(v=>!v)}
                     style={{display:"flex",alignItems:"center",gap:4,padding:"5px 8px",
-                      cursor:"pointer",userSelect:"none",color:"#9CA3AF",fontSize:11,fontWeight:700}}>
+                      cursor:"pointer",userSelect:"none",color:"#F1F5F9",fontSize:11,fontWeight:700}}>
                     {dataGroupOpen?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
                     <Database size={12} color="#10B981" style={{flexShrink:0}}/>
                     기본 제공 데이터셋
@@ -1762,7 +1895,7 @@ export default function DeveloperLab() {
                       onClick={()=>openDataset(ds)}
                       style={{padding:"4px 8px 4px 26px",cursor:"pointer",fontSize:11.5,
                         background:activeTab?.datasetId===ds.id?"rgba(16,185,129,0.1)":"transparent",
-                        color:activeTab?.datasetId===ds.id?"#e2e8f0":"#6B7280"}}
+                        color:activeTab?.datasetId===ds.id?"#e2e8f0":"#CBD5E1"}}
                       onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
                       onMouseLeave={e=>e.currentTarget.style.background=
                         activeTab?.datasetId===ds.id?"rgba(16,185,129,0.1)":"transparent"}>
@@ -1775,7 +1908,7 @@ export default function DeveloperLab() {
                   ))}
                   <div onClick={()=>setMyDataOpen(v=>!v)}
                     style={{display:"flex",alignItems:"center",gap:4,padding:"5px 8px",
-                      cursor:"pointer",userSelect:"none",color:"#9CA3AF",fontSize:11,fontWeight:700,marginTop:4}}>
+                      cursor:"pointer",userSelect:"none",color:"#F1F5F9",fontSize:11,fontWeight:700,marginTop:4}}>
                     {myDataOpen?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
                     <Database size={12} color="#60a5fa" style={{flexShrink:0}}/>
                     내 데이터 (KIS API)
@@ -1785,7 +1918,7 @@ export default function DeveloperLab() {
                       onClick={()=>openDataset(ds)}
                       style={{padding:"4px 8px 4px 26px",cursor:"pointer",fontSize:11.5,
                         background:activeTab?.datasetId===ds.id?"rgba(96,165,250,0.1)":"transparent",
-                        color:activeTab?.datasetId===ds.id?"#e2e8f0":"#6B7280"}}
+                        color:activeTab?.datasetId===ds.id?"#e2e8f0":"#CBD5E1"}}
                       onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
                       onMouseLeave={e=>e.currentTarget.style.background=
                         activeTab?.datasetId===ds.id?"rgba(96,165,250,0.1)":"transparent"}>
@@ -1912,7 +2045,7 @@ export default function DeveloperLab() {
 
             {activeTab?.type==="data" && <DataTableView datasetId={activeTab.datasetId} datasets={datasets}/>}
             {activeTab?.type==="report" && <BacktestReportView btResult={btResult}/>}
-            {activeTab?.type==="diff" && <ClaudeDiffView changes={claudeDiff?.changes || []}/>}
+            {activeTab?.type==="diff" && <ClaudeDiffView changes={claudeDiff?.changes || []} onMeasure={handleMeasureClaudeChange} measuring={compareBusy}/>}
             {activeTab?.type==="commit" && (
               <CommitDiffView commit={activeTab.commit} workspaceId={wsId} />
             )}
@@ -2018,43 +2151,338 @@ export default function DeveloperLab() {
                 <Bot size={15} color="#a78bfa"/>
                 <span style={{fontSize:12.5,fontWeight:800,color:"#e5e7eb",flex:1}}>Claude 에이전트</span>
                 {claudeBusy && <Loader size={13} color="#a78bfa" style={{animation:"spin 1s linear infinite"}}/>}
+                {claudeMessages.length > 0 && !claudeBusy && (
+                  <button
+                    onClick={async () => { try { if (wsId) await resetClaudeSession(wsId); } catch { /* noop */ } setClaudeMessages([]); }}
+                    title="새 대화 (이 워크스페이스의 Claude 세션 맥락 초기화)"
+                    style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:7,
+                      border:"1px solid rgba(167,139,250,0.3)",background:"transparent",color:"#a78bfa",
+                      fontSize:11,fontWeight:700,cursor:"pointer"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="rgba(167,139,250,0.12)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <Plus size={12}/>새 대화
+                  </button>
+                )}
                 <X size={15} onClick={()=>setClaudeOpen(false)} style={{color:"#6B7280",cursor:"pointer"}}
                   onMouseEnter={e=>e.currentTarget.style.color="#e5e7eb"} onMouseLeave={e=>e.currentTarget.style.color="#6B7280"}/>
               </div>
-              <div style={{padding:"10px 12px 8px",fontSize:11,color:"#6B7280",lineHeight:1.6,flexShrink:0}}>
-                현재 에디터 코드를 직접 편집합니다. 진행 단계는 아래 <b style={{color:"#94a3b8"}}>콘솔</b>에 실시간 표시되고,
-                변경은 <span style={{color:"#a78bfa",fontWeight:700}}>🔀 Claude diff</span> 탭 + 상단 'Heli 변경' 바에서 확인하세요.
+              {/* BYOK: 본인 Claude 키 연동(연동되면 한 줄) */}
+              <div style={{padding:"8px 12px 6px",flexShrink:0}}>
+                <ClaudeKeyConnect />
               </div>
-              <div style={{padding:"0 12px 12px",flexShrink:0}}>
-                <textarea
-                  value={claudeReq}
-                  onChange={e=>setClaudeReq(e.target.value)}
-                  onKeyDown={e=>{ if(e.key==="Enter"&&(e.metaKey||e.ctrlKey)){ e.preventDefault(); handleClaudeAgent(); } }}
-                  placeholder="예) RSI 필터 추가해줘 / 손절 -5% 로직 넣어줘 / ticker QQQ로 바꿔줘"
-                  rows={6}
-                  disabled={claudeBusy}
-                  style={{width:"100%",boxSizing:"border-box",resize:"vertical",background:"#0f1117",color:"#e5e7eb",
-                    border:"1px solid rgba(167,139,250,0.25)",borderRadius:7,padding:"9px 11px",
-                    fontSize:12.5,fontFamily:"inherit",lineHeight:1.5,outline:"none"}}/>
-                <button onClick={handleClaudeAgent} disabled={claudeBusy||!claudeReq.trim()}
-                  style={{width:"100%",marginTop:9,display:"flex",alignItems:"center",justifyContent:"center",gap:6,
-                    padding:"9px 13px",borderRadius:7,border:"none",
-                    background:(claudeBusy||!claudeReq.trim())?"rgba(167,139,250,0.2)":"linear-gradient(135deg,#7c3aed,#6d28d9)",
-                    color:"white",fontSize:12.5,fontWeight:700,cursor:claudeBusy?"wait":"pointer"}}>
-                  {claudeBusy
-                    ? <><Loader size={13} style={{animation:"spin 1s linear infinite"}}/>편집 중…</>
-                    : <><Bot size={13}/>에이전트 실행 (Ctrl+Enter)</>}
-                </button>
+              {/* 대화 — VSCode Claude Code 식, 도크 안에 누적 */}
+              <div ref={claudeScrollRef} style={{flex:1, minHeight:0, overflowY:"auto", padding:"4px 12px 8px",
+                display:"flex", flexDirection:"column", gap:9}}>
+                {claudeMessages.length === 0 && (
+                  <div style={{fontSize:11,color:"#6B7280",lineHeight:1.7,padding:"4px 2px"}}>
+                    현재 에디터 코드를 Claude가 직접 편집합니다. 변경은 <span style={{color:"#a78bfa",fontWeight:700}}>🔀 Claude diff</span> 탭 + 상단 'Heli 변경' 바에서 확인하세요.
+                    <br/><b style={{color:"#94a3b8"}}>Enter</b> 전송 · <b style={{color:"#94a3b8"}}>Shift+Enter</b> 줄바꿈.
+                  </div>
+                )}
+                {claudeMessages.map((m, i) => {
+                  if (m.role === "user") return (
+                    <div key={i} style={{alignSelf:"flex-end", maxWidth:"88%", background:"linear-gradient(135deg,#7c3aed,#6d28d9)",
+                      color:"#fff", padding:"8px 12px", borderRadius:"12px 4px 12px 12px", fontSize:12.5, lineHeight:1.55, whiteSpace:"pre-wrap"}}>{m.content}</div>
+                  );
+                  if (m.role === "assistant") return (
+                    <div key={i} style={{alignSelf:"flex-start", maxWidth:"92%", display:"flex", flexDirection:"column", gap:6}}>
+                      {m.content && <div style={{background:"#1b2130", color:"#e5e7eb", padding:"9px 12px",
+                        borderRadius:"4px 12px 12px 12px", fontSize:12.5, lineHeight:1.6, whiteSpace:"pre-wrap"}}>{m.content}</div>}
+                      {m.summary && <div style={{fontSize:11.5, color:"#34d399", fontWeight:600, lineHeight:1.5}}>{m.summary}</div>}
+                    </div>
+                  );
+                  if (m.role === "error") return (
+                    <div key={i} style={{alignSelf:"flex-start", maxWidth:"92%", background:"rgba(248,113,113,0.12)", color:"#fca5a5",
+                      border:"1px solid rgba(248,113,113,0.3)", padding:"8px 11px", borderRadius:8, fontSize:12, lineHeight:1.5}}>⚠️ {m.content}</div>
+                  );
+                  return (
+                    <div key={i} style={{fontSize:11, color:"#7c8aa0", fontFamily:"ui-monospace,monospace", paddingLeft:2, lineHeight:1.5}}>{m.content}</div>
+                  );
+                })}
+                {claudeBusy && (
+                  <div style={{fontSize:11.5, color:"#a78bfa", display:"flex", alignItems:"center", gap:6}}>
+                    <Loader size={12} style={{animation:"spin 1s linear infinite"}}/> 작업 중…
+                  </div>
+                )}
+              </div>
+              {/* 입력 — Enter 전송 / Shift+Enter 줄바꿈 */}
+              <div style={{padding:"8px 12px 12px", flexShrink:0, borderTop:"1px solid rgba(255,255,255,0.06)"}}>
+                <div style={{display:"flex", gap:7, alignItems:"flex-end"}}>
+                  <textarea
+                    value={claudeReq}
+                    onChange={e=>setClaudeReq(e.target.value)}
+                    onKeyDown={e=>{ if(e.nativeEvent.isComposing) return; if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); handleClaudeAgent(); } }}
+                    placeholder="Claude에게 요청…  (Enter 전송 · Shift+Enter 줄바꿈)"
+                    rows={2}
+                    disabled={claudeBusy}
+                    style={{flex:1, boxSizing:"border-box", resize:"none", background:"#0f1117", color:"#e5e7eb",
+                      border:"1px solid rgba(167,139,250,0.3)", borderRadius:10, padding:"9px 11px",
+                      fontSize:12.5, fontFamily:"inherit", lineHeight:1.5, outline:"none", minHeight:40, maxHeight:150}}/>
+                  <button onClick={handleClaudeAgent} disabled={claudeBusy||!claudeReq.trim()}
+                    title="전송 (Enter)"
+                    style={{width:40, height:40, borderRadius:10, border:"none", flexShrink:0,
+                      background:(claudeBusy||!claudeReq.trim())?"rgba(125,211,252,0.25)":"#7DD3FC",
+                      cursor:(claudeBusy||!claudeReq.trim())?"not-allowed":"pointer",
+                      display:"inline-flex", alignItems:"center", justifyContent:"center", transition:"background 0.15s ease"}}
+                    onMouseEnter={e=>{ if(!claudeBusy&&claudeReq.trim()) e.currentTarget.style.background="#38BDF8"; }}
+                    onMouseLeave={e=>{ if(!claudeBusy&&claudeReq.trim()) e.currentTarget.style.background="#7DD3FC"; }}>
+                    {claudeBusy ? <Loader size={15} color="#a78bfa" style={{animation:"spin 1s linear infinite"}}/> : <Send size={16} color="#0C4A6E"/>}
+                  </button>
+                </div>
               </div>
             </div>
           </>
         )}
       </div>
 
+      {improveOpen && (
+        <ImproveProposalModal
+          busy={improveBusy} data={improveData} err={improveErr} applied={improveApplied}
+          onApply={handleApplyOption} onClose={()=>setImproveOpen(false)} />
+      )}
+      {compareOpen && (
+        <PatchCompareModal
+          busy={compareBusy} data={compareData} err={compareErr} onClose={()=>setCompareOpen(false)} />
+      )}
+
       <style>{`
         @keyframes spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
       `}</style>
+    </div>
+  );
+}
+
+/* ───── P3: 전략 개선 제안서 모달 ───── */
+const IMPROVE_METRICS = [
+  { key: "return_pct", label: "수익률", unit: "%", better: "high", dec: 1, signed: true },
+  { key: "mdd_pct",    label: "최대낙폭(MDD)", unit: "%", better: "high", dec: 1, signed: false },
+  { key: "vol_pct",    label: "변동성", unit: "%", better: "low",  dec: 1, signed: false },
+  { key: "sharpe",     label: "샤프지수", unit: "",  better: "high", dec: 2, signed: false },
+];
+const TONE = {
+  neutral:    { bg: "#1e2533", border: "#374151", text: "#cbd5e1", accent: "#94a3b8" },
+  stable:     { bg: "rgba(16,185,129,0.10)", border: "rgba(16,185,129,0.45)", text: "#6ee7b7", accent: "#10b981" },
+  aggressive: { bg: "rgba(244,114,182,0.10)", border: "rgba(244,114,182,0.45)", text: "#f9a8d4", accent: "#ec4899" },
+};
+function fmtMetric(v, m) {
+  if (v == null || Number.isNaN(v)) return "—";
+  const s = Number(v).toFixed(m.dec);
+  return (m.signed && Number(v) > 0 ? "+" : "") + s + m.unit;
+}
+function metricDelta(variantV, baseV, m) {
+  if (variantV == null || baseV == null) return null;
+  const d = Number(variantV) - Number(baseV);
+  if (Math.abs(d) < (m.dec === 2 ? 0.01 : 0.05)) return { text: "≈", color: "#6b7280" };
+  const improved = m.better === "high" ? d > 0 : d < 0;
+  return { text: (d > 0 ? "▲" : "▼") + Math.abs(d).toFixed(m.dec), color: improved ? "#34d399" : "#f87171" };
+}
+function ImproveProposalModal({ busy, data, err, applied, onApply, onClose }) {
+  const options = data?.options || [];
+  const baseline = options.find(o => o.key === "keep")?.metrics || {};
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 4000, background: "rgba(8,11,18,0.72)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: "min(940px, 96vw)", maxHeight: "90vh", overflow: "auto", background: "#12161f",
+        border: "1px solid rgba(245,158,11,0.35)", borderRadius: 16, boxShadow: "0 24px 70px rgba(0,0,0,0.55)",
+        display: "flex", flexDirection: "column",
+      }}>
+        {/* 헤더 */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 9, padding: "14px 18px",
+          borderBottom: "1px solid rgba(255,255,255,0.08)", position: "sticky", top: 0,
+          background: "linear-gradient(135deg,#1b2130,#161b24)", zIndex: 2,
+        }}>
+          <Lightbulb size={18} color="#F59E0B" />
+          <span style={{ fontSize: 15, fontWeight: 800, color: "#f8fafc", flex: 1 }}>전략 개선 제안서</span>
+          <X size={18} onClick={onClose} style={{ color: "#94a3b8", cursor: "pointer" }} />
+        </div>
+
+        <div style={{ padding: 18 }}>
+          {busy && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "40px 0", justifyContent: "center", color: "#cbd5e1", fontSize: 13.5 }}>
+              <Loader size={18} color="#F59E0B" style={{ animation: "spin 1s linear infinite" }} />
+              진단 분석 + 안정형·공격형 전후 백테스트 측정 중… (수 초)
+            </div>
+          )}
+          {!busy && err && (
+            <div style={{ padding: 16, borderRadius: 10, background: "rgba(248,113,113,0.10)", border: "1px solid rgba(248,113,113,0.35)", color: "#fca5a5", fontSize: 13 }}>
+              ⚠️ {err}
+            </div>
+          )}
+          {!busy && !err && data && (
+            <>
+              {/* 진단 */}
+              <div style={{ marginBottom: 16, padding: "13px 15px", borderRadius: 11, background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.28)" }}>
+                <div style={{ fontSize: 11.5, fontWeight: 800, color: "#FBBF24", letterSpacing: 0.4, marginBottom: 5 }}>🩺 진단</div>
+                <div style={{ fontSize: 13, color: "#e5e7eb", lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{data.diagnosis}</div>
+              </div>
+
+              {/* 선택지 카드 */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 11, marginBottom: 16 }}>
+                {options.map(opt => {
+                  const t = TONE[opt.tone] || TONE.neutral;
+                  const isApplied = applied === opt.key;
+                  return (
+                    <div key={opt.key} style={{ background: t.bg, border: `1.5px solid ${t.border}`, borderRadius: 12, padding: 13, display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 800, color: t.text }}>{opt.label}</div>
+                      <div style={{ fontSize: 11.5, color: "#cbd5e1", lineHeight: 1.5, minHeight: 32 }}>{opt.summary}</div>
+                      {/* 변경 파라미터 */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                        {(opt.changes || []).length === 0
+                          ? <div style={{ fontSize: 11, color: "#6b7280" }}>· 변경 없음(현재값)</div>
+                          : opt.changes.map((c, i) => (
+                            <div key={i} style={{ fontSize: 11, color: "#cbd5e1", fontFamily: "ui-monospace,monospace" }}>
+                              {c.label}: <span style={{ color: "#94a3b8" }}>{String(c.from ?? "—")}</span> → <span style={{ color: t.accent, fontWeight: 700 }}>{String(c.to)}</span>
+                            </div>
+                          ))}
+                      </div>
+                      {opt.key === "keep" ? (
+                        <div style={{ marginTop: "auto", padding: "7px 0", textAlign: "center", fontSize: 11.5, color: "#6b7280", fontWeight: 700 }}>현재 기준</div>
+                      ) : (
+                        <button onClick={() => onApply(opt)} disabled={opt.metrics && opt.metrics.available === false}
+                          style={{ marginTop: "auto", padding: "8px 0", borderRadius: 8, border: "none", cursor: "pointer",
+                            background: isApplied ? "#334155" : t.accent, color: "#fff", fontSize: 12, fontWeight: 800 }}>
+                          {isApplied ? "✓ 적용됨" : "이 안 적용 + 백테스트"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 전후 비교표 */}
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: "#94a3b8", letterSpacing: 0.4, marginBottom: 7 }}>📊 변경 전후 비교 (실제 백테스트 · {data.period || "5y"})</div>
+              <div style={{ overflowX: "auto", borderRadius: 11, border: "1px solid rgba(255,255,255,0.08)" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                  <thead>
+                    <tr style={{ background: "#1a1f2a" }}>
+                      <th style={{ textAlign: "left", padding: "9px 12px", color: "#94a3b8", fontWeight: 700 }}>지표</th>
+                      {options.map(o => {
+                        const t = TONE[o.tone] || TONE.neutral;
+                        return <th key={o.key} style={{ textAlign: "right", padding: "9px 12px", color: t.text, fontWeight: 800 }}>{o.label}</th>;
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {IMPROVE_METRICS.map(m => (
+                      <tr key={m.key} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                        <td style={{ padding: "9px 12px", color: "#cbd5e1", fontWeight: 600 }}>{m.label}</td>
+                        {options.map(o => {
+                          const mv = o.metrics || {};
+                          const v = mv[m.key];
+                          const unavailable = mv.available === false;
+                          const d = o.key === "keep" ? null : metricDelta(v, baseline[m.key], m);
+                          return (
+                            <td key={o.key} style={{ padding: "9px 12px", textAlign: "right", color: unavailable ? "#6b7280" : "#f1f5f9", fontFamily: "ui-monospace,monospace", fontWeight: 700 }}>
+                              {unavailable ? "—" : fmtMetric(v, m)}
+                              {d && <span style={{ marginLeft: 6, fontSize: 10.5, color: d.color, fontWeight: 700 }}>{d.text}</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280", lineHeight: 1.6 }}>
+                · 성과는 추정이 아니라 <b style={{ color: "#94a3b8" }}>실제 vectorbt 백테스트</b> 결과입니다(수수료 0.25% + 슬리피지 0.1% 반영).
+                <br />· <b style={{ color: "#94a3b8" }}>적용</b>하면 에디터 코드의 파라미터 상수가 바뀌고 즉시 백테스트로 확인합니다. 마음에 안 들면 되돌리세요.
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ───── P4: Claude 패치 전후 효과 비교 모달 (같은 비교 포맷 재사용) ───── */
+function PatchCompareModal({ busy, data, err, onClose }) {
+  const options = data?.options || [];
+  const before = options.find(o => o.key === "before")?.metrics || {};
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 4000, background: "rgba(8,11,18,0.72)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: "min(680px, 96vw)", maxHeight: "90vh", overflow: "auto", background: "#12161f",
+        border: "1px solid rgba(245,158,11,0.35)", borderRadius: 16, boxShadow: "0 24px 70px rgba(0,0,0,0.55)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "14px 18px",
+          borderBottom: "1px solid rgba(255,255,255,0.08)", background: "linear-gradient(135deg,#1b2130,#161b24)" }}>
+          <BarChart3 size={18} color="#F59E0B" />
+          <span style={{ fontSize: 15, fontWeight: 800, color: "#f8fafc", flex: 1 }}>Claude 패치 — 변경 전후 효과</span>
+          <X size={18} onClick={onClose} style={{ color: "#94a3b8", cursor: "pointer" }} />
+        </div>
+        <div style={{ padding: 18 }}>
+          {busy && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "36px 0", justifyContent: "center", color: "#cbd5e1", fontSize: 13.5 }}>
+              <Loader size={18} color="#F59E0B" style={{ animation: "spin 1s linear infinite" }} /> 변경 전·후 백테스트 측정 중…
+            </div>
+          )}
+          {!busy && err && (
+            <div style={{ padding: 16, borderRadius: 10, background: "rgba(248,113,113,0.10)", border: "1px solid rgba(248,113,113,0.35)", color: "#fca5a5", fontSize: 13 }}>⚠️ {err}</div>
+          )}
+          {!busy && !err && data && (
+            <>
+              {data.paramsChanged === false && (
+                <div style={{ marginBottom: 14, padding: "11px 14px", borderRadius: 10, background: "rgba(148,163,184,0.10)", border: "1px solid rgba(148,163,184,0.3)", color: "#cbd5e1", fontSize: 12.5, lineHeight: 1.6 }}>
+                  ℹ️ 파라미터 상수(SMA·RSI·MACD) 변경은 감지되지 않았습니다. 로직만 바뀐 변경의 효과는 <b style={{ color: "#a78bfa" }}>Lean 백테스트</b>로 확인하세요.
+                </div>
+              )}
+              {(data.changes || []).length > 0 && (
+                <div style={{ marginBottom: 14, display: "flex", flexWrap: "wrap", gap: 7 }}>
+                  {data.changes.map((c, i) => (
+                    <span key={i} style={{ fontSize: 11, fontFamily: "ui-monospace,monospace", color: "#cbd5e1", background: "#1a1f2a", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 7, padding: "4px 9px" }}>
+                      {c.label}: {String(c.from ?? "—")} → <span style={{ color: "#34d399", fontWeight: 700 }}>{String(c.to)}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div style={{ overflowX: "auto", borderRadius: 11, border: "1px solid rgba(255,255,255,0.08)" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                  <thead>
+                    <tr style={{ background: "#1a1f2a" }}>
+                      <th style={{ textAlign: "left", padding: "9px 12px", color: "#94a3b8", fontWeight: 700 }}>지표</th>
+                      {options.map(o => {
+                        const t = TONE[o.tone] || TONE.neutral;
+                        return <th key={o.key} style={{ textAlign: "right", padding: "9px 12px", color: t.text, fontWeight: 800 }}>{o.label}</th>;
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {IMPROVE_METRICS.map(m => (
+                      <tr key={m.key} style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                        <td style={{ padding: "9px 12px", color: "#cbd5e1", fontWeight: 600 }}>{m.label}</td>
+                        {options.map(o => {
+                          const mv = o.metrics || {};
+                          const v = mv[m.key];
+                          const unavailable = mv.available === false;
+                          const d = o.key === "before" ? null : metricDelta(v, before[m.key], m);
+                          return (
+                            <td key={o.key} style={{ padding: "9px 12px", textAlign: "right", color: unavailable ? "#6b7280" : "#f1f5f9", fontFamily: "ui-monospace,monospace", fontWeight: 700 }}>
+                              {unavailable ? "—" : fmtMetric(v, m)}
+                              {d && <span style={{ marginLeft: 6, fontSize: 10.5, color: d.color, fontWeight: 700 }}>{d.text}</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280", lineHeight: 1.6 }}>
+                · 실제 vectorbt 백테스트({data.period || "5y"}) 기준 · <b style={{ color: "#94a3b8" }}>변경 후</b> 컬럼의 색은 변경 전 대비 개선(녹)/악화(적).
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

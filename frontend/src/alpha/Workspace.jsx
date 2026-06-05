@@ -104,6 +104,12 @@ export default function Workspace() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { reload(); }, [id]);
 
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
 
   // Alpha Ezer 라이브 패치 후 자동 리로드
   useEffect(() => {
@@ -158,7 +164,12 @@ export default function Workspace() {
       return;
     }
     setRunningBT(true);
-    try { await runBacktest(id); await reload(); setTab("report"); }
+    try {
+      await runBacktest(id);
+      await reload();
+      setTab("report");
+      window.dispatchEvent(new CustomEvent("alphaWorkspaceReload", { detail: { wsId: Number(id) } }));
+    }
     catch (e) { alert("백테스트 실패: " + (e?.response?.data?.error || e.message)); }
     finally { setRunningBT(false); }
   };
@@ -201,6 +212,7 @@ export default function Workspace() {
               목표가 아직 설정되지 않았습니다.
             </div>
             <button
+              data-tutorial-id="tutorial-goal-ai-btn"
               onClick={() => window.dispatchEvent(new CustomEvent("alpha:open-chat", { detail: { goal: true } }))}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 5,
@@ -274,7 +286,7 @@ export default function Workspace() {
     <style>{`
       @keyframes wsfade { from { opacity: 0; } to { opacity: 1; } }
     `}</style>
-    <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", height: "100vh", background: theme.bg }}>
+    <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", height: "calc(100vh - 44px)", background: theme.bg }}>
       {/* ============================== 왼쪽 사이드바 ============================== */}
       <aside style={{
         borderRight: `1px solid ${theme.panelBorder}`, background: theme.panel,
@@ -342,7 +354,7 @@ export default function Workspace() {
       </aside>
 
       {/* ============================== 가운데 본문 ============================== */}
-      <main key={id} style={{ display: "flex", flexDirection: "column", overflow: "hidden", animation: "wsfade 0.25s ease" }}>
+      <main key={id} style={{ display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, animation: "wsfade 0.25s ease" }}>
         {/* 상단: 전략 이름 + 액션 */}
         <div style={{
           padding: "18px 28px", borderBottom: `1px solid ${theme.panelBorder}`,
@@ -350,8 +362,7 @@ export default function Workspace() {
         }}>
           <h2 style={{
             margin: 0, fontSize: 22, fontWeight: 900, flex: 1, letterSpacing: -0.4,
-            background: theme.accentGradient || BRAND_GRADIENT,
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
+            color: theme.text || "#0f172a",
           }}>{String(template).replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}]/gu, "").trim()}</h2>
           <button onClick={onTopBacktest} disabled={runningBT} style={{
             display: "inline-flex", alignItems: "center", gap: 6,
@@ -383,14 +394,23 @@ export default function Workspace() {
         }}>
           {TABS.map(({ key, label, Icon }) => {
             const active = tab === key;
+            const tutorialIdMap = {
+              config: "tutorial-config-tab",
+              report: "tutorial-backtest-tab",
+              regime: "tutorial-regime-tab",
+              trust:  "tutorial-trust-tab",
+              log:    "tutorial-log-tab",
+            };
             return (
-              <button key={key} onClick={() => setTab(key)} style={{
-                display: "inline-flex", alignItems: "center", gap: 5,
-                padding: "12px 11px", border: "none", background: "transparent",
-                color: active ? theme.accent : theme.textMuted, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-                borderBottom: `2px solid ${active ? theme.accent : "transparent"}`,
-                marginBottom: -1, whiteSpace: "nowrap", flexShrink: 0,
-              }}>
+              <button key={key} onClick={() => setTab(key)}
+                data-tutorial-id={tutorialIdMap[key] || undefined}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  padding: "12px 11px", border: "none", background: "transparent",
+                  color: active ? theme.accent : theme.textMuted, fontSize: 14.5, fontWeight: 700, cursor: "pointer",
+                  borderBottom: `2px solid ${active ? theme.accent : "transparent"}`,
+                  marginBottom: -1, whiteSpace: "nowrap", flexShrink: 0,
+                }}>
                 <Icon size={14} /> {label}
               </button>
             );
@@ -399,7 +419,7 @@ export default function Workspace() {
 
         {/* 본문 */}
         <div style={{
-          flex: 1, overflow: "auto", padding: "28px 32px 64px",
+          flex: 1, overflow: "auto", padding: "28px 32px 120px",
           minHeight: 0, background: "#F8FAFC",
         }}>
           {tab === "config"   && <ConfigPanel id={id} ws={ws} onChange={reload} setTab={setTab} topSummary={topSummaryBar} />}
