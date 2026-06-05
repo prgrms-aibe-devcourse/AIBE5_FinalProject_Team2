@@ -1,0 +1,177 @@
+import { create } from "zustand";
+
+export const TUTORIAL_STEPS = [
+  {
+    targetId: "tutorial-sidebar-ws",
+    title: "워크스페이스 목록으로 이동해요",
+    desc: "좌측 레이어 아이콘을 클릭해 워크스페이스 목록 페이지로 가세요!",
+    side: "right",
+    checkAdvance: (path) => path === "/alpha",
+    raiseSidebar: true,
+  },
+  {
+    targetId: "tutorial-new-workspace",
+    title: "새 워크스페이스를 만들어 보세요!",
+    desc: "이 버튼을 클릭해 새 퀀트 전략 워크스페이스를 생성하세요.",
+    side: "left",
+    leftShift: 80,
+    checkAdvance: (path) => path.startsWith("/alpha/w/"),
+  },
+  {
+    targetId: "tutorial-config-tab",
+    title: "전략 카드에서 시작하세요",
+    desc: "Strategy Card 탭에서 AI 기반 전략 구성이 시작됩니다. 우측 Heli AI와 대화하며 투자 목표를 설정해 보세요!",
+    side: "bottom-left",
+  },
+  {
+    targetId: "tutorial-goal-ai-btn",
+    title: "AI와 함께 나만의 투자 목표를 설정하세요!",
+    desc: "'AI와 목표 설정하기' 버튼을 클릭해 Heli AI와 대화하며 본인의 투자 목표를 설정하세요. 투자 기간, 초기 금액, 리스크 성향 등을 자연어로 편하게 말하면 됩니다!",
+    side: "bottom",
+  },
+  {
+    targetId: "tutorial-fill-example-btn",
+    title: "예시 양식으로 빠르게 채워보세요",
+    desc: "'⭐ 예시 양식 입력창에 채우기' 버튼을 누르면 8가지 질문 답변이 자동으로 채워집니다. 그대로 전송하거나 원하는 대로 수정한 뒤 보내면 Goal Profile이 생성됩니다!",
+    side: "left",
+    leftShift: 180,
+    topShift: 120,
+  },
+  {
+    targetId: "tutorial-chat-send-btn",
+    title: "전송 버튼으로 목표를 Heli에게 보내세요!",
+    desc: "입력창이 채워졌다면 전송 버튼을 눌러 Heli AI에게 전달하세요. Heli가 내용을 분석해 Goal Profile을 생성해 드립니다!",
+    side: "left",
+    leftShift: 420,
+    topShift: 40,
+  },
+  {
+    targetId: "tutorial-formalize-btn",
+    title: "전략 카드 후보를 만들어 볼까요?",
+    desc: "목표 프로필이 완성되면 Heli가 '🚀 전략 카드 만들기' 버튼을 제안해요. 버튼을 클릭하면 AI가 목표에 맞는 전략 후보 3개를 자동으로 구성해 드립니다!",
+    side: "left",
+    leftShift: 200,
+    topShift: 160,
+  },
+  {
+    targetId: "tutorial-backtest-candidates",
+    title: "전략 후보를 선택해 백테스트해 보세요!",
+    desc: "AI가 제시한 전략 후보 중 마음에 드는 것을 골라 '이 전략으로 백테스트' 버튼을 클릭하세요. 과거 데이터로 전략 성과를 바로 시뮬레이션할 수 있어요!",
+    side: "bottom",
+  },
+  {
+    targetId: "tutorial-backtest-chart",
+    title: "백테스트 결과 — 에쿼티 차트 읽는 법",
+    desc: "파란선은 전략의 자산 가치 변동 곡선입니다. SMA·EMA·볼린저밴드 보조선을 켜고 끄며 추세를 분석해보세요. 차트에 마우스를 올리면 그날의 값이 말풍선으로 표시됩니다!",
+    side: "bottom",
+    manualNext: true,
+  },
+  {
+    targetId: "tutorial-regime-tab",
+    title: "시장 국면(Regime)을 분석해요",
+    desc: "Regime 탭에서 5-State HMM 모델로 현재 시장이 어느 국면인지 확인하세요. Bull Quiet, Bull Volatile, Sideways, Bear, High Vol Unstable 중 어디인지 파악하면 전략 조정에 도움이 됩니다!",
+    side: "bottom-left",
+  },
+  {
+    targetId: "tutorial-regime-run-btn",
+    title: "Regime 실행 버튼을 눌러보세요!",
+    desc: "'Regime 실행' 버튼을 클릭하면 과거 10년 데이터로 시장 국면을 분석해요. 전략이 각 국면에서 얼마나 잘 동작했는지 확인할 수 있습니다!",
+    side: "bottom-left",
+  },
+  {
+    targetId: "tutorial-trust-tab",
+    title: "Trust Score로 신뢰도를 확인해요",
+    desc: "Trust Score 탭에서 이 전략이 실전에서도 통할 가능성을 0~100점으로 확인하세요. Walk-Forward, Regime 견고성, 파라미터 안정성 등 5가지 기준으로 채점합니다!",
+    side: "bottom-left",
+  },
+  {
+    targetId: "tutorial-trust-calc-btn",
+    title: "Trust Score 계산 버튼을 눌러보세요!",
+    desc: "'Trust Score 계산' 버튼을 클릭하면 전략의 신뢰도를 0~100점으로 종합 채점해요. Walk-Forward + Regime 견고성 + 파라미터 안정성을 모두 고려한 점수입니다!",
+    side: "bottom-left",
+  },
+  {
+    targetId: "tutorial-log-tab",
+    title: "Decision Log — AI의 판단 기록",
+    desc: "Decision Log에서 Heli AI의 모든 전략 판단 기록을 확인하세요. 어떤 근거로 전략이 선택됐는지, 목표 프로필이 어떻게 해석됐는지 투명하게 볼 수 있어요.",
+    side: "bottom-left",
+  },
+  {
+    targetId: "tutorial-sidebar-vision",
+    title: "비전 보드 — 목표를 시각화해요",
+    desc: "비전 보드에서 투자 목표와 포트폴리오 성장을 시각적으로 확인하세요. 내 전략이 장기적으로 어떤 성장 곡선을 그리는지 한눈에 볼 수 있어요!",
+    side: "right",
+    raiseSidebar: true,
+  },
+  {
+    targetId: "tutorial-sidebar-account",
+    title: "계좌 · 주문 — KIS 브로커 연결",
+    desc: "계좌·주문 페이지에서 한국투자증권(KIS) 계좌를 연결하고 실제 주문 내역을 확인하세요. 모의투자와 실거래 모두 지원하며 AES-GCM으로 안전하게 키를 보관합니다!",
+    side: "right",
+    raiseSidebar: true,
+  },
+  {
+    targetId: "tutorial-sidebar-proposals",
+    title: "주문 제안 큐 — 안전한 주문 승인 흐름",
+    desc: "주문 제안 큐에서 AI가 생성한 OrderProposal을 검토하고 승인하세요. 이메일 HMAC 링크로 안전하게 승인하며 TTL이 지나면 자동으로 만료됩니다!",
+    side: "right",
+    raiseSidebar: true,
+  },
+  {
+    targetId: "tutorial-sidebar-developer",
+    title: "Developer Studio — 전문가 모드",
+    desc: "Developer Studio에서 전략 Python 코드를 직접 편집하고, vectorbt/Lean 엔진으로 정밀 백테스트하며, Claude AI가 코드를 자동으로 수정해드립니다!",
+    side: "right",
+    raiseSidebar: true,
+    checkAdvance: (path) => path.startsWith("/alpha/developer"),
+  },
+  {
+    targetId: "tutorial-dev-explorer",
+    title: "파일 탐색기 — GitHub 레포 탐색",
+    desc: "파일 탐색기 아이콘을 클릭하면 GitHub 레포지토리 파일 구조가 열립니다. 파일을 선택해 코드 에디터에서 바로 편집할 수 있어요!",
+    side: "right",
+  },
+  {
+    targetId: "tutorial-dev-code",
+    title: "코드 편집기 — Monaco 기반 전략 코딩",
+    desc: "코드 편집기에서 전략 Python 파일을 직접 수정하세요. Monaco 에디터 기반으로 문법 강조, 자동완성, 파일 diff 뷰를 지원합니다.",
+    side: "right",
+  },
+  {
+    targetId: "tutorial-dev-data",
+    title: "데이터 탐색기 — 마켓 데이터 미리보기",
+    desc: "데이터 탐색기에서 백테스트에 사용할 주가·지표 데이터를 미리보기하고 상태를 확인하세요. 데이터가 충분해야 백테스트 결과가 정확합니다!",
+    side: "right",
+  },
+  {
+    targetId: "tutorial-dev-git",
+    title: "GitHub 연결 — 코드 버전 관리",
+    desc: "GitHub 연결 패널에서 레포지토리를 연결하고, 파일 변경 이력을 관리하세요. Personal Access Token으로 커밋·푸시를 IDE 안에서 바로 할 수 있습니다!",
+    side: "right",
+  },
+  {
+    targetId: "tutorial-dev-console",
+    title: "콘솔 / 터미널 — 실행 로그 확인",
+    desc: "콘솔에서 백테스트 실행 로그를 실시간으로 확인하고, 터미널 탭에서 직접 명령어를 실행할 수도 있어요.",
+    side: "right",
+  },
+  {
+    targetId: "tutorial-dev-report",
+    title: "백테스트 결과 — 성과 분석 완료! 🎉",
+    desc: "백테스트 결과 탭에서 총수익, CAGR, Sharpe 비율, MDD 등 상세 지표와 수익 커브를 확인하세요. 여기까지 완주했다면 Alpha-Helix 전체 흐름을 마스터한 거예요!",
+    side: "right",
+    isLast: true,
+  },
+];
+
+export const TOTAL_STEPS = TUTORIAL_STEPS.length;
+
+const useTutorialStore = create((set) => ({
+  active: false,
+  step: 0,
+  start: () => set({ active: true, step: 0 }),
+  next: () => set((s) => ({ step: Math.min(s.step + 1, TOTAL_STEPS - 1) })),
+  stop: () => set({ active: false, step: 0 }),
+}));
+
+export default useTutorialStore;
