@@ -144,6 +144,7 @@ export default function WorkspaceList() {
           </div>
         </div>
         <button onClick={() => onCreate()} disabled={creating}
+          data-tutorial-id="tutorial-new-workspace"
           style={{
             display: "inline-flex", alignItems: "center", gap: 6,
             padding: "10px 16px", borderRadius: 10,

@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Wallet } from "lucide-react";
 import binanceLogo from "../assets/binance.png";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
+import { useLanguage } from "../i18n/LanguageContext";
 import {
   listBrokerAccounts, upsertBrokerAccount, deleteBrokerAccount,
   testBrokerAccount, setBrokerTrading, setBrokerAutoExecute, getPromotionGate,
@@ -21,6 +22,7 @@ import {
  */
 export default function AccountPage() {
   const { theme: rawTheme } = useTheme();
+  const { t } = useLanguage();
   const theme = useMemo(() => ({
     ...rawTheme,
     card: rawTheme.panel,
@@ -82,9 +84,9 @@ export default function AccountPage() {
               margin: 0, fontSize: 26, fontWeight: 800, lineHeight: 1.15,
               background: "linear-gradient(90deg,#3b82f6 0%,#6366f1 100%)",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-            }}>계좌 관리</h1>
+            }}>{t("account.title")}</h1>
             <p style={{ margin: "5px 0 0", fontSize: 13, color: "#64748B", fontWeight: 500 }}>
-              모의계좌로 충분히 검증한 뒤 실전계좌를 연결하세요. 두 환경을 동시에 등록·운영할 수 있습니다.
+              {t("account.subtitle")}
             </p>
           </div>
         </div>
@@ -93,8 +95,8 @@ export default function AccountPage() {
       {/* 브로커 탭 + 컨텐츠 패널 (브라우저 탭처럼 하나로 묶임) */}
       <div className="broker-tabs" style={{ display: "flex", gap: 4, marginBottom: 0 }}>
         {[
-          { id: "KIS",     label: "한국투자증권",  sub: "KIS · 국내",            icon: <div style={{ width: 32, height: 32, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src="https://www.google.com/s2/favicons?domain=truefriend.com&sz=64" alt="한국투자증권" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>,  accent: "linear-gradient(135deg,#60a5fa,#6366f1)" },
-          { id: "BINANCE", label: "Binance.US",   sub: "Binance · 미국 크립토",  icon: <img src={binanceLogo} alt="Binance.US" style={{ width: 32, height: 32, objectFit: "contain" }} />, accent: "linear-gradient(135deg,#fbbf24,#f59e0b)" },
+          { id: "KIS",     label: t("account.brokers.KIS.label"),     sub: t("account.brokers.KIS.sub"),     icon: <div style={{ width: 32, height: 32, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src="https://www.google.com/s2/favicons?domain=truefriend.com&sz=64" alt="KIS" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>,  accent: "linear-gradient(135deg,#60a5fa,#6366f1)" },
+          { id: "BINANCE", label: t("account.brokers.BINANCE.label"), sub: t("account.brokers.BINANCE.sub"), icon: <img src={binanceLogo} alt="Binance.US" style={{ width: 32, height: 32, objectFit: "contain" }} />, accent: "linear-gradient(135deg,#fbbf24,#f59e0b)" },
         ].map(({ id, label, sub, icon, accent }) => {
           const active = brokerType === id;
           const hasAny = accounts.some(a => a.brokerType === id);

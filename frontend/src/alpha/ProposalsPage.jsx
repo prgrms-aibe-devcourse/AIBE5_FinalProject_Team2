@@ -4,6 +4,7 @@ import {
   Inbox, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, RefreshCw,
 } from "lucide-react";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
+import { useLanguage } from "../i18n/LanguageContext";
 import { listProposals, approveProposal, rejectProposal } from "./alphaApi";
 import OrderConfirmModal from "./OrderConfirmModal";
 
@@ -12,19 +13,20 @@ import OrderConfirmModal from "./OrderConfirmModal";
  * SIGNAL이 만든 PENDING 제안 + 사용자 수동 제안을 모두 표시.
  * 승인 = 즉시 KIS 주문 (BrokerAccount.tradingEnabled 필수).
  */
-const STATUS_META = {
-  PENDING:     { label: "승인 대기",  color: "#D97706", bg: "#FEF3C7", Icon: Clock },
-  APPROVED:    { label: "승인됨",    color: "#0369A1", bg: "#DBEAFE", Icon: CheckCircle2 },
-  EXECUTED:    { label: "주문 접수",  color: "#15803D", bg: "#DCFCE7", Icon: CheckCircle2 },
-  REJECTED:    { label: "거절",      color: "#6B7280", bg: "#F3F4F6", Icon: XCircle },
-  EXPIRED:     { label: "만료",      color: "#6B7280", bg: "#F3F4F6", Icon: Clock },
-  EXEC_FAILED: { label: "실행 실패",  color: "#B91C1C", bg: "#FEE2E2", Icon: AlertTriangle },
-  ALL:         { label: "전체",       color: "#6B7280", bg: "#F3F4F6", Icon: Clock },
+
+const STATUS_ICONS = {
+  PENDING:     { color: "#D97706", bg: "#FEF3C7", Icon: Clock },
+  APPROVED:    { color: "#0369A1", bg: "#DBEAFE", Icon: CheckCircle2 },
+  EXECUTED:    { color: "#15803D", bg: "#DCFCE7", Icon: CheckCircle2 },
+  REJECTED:    { color: "#6B7280", bg: "#F3F4F6", Icon: XCircle },
+  EXPIRED:     { color: "#6B7280", bg: "#F3F4F6", Icon: Clock },
+  EXEC_FAILED: { color: "#B91C1C", bg: "#FEE2E2", Icon: AlertTriangle },
+  ALL:         { color: "#6B7280", bg: "#F3F4F6", Icon: Clock },
 };
 
 export default function ProposalsPage() {
   const { theme } = useTheme();
-  const navigate = useNavigate();
+  const { t } = useLanguage();
   const [filter, setFilter] = useState("ALL");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -69,14 +71,14 @@ export default function ProposalsPage() {
   };
 
   const onReject = async (p) => {
-    const reason = window.prompt("거절 사유 (선택):", "");
+    const reason = window.prompt(t("proposals.rejectPrompt"), "");
     if (reason === null) return;
     setBusyId(p.id);
     try {
       await rejectProposal(p.id, reason);
       await load();
     } catch (e) {
-      alert("거절 실패: " + (e?.response?.data?.error || e.message));
+      alert(t("proposals.rejectFailed").replace("{err}", e?.response?.data?.error || e.message));
     } finally {
       setBusyId(null);
     }
@@ -100,10 +102,10 @@ export default function ProposalsPage() {
               background: "linear-gradient(90deg,#3b82f6 0%,#6366f1 100%)",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
             }}>
-              주문 제안 승인 큐
+              {t("proposals.title")}
             </h1>
             <p style={{ margin: "5px 0 0", fontSize: 13, color: "#64748B", fontWeight: 500 }}>
-              시그널이 자동으로 만든 PENDING 제안을 보고, 명시적으로 <b>승인</b> 시에만 KIS로 주문이 전송됩니다.
+              {t("proposals.subtitle")}
             </p>
           </div>
         </div>
@@ -115,7 +117,7 @@ export default function ProposalsPage() {
             fontWeight: 600, boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
           }}>
           {loading ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
-          새로고침
+          {t("proposals.refresh")}
         </button>
       </div>
 
@@ -130,7 +132,8 @@ export default function ProposalsPage() {
               border: `1px solid ${filter === s ? theme.accent : theme.panelBorder}`,
               cursor: "pointer",
             }}>
-            {STATUS_META[s]?.label || s}
+            {STATUS_ICONS[s]?.Icon ? (() => { const I = STATUS_ICONS[s].Icon; return <I size={11} />; })() : null}
+            {t(`proposals.status.${s}`) || s}
           </button>
         ))}
       </div>
@@ -139,7 +142,7 @@ export default function ProposalsPage() {
         <div style={{
           padding: 12, background: "#FEE2E2", color: "#B91C1C",
           borderRadius: 8, fontSize: 13, marginBottom: 12,
-        }}>에러: {error}</div>
+        }}>{t("proposals.error").replace("{err}", error)}</div>
       )}
 
       {/* 카드 목록 */}
@@ -148,13 +151,13 @@ export default function ProposalsPage() {
           padding: 40, textAlign: "center", color: theme.textMuted, fontSize: 14,
           background: theme.panel, borderRadius: 12, border: `1px dashed ${theme.panelBorder}`,
         }}>
-          조건에 맞는 제안이 없습니다.
+          {t("proposals.noItems")}
         </div>
       )}
 
       <div style={{ display: "grid", gap: 10 }}>
         {rows.map(p => {
-          const meta = STATUS_META[p.status] || { label: p.status, color: "#6B7280", bg: "#F3F4F6", Icon: Clock };
+          const meta = STATUS_ICONS[p.status] || { color: "#6B7280", bg: "#F3F4F6", Icon: Clock };
           const SideIcon = meta.Icon;
           const isPending = p.status === "PENDING";
           return (
@@ -168,7 +171,7 @@ export default function ProposalsPage() {
                 padding: "4px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
                 display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap",
               }}>
-                <SideIcon size={12} />{meta.label}
+                <SideIcon size={12} />{t(`proposals.status.${p.status}`) || p.status}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: theme.text, marginBottom: 2 }}>
@@ -182,7 +185,7 @@ export default function ProposalsPage() {
                   </span>}
                 </div>
                 <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 2 }}>
-                  {p.rationale || "(사유 없음)"}
+                  {p.rationale || t("proposals.noReason")}
                 </div>
                 <div style={{ fontSize: 11, color: theme.textMuted, opacity: 0.8 }}>
                   source={p.source}
@@ -204,7 +207,7 @@ export default function ProposalsPage() {
                       border: "none", borderRadius: 8, padding: "8px 14px",
                       cursor: busyId === p.id ? "wait" : "pointer",
                     }}>
-                    {busyId === p.id ? "..." : "승인 → 주문"}
+                    {busyId === p.id ? "..." : t("proposals.approve")}
                   </button>
                   <button disabled={busyId === p.id} onClick={() => onReject(p)}
                     style={{
@@ -212,7 +215,7 @@ export default function ProposalsPage() {
                       border: "1px solid #E5E7EB", borderRadius: 8, padding: "8px 12px",
                       cursor: busyId === p.id ? "wait" : "pointer",
                     }}>
-                    거절
+                    {t("proposals.reject")}
                   </button>
                 </div>
               )}
