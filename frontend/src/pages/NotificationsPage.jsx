@@ -1,19 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Bell, CheckCheck, Trash2, X } from "lucide-react";
 import { useTheme } from "../alpha/ThemeContext";
 import { useNotificationStore } from "../store/useNotificationStore";
 import { useLanguage } from "../i18n/LanguageContext";
 
 const TYPE_CFG = {
-  strategy: { color: "#3B82F6", bg: "#EFF6FF", emoji: "🎯" },
   backtest: { color: "#10B981", bg: "#ECFDF5", emoji: "📊" },
-  regime:   { color: "#F59E0B", bg: "#FFFBEB", emoji: "🌍" },
   trust:    { color: "#8B5CF6", bg: "#F5F3FF", emoji: "🛡️" },
   briefing: { color: "#EC4899", bg: "#FDF2F8", emoji: "✨" },
   system:   { color: "#EF4444", bg: "#FEF2F2", emoji: "⚙️" },
 };
 
-const FILTER_KEYS = ["all", "unread", "strategy", "backtest", "regime", "briefing", "system"];
+const FILTER_KEYS = ["all", "unread", "backtest", "briefing", "system"];
 
 function timeAgo(iso, t) {
   const d = Date.now() - new Date(iso).getTime();
@@ -43,8 +41,10 @@ function groupByDate(list, t) {
 export default function NotificationsPage() {
   const { t } = useLanguage();
   const { theme } = useTheme();
-  const { notifications, markRead, markAllRead, remove, clearAll } = useNotificationStore();
+  const { notifications, loading, fetch, markRead, markAllRead, remove, clearAll } = useNotificationStore();
   const [filter, setFilter]   = useState("all");
+
+  useEffect(() => { fetch(); }, []);
   const [hovered, setHovered] = useState(null);
   const [delHov, setDelHov]   = useState(null);
 
@@ -318,7 +318,7 @@ function ActionBtn({ icon, label, color, hoverBg, hoverBorder, hoverColor, onCli
 
 function EmptyState({ filter }) {
   const { t } = useLanguage();
-  const emojis = { all: "🔔", unread: "✅", strategy: "🎯", backtest: "📊", regime: "🌍", briefing: "✨", system: "⚙️" };
+  const emojis = { all: "🔔", unread: "✅", backtest: "📊", briefing: "✨", system: "⚙️" };
   const emoji = emojis[filter] || "🔔";
   return (
     <div style={{
