@@ -21,12 +21,20 @@ export const sendChat            = (id, text) => api.post(`/alpha/workspaces/${i
 export const formalize           = (id) => api.post(`/alpha/workspaces/${id}/formalize`).then(r => r.data);
 export const selectStrategyCandidate = (id, candidateId) =>
   api.patch(`/alpha/workspaces/${id}/strategy-config/select`, { candidateId }).then(r => r.data);
-export const runBacktest         = (id, period, customParams) => {
-  if (customParams && Object.keys(customParams).length > 0) {
-    return api.post(`/alpha/workspaces/${id}/backtest`, { period: period || "5y", customParams }).then(r => r.data);
-  }
-  return api.post(`/alpha/workspaces/${id}/backtest`, null, period ? { params: { period } } : undefined).then(r => r.data);
+export const runBacktest         = (id, period, customParams, start, end) => {
+  const body = {};
+  if (period) body.period = period;
+  if (customParams && Object.keys(customParams).length > 0) body.customParams = customParams;
+  if (start) body.start = start;   // 직접 지정(달력) 기간 — 시드계산기와 공유
+  if (end) body.end = end;
+  return api.post(`/alpha/workspaces/${id}/backtest`, body).then(r => r.data);
 };
+// P3: 전략 개선 제안서 — 진단 + 선택지(기존/안정형/공격형) + 각 선택지 전후 백테스트 비교
+export const runImproveProposal  = (id, customParams, period) =>
+  api.post(`/alpha/workspaces/${id}/improve-proposal`, { customParams: customParams || {}, period: period || "5y" }, { timeout: 150000 }).then(r => r.data);
+// P4: Claude 패치(또는 임의 전후) 효과 측정 — before/after 파라미터로 각각 실측 백테스트
+export const runCompareBacktest  = (id, before, after, period) =>
+  api.post(`/alpha/workspaces/${id}/compare-backtest`, { before: before || {}, after: after || {}, period: period || "5y" }, { timeout: 120000 }).then(r => r.data);
 export const runRegime           = (id, options) => api.post(`/alpha/workspaces/${id}/regime`, options || {}, { timeout: 120000 }).then(r => r.data);
 export const runTrust            = (id, options) => api.post(`/alpha/workspaces/${id}/trust`, options || {}, { timeout: 120000 }).then(r => r.data);
 export const runBriefing         = (id) => api.post(`/alpha/workspaces/${id}/briefing`).then(r => r.data);
@@ -60,6 +68,15 @@ export const runClaudeAgentStart  = (wsId, request) =>
   api.post(`/alpha/workspaces/${wsId}/claude-agent/start`, { request }).then(r => r.data);
 export const runClaudeAgentStatus = (wsId, jobId, since = 0) =>
   api.get(`/alpha/workspaces/${wsId}/claude-agent/status/${jobId}`, { params: { since } }).then(r => r.data);
+// 새 대화 — 워크스페이스의 Claude 멀티세션 맥락 초기화(다음 요청은 새 세션)
+export const resetClaudeSession = (wsId) =>
+  api.post(`/alpha/workspaces/${wsId}/claude-agent/reset`).then(r => r.data);
+
+// BYOK(본인 Claude 키 연동) + Developer Studio 접근 게이팅
+export const getDeveloperAccess = () => api.get("/user/access").then(r => r.data);          // { developer, reason, userType, requiredPlan }
+export const listApiKeys        = () => api.get("/user/api-keys").then(r => r.data);         // [{ provider, hint, connected }]
+export const saveApiKey         = (provider, key) => api.put(`/user/api-keys/${provider}`, { key }).then(r => r.data);
+export const deleteApiKey       = (provider) => api.delete(`/user/api-keys/${provider}`).then(r => r.data);
 
 // Decision Log
 export const fetchDecisionLog    = (id) => api.get(`/alpha/workspaces/${id}/log`).then(r => r.data);
@@ -144,3 +161,5 @@ export const setInfiniteBuyingActive = (id, active) => api.patch(`/broker/infini
 export const resetInfiniteBuying     = (id) => api.patch(`/broker/infinite-buying/${id}/reset`).then(r => r.data);
 export const deleteInfiniteBuying    = (id) => api.delete(`/broker/infinite-buying/${id}`);
 export const runNowInfiniteBuying    = (id) => api.post(`/broker/infinite-buying/${id}/run-now`).then(r => r.data);
+// 시드 역산 계산기: "월 N원 벌려면 종목별 시드 얼마?" — body: { tickers?, period?, variant?, targetMonthlyKrw, fx? }
+export const infiniteBuyingSizing    = (body) => api.post("/broker/infinite-buying/sizing", body).then(r => r.data);
