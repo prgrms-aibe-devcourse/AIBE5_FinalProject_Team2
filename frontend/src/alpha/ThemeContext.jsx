@@ -6,6 +6,24 @@ export const BRAND_FONT = "'Inter', 'Inter', 'Pretendard', -apple-system, BlinkM
 
 // 기본 테마(sky) + 보조 테마 — 모든 Alpha-Helix 화면이 이 컨텍스트만 보면 된다
 const THEMES = {
+  heli: {
+    // image2 '멀티 LLM AI 대화' 칩의 연한 파스텔 블루-라일락 배경 느낌. 보라(violet) 빼고 블루-인디고 위주. 기본 테마.
+    name: "Heli (기본)",
+    bg: "linear-gradient(135deg, #EFF4FF 0%, #E5ECFF 45%, #ECEAFB 100%)",
+    panel: "rgba(255, 255, 255, 0.93)",
+    panelBorder: "rgba(165, 180, 252, 0.40)",
+    sidebar: "linear-gradient(180deg, #93C5FD 0%, #818CF8 55%, #6366F1 100%)",
+    sidebarHover: "rgba(255,255,255,0.18)",
+    text: "#1E293B",
+    textMuted: "#475569",
+    accent: "#6366F1",
+    accentSoft: "#EEF2FF",
+    accentGradient: "linear-gradient(90deg, #BFDBFE 0%, #A5B4FC 50%, #C4B5FD 100%)",
+    success: "#0CA5A0",
+    danger: "#DC2626",
+    code: "#1E293B",
+    codeBg: "#EEF2FF",
+  },
   sky: {
     name: "Sky (브랜드)",
     bg: "linear-gradient(135deg, #F0F9FF 0%, #DBEAFE 45%, #E0E7FF 100%)",
@@ -40,23 +58,6 @@ const THEMES = {
     code: "#7C2D12",
     codeBg: "#FFEDD5",
   },
-  helix: {
-    name: "Helix (라일락)",
-    bg: "linear-gradient(135deg, #DBEAFE 0%, #DDD6FE 50%, #FBCFE8 100%)",
-    panel: "rgba(255, 255, 255, 0.88)",
-    panelBorder: "rgba(196, 181, 253, 0.45)",
-    sidebar: "linear-gradient(180deg, #A78BFA 0%, #7C3AED 50%, #DB2777 100%)",
-    sidebarHover: "rgba(255,255,255,0.18)",
-    text: "#1E1B4B",
-    textMuted: "#4C1D95",
-    accent: "#7C3AED",
-    accentSoft: "#DDD6FE",
-    accentGradient: "linear-gradient(90deg,#A78BFA,#F472B6)",
-    success: "#0F766E",
-    danger: "#BE185D",
-    code: "#1E1B4B",
-    codeBg: "#EDE9FE",
-  },
   dev: {
     name: "Dev (Dracula)",
     bg: "#282A36",
@@ -79,11 +80,12 @@ const THEMES = {
 const ThemeContext = createContext(null);
 
 export function ThemeProvider({ children }) {
-  // 기존에 helix/alpha 로 저장된 사용자도 새 브랜드 sky 테마로 강제 마이그레이션
+  // 기본 테마 = heli. 옛 브랜드 기본(sky)·보조(alpha/helix) 저장값은 새 기본 heli 로 마이그레이션.
+  // (dev 등 사용자가 의도적으로 고른 테마는 유지)
   const [themeKey, setThemeKey] = useState(() => {
     const saved = localStorage.getItem("alpha.theme");
-    if (saved && THEMES[saved] && saved !== "alpha" && saved !== "helix") return saved;
-    return "sky";
+    if (saved && THEMES[saved] && !["sky", "alpha", "helix"].includes(saved)) return saved;
+    return "heli";
   });
   useEffect(() => { localStorage.setItem("alpha.theme", themeKey); }, [themeKey]);
 
