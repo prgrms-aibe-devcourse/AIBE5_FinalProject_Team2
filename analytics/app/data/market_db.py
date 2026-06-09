@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 _DB_URL = (
     f"mysql+pymysql://"
     f"{os.getenv('DB_USERNAME','devbridge')}:"
-    f"{os.getenv('DB_PASSWORD','DevBridge2026!')}@"
+    f"{os.getenv('DB_PASSWORD','changeme')}@"
     f"{os.getenv('DB_HOST','localhost')}:"
     f"{os.getenv('DB_PORT','3306')}/"
     f"{os.getenv('DB_NAME','devbridge_db')}"

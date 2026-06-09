@@ -1,5 +1,5 @@
 """
-Alpha-Helix Developer Studio — helpers.py
+Alpha-Helix Developer IDE — helpers.py
 ==========================================
 QuantStart 통계 강건성 프레임워크 기반 핵심 유틸리티
 

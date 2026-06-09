@@ -35,12 +35,32 @@ from app.robust.walkforward import walk_forward
 from app.robust.regime import per_regime_stats
 
 
+# 5축 가중치. 근거: 동일가중 0.2 에서 출발하되 generalization +0.05(최우선 OOS 일반화),
+# parameter_stability -0.05(보조지표)로 조정. 캘리브레이션 메모: TQQQ-IB/SOXL-IB/QLD-VR 10y 에서
+# 사람 평가 신뢰도와 순위상관이 무너지지 않는 보수적 배분(데이터기반 재튜닝의 단일 진입점).
 DEFAULT_WEIGHTS: Dict[str, float] = {
     "generalization": 0.25,
     "regime_robustness": 0.20,
     "parameter_stability": 0.15,
     "risk_control": 0.20,
     "statistical_confidence": 0.20,
+}
+
+# 점수 매핑 스케일(매직넘버의 명명·문서화 — 값은 기존과 동일, 회귀 방지).
+RISK_MDD_SPAN = 50.0       # risk_control: 목표 MDD 초과 50%p 에서 0점 도달(3x ETF MDD 분포 꼬리 근거)
+REGIME_SR_FLOOR, REGIME_SR_SPAN = 1.0, 3.0   # regime_robust=(worst_SR+1)/3 → Sharpe −1~+2 를 0~1 로 사상
+GEN_RATIO_OFFSET, GEN_RATIO_SPAN = 0.5, 2.0  # generalization=(OOS/IS+0.5)/2 → 비율 −0.5~+1.5 를 0~1 로 사상
+
+# 워크포워드 재최적화 소그리드 — 전략별 "핵심 1축"을 ±0/±20% 로 흔든다(_perturb 와 동일 축 재사용).
+# 근거: 과최적화의 OOS 붕괴 탐지엔 핵심축 소그리드로 충분(López de Prado 2018, CPCV 정신).
+WF_REOPT_GRID: Dict[str, Dict[str, list]] = {
+    "sma_cross":         {"sma_slow": [0.8, 1.0, 1.2]},
+    "momentum_12_1":     {"momentum_long_days": [0.8, 1.0, 1.2]},
+    "rsi_meanrev":       {"rsi_period": [0.8, 1.0, 1.2]},
+    "macd":              {"macd_slow": [0.8, 1.0, 1.2]},
+    "vix_risk_off":      {"vix_threshold": [0.9, 1.0, 1.1]},
+    "infinite_buying":   {"take_profit_pct": [0.8, 1.0, 1.2]},
+    "value_rebalancing": {"band_pct": [0.8, 1.0, 1.2]},
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -101,6 +121,84 @@ def classify_asset(ticker: Optional[str]) -> Tuple[str, int, Optional[str]]:
 def _norm_cdf(z: float) -> float:
     """표준정규 CDF — scipy 의존 회피용."""
     return 0.5 * (1.0 + erf(z / sqrt(2.0)))
+
+
+def _norm_ppf(p: float) -> float:
+    """표준정규 역CDF(분위수). scipy.stats.norm.ppf 대체 — Acklam 유리근사(|err|<1.15e-9)."""
+    if p <= 0.0:
+        return float("-inf")
+    if p >= 1.0:
+        return float("inf")
+    a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
+         1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00]
+    b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
+         6.680131188771972e+01, -1.328068155288572e+01]
+    c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
+         -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00]
+    d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
+         3.754408661907416e+00]
+    plow, phigh = 0.02425, 1 - 0.02425
+    if p < plow:
+        q = sqrt(-2 * np.log(p))
+        return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
+               ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+    if p <= phigh:
+        q = p - 0.5
+        r = q * q
+        return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / \
+               (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+    q = sqrt(-2 * np.log(1 - p))
+    return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
+            ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+
+
+def deflated_sharpe_ratio(daily_returns: pd.Series, n_trials: int,
+                          sr_benchmark_annual: float = 0.0) -> Tuple[float, Dict[str, Any]]:
+    """
+    DSR = Deflated Sharpe Ratio — Bailey & López de Prado (2014).
+
+    PSR 의 SR* 자리에 "N개의 무의미한(false) 전략을 시도했을 때 우연히 나올 최대 기대 Sharpe(SR0)"를
+    넣어 **다중검정(시도횟수) 선택편향**을 보정한다. 시도횟수 N 이 클수록 SR0 가 커져 DSR 이 낮아진다.
+
+        SR0 = sr_std · [ (1-γ)·Z(1-1/N) + γ·Z(1-1/(N·e)) ]   (γ=Euler-Mascheroni 0.5772)
+        DSR = Φ( (SR_obs - SR0)·√(T-1) / √(1 - skew·SR_obs + (kurt-1)/4·SR_obs²) )
+
+    kurt 는 정규(non-excess) kurtosis(=pandas excess + 3.0) — probabilistic_sharpe_ratio 와 관례 통일.
+    scipy 미설치 환경을 위해 Z 분위수는 _norm_ppf(Acklam) 사용.
+    """
+    r = daily_returns.dropna().astype(float)
+    T = len(r)
+    diag: Dict[str, Any] = {"T": int(T), "n_trials": int(n_trials), "sr0_annual": 0.0, "sr_annual": 0.0}
+    if T < 30 or r.std(ddof=1) == 0 or n_trials < 1:
+        return 0.0, diag
+
+    sr = float(r.mean() / r.std(ddof=1))                  # daily SR
+    skew = float(r.skew()) if T >= 3 else 0.0
+    kurt = float(r.kurtosis()) + 3.0 if T >= 4 else 3.0   # → 정규 kurtosis (trust_score 관례 통일)
+
+    gamma = 0.5772156649015329
+    N = max(1, int(n_trials))
+    denom_sq = 1.0 - skew * sr + ((kurt - 1.0) / 4.0) * (sr * sr)
+    if denom_sq <= 0 or not np.isfinite(denom_sq):
+        return 0.0, diag
+    sr_std = float(np.sqrt(denom_sq / max(1, T - 1)))     # SR 추정량 표준오차
+
+    if N > 1:
+        z1 = _norm_ppf(1 - 1.0 / N)
+        z2 = _norm_ppf(1 - 1.0 / (N * np.e))
+        sr0 = sr_std * ((1 - gamma) * z1 + gamma * z2)
+    else:
+        sr0 = 0.0
+    sr0 = max(sr0, sr_benchmark_annual / np.sqrt(252))
+
+    z = (sr - sr0) * np.sqrt(max(1, T - 1)) / np.sqrt(denom_sq)
+    dsr = _norm_cdf(z)
+    diag.update({
+        "sr_annual": sr * np.sqrt(252),
+        "sr0_annual": sr0 * np.sqrt(252),
+        "skew": skew, "kurt": kurt,
+    })
+    return float(dsr), diag
 
 
 def probabilistic_sharpe_ratio(daily_returns: pd.Series,
@@ -166,7 +264,9 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
                         wf_test: int = 63,
                         ticker: Optional[str] = None,
                         asset_class: str = "auto",
-                        leverage: Optional[int] = None) -> Dict[str, Any]:
+                        leverage: Optional[int] = None,
+                        regime_method: str = "rule",
+                        regime_causal: bool = False) -> Dict[str, Any]:
     weights = _normalize_weights(weights or DEFAULT_WEIGHTS)
     overfit_penalty_max = max(0, int(overfit_penalty_max))
 
@@ -191,8 +291,11 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
     is_total = is_bt["stats"].get("total_return_pct", 0) or 0
     is_mdd = is_bt["stats"].get("max_drawdown_pct", 0) or 0  # negative %
 
-    # 2) walk-forward
-    wf = walk_forward(close, params, train_window=wf_train, test_window=wf_test)
+    # 2) walk-forward — 정통(폴드 재최적화) OOS 검증: train 구간서 소그리드로 핵심축 재최적화→test 평가.
+    #    전략별 그리드가 있으면 reoptimize=True(과최적화 OOS붕괴 포착), 없으면(buy_and_hold) 고정 params.
+    _wf_grid = WF_REOPT_GRID.get(params.strategy)
+    wf = walk_forward(close, params, train_window=wf_train, test_window=wf_test,
+                      reoptimize=bool(_wf_grid), param_grid=_wf_grid)
     all_folds = wf.get("folds", [])
     valid_folds = [f for f in all_folds if "stats" in f and f["stats"].get("sharpe") is not None]
     n_folds = len(valid_folds)
@@ -212,7 +315,7 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
     # 3) regime — 표본 가중치(Bayesian shrinkage) 적용된 effective_sharpe 사용
     # 근거: 짧은 표본의 Sharpe는 표준오차가 커서 극단값이 나올 가능성 높음.
     # SR_eff = SR × T/(T+60) 으로 0 쪽으로 끌어당겨 신뢰도를 반영 (Lo 2002 + James-Stein 변형).
-    regime = per_regime_stats(close, params)
+    regime = per_regime_stats(close, params, method=regime_method, causal=regime_causal)
     regime_per = regime.get("per_regime", {}) if isinstance(regime, dict) else {}
 
     # 모든 유효 국면(eff_sharpe 있는) 사용 — 표본 작은 국면도 포함하되 자연스레 가중치로 완화됨
@@ -227,7 +330,7 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
         best_k, best_v = items[-1]
         worst = worst_v["effective_sharpe"]
         best = best_v["effective_sharpe"]
-        regime_robust = _clip01((worst + 1) / 3.0)
+        regime_robust = _clip01((worst + REGIME_SR_FLOOR) / REGIME_SR_SPAN)
 
         skipped = f" · 제외: {', '.join(insufficient_regimes)}" if insufficient_regimes else ""
         reasons["regime_robustness"] = (
@@ -271,6 +374,11 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
             vix_threshold=params.vix_threshold,
             initial_capital=params.initial_capital,
             fees=params.fees, slippage=params.slippage,
+            # 무한매수법/밸류리밸런싱 파라미터도 보존(전략 무관 필드는 그대로)
+            split=params.split, take_profit_pct=params.take_profit_pct, loc_offset_pct=params.loc_offset_pct,
+            rebalance_days=params.rebalance_days, expected_return=params.expected_return,
+            band_pct=params.band_pct, pool_target_pct=params.pool_target_pct,
+            initial_pool_pct=params.initial_pool_pct, biweekly_contrib=params.biweekly_contrib,
         )
         s = params.strategy
         if s == "sma_cross":
@@ -283,6 +391,12 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
             kw["macd_slow"] = max(params.macd_fast + 2, int(params.macd_slow * (1 + delta)))
         elif s == "vix_risk_off":
             kw["vix_threshold"] = max(10.0, params.vix_threshold * (1 + delta))
+        elif s == "infinite_buying":
+            # 핵심 파라미터 = 익절 트리거(%). 흔들어 사다리 민감도 측정.
+            kw["take_profit_pct"] = max(2.0, params.take_profit_pct * (1 + delta))
+        elif s == "value_rebalancing":
+            # 핵심 파라미터 = 밴드 폭. 흔들어 리밸런싱 민감도 측정.
+            kw["band_pct"] = max(0.05, params.band_pct * (1 + delta))
         else:  # 폴백: sma_slow
             kw["sma_slow"] = max(5, int(params.sma_slow * (1 + delta)))
         return BacktestParams(**kw)
@@ -312,7 +426,7 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
             reasons["parameter_stability"] = "섭동 백테스트 실패. 기본값 50점."
 
     # 5) risk control — actual MDD vs target (leverage-aware target)
-    risk_control = _clip01(1.0 - max(0, abs(is_mdd) - mdd_target_pct) / 50.0)
+    risk_control = _clip01(1.0 - max(0, abs(is_mdd) - mdd_target_pct) / RISK_MDD_SPAN)
     lev_note = f" · {eff_leverage}x 레버리지 인지" if eff_leverage > 1 else ""
     reasons["risk_control"] = (
         f"실제 MDD={abs(is_mdd):.1f}% vs 목표 {mdd_target_pct:.0f}% "
@@ -329,7 +443,7 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
         reasons["generalization"] = diag
     elif is_sharpe > 0.1:
         gen_ratio = oos_sharpe_mean / is_sharpe
-        generalization = _clip01((gen_ratio + 0.5) / 2.0)
+        generalization = _clip01((gen_ratio + GEN_RATIO_OFFSET) / GEN_RATIO_SPAN)
         reasons["generalization"] = (
             f"IS Sharpe={is_sharpe:.2f}, OOS 평균={oos_sharpe_mean:.2f} "
             f"({n_folds}/{n_total_folds}폴드 유효), 비율={gen_ratio:.2f}"
@@ -354,19 +468,27 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
     except Exception as e:
         psr_zero = 0.0
         psr_diag = {"T": 0, "sr_annual": 0.0, "skew": 0.0, "kurt": 0.0}
+        daily_ret = pd.Series(dtype=float)
 
-    statistical_confidence = _clip01(psr_zero)
+    # DSR(Deflated Sharpe): 이 도구가 실제 평가한 구성 수 = 섭동 4 + IS 1 = 5(파라미터 없는 전략은 1)를
+    # 시도횟수 N 으로 보정해 PSR 보다 보수적(정직)인 통계신뢰도를 만든다. DSR ≤ PSR 항상 성립.
+    n_trials_eff = 1 if params.strategy == "buy_and_hold" else (len(deltas) + 1)
+    try:
+        dsr, dsr_diag = deflated_sharpe_ratio(daily_ret, n_trials=n_trials_eff)
+    except Exception:
+        dsr, dsr_diag = 0.0, {"T": 0, "n_trials": n_trials_eff, "sr_annual": 0.0, "sr0_annual": 0.0}
+    statistical_confidence = _clip01(dsr)
     T = int(psr_diag.get("T", 0))
     if T < 252:
         reasons["statistical_confidence"] = (
-            f"PSR(SR>0)={psr_zero*100:.0f}% · 데이터 {T}일 "
-            f"(1년 미만 — 신뢰도 제한, Bailey & López de Prado 2012)"
+            f"DSR={dsr*100:.0f}% (PSR={psr_zero*100:.0f}%, 시도 {n_trials_eff}회 보정) · "
+            f"데이터 {T}일 (1년 미만 — 신뢰도 제한)"
         )
     else:
         reasons["statistical_confidence"] = (
-            f"PSR(SR>0)={psr_zero*100:.0f}% · 연환산 Sharpe={psr_diag['sr_annual']:.2f}, "
-            f"skew={psr_diag['skew']:.2f}, kurt={psr_diag['kurt']:.1f} "
-            f"({T}일 일별수익률 · Bailey & López de Prado 2012)"
+            f"DSR={dsr*100:.0f}% (PSR={psr_zero*100:.0f}%, 시도 {n_trials_eff}회 보정) · "
+            f"연Sharpe={dsr_diag.get('sr_annual',0):.2f} vs 우연최대 {dsr_diag.get('sr0_annual',0):.2f} · "
+            f"Bailey & López de Prado 2014 (DSR)"
         )
 
     # 8) overfitting penalty — IS sharpe much higher than OOS
@@ -416,7 +538,8 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
             "높을수록 큰 손실 없이 안정적으로 운용되었음을 나타냅니다."
         ),
         "statistical_confidence": (
-            "전략의 수익이 단순한 우연이 아닌 통계적으로 유의미한 결과인지를 PSR(확률적 Sharpe Ratio) 기법으로 검증합니다. "
+            "전략의 수익이 단순한 우연이 아닌 통계적으로 유의미한 결과인지를 DSR(Deflated Sharpe Ratio) 기법으로 검증합니다. "
+            "여러 파라미터를 시도해 우연히 좋은 결과를 골랐을 가능성(다중검정 선택편향)까지 차감하므로 PSR보다 보수적입니다. "
             "높을수록 수익이 실력에서 비롯될 가능성이 높습니다."
         ),
     }
@@ -499,6 +622,9 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
                 "score": sub["regime_robustness"],
                 "description": metric_desc["regime_robustness"],
                 "detail": reasons.get("regime_robustness", ""),
+                "method": regime.get("method") if isinstance(regime, dict) else None,            # 실제 사용된 국면 분류(rule/hmm)
+                "hmm_fallback": regime.get("hmm_fallback", False) if isinstance(regime, dict) else False,
+                "hmm_causal": regime.get("hmm_causal") if isinstance(regime, dict) else None,    # hmm 라벨 인과성
                 "worst_sharpe": round(float(worst), 2) if valid_regimes else None,
                 "weakest_sharpe": round(float(worst), 2) if valid_regimes else None,
                 "min_sharpe": round(float(worst), 2) if valid_regimes else None,
@@ -528,10 +654,13 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
                 "ratio": round(abs(float(is_mdd)) / mdd_target_pct, 2) if mdd_target_pct > 0 else 0,
             },
             "statistical": {
-                "label": "통계적 유의성 (PSR)",
+                "label": "통계적 유의성 (DSR)",
                 "score": sub["statistical_confidence"],
                 "description": metric_desc["statistical_confidence"],
                 "detail": reasons.get("statistical_confidence", ""),
+                "dsr": round(float(dsr), 4),                                  # Deflated Sharpe(다중검정 보정)
+                "n_trials": int(n_trials_eff),
+                "sr0_annual": round(float(dsr_diag.get("sr0_annual", 0.0)), 3),  # 우연히 나올 최대 기대 Sharpe(연)
                 "psr_zero": round(float(psr_zero), 4),
                 "tstat": round(float(tstat), 2),
                 "t_stat": round(float(tstat), 2),

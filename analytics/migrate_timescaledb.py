@@ -18,12 +18,12 @@ log = logging.getLogger(__name__)
 # ── TimescaleDB 연결 (PostgreSQL) ──────────────────────────────────────────────
 TSDB_URL = os.getenv(
     "TIMESCALEDB_URL",
-    "postgresql://devbridge:DevBridge2026!@localhost:5432/devbridge_ts"
+    "postgresql://devbridge:changeme@localhost:5432/devbridge_ts"
 )
 MARIADB_URL = (
     f"mysql+pymysql://"
     f"{os.getenv('DB_USERNAME','devbridge')}:"
-    f"{os.getenv('DB_PASSWORD','DevBridge2026!')}@"
+    f"{os.getenv('DB_PASSWORD','changeme')}@"
     f"{os.getenv('DB_HOST','localhost')}:"
     f"{os.getenv('DB_PORT','3306')}/"
     f"{os.getenv('DB_NAME','devbridge_db')}"

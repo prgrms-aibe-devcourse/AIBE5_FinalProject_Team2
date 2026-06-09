@@ -1,5 +1,5 @@
 """
-Alpha-Helix Developer Studio — main.py
+Alpha-Helix Developer IDE — main.py
 ========================================
 LEAN QCAlgorithm 구조 + vectorbt 브리지 + TQQQ-SOXL 무한매수 전략 코어
 
