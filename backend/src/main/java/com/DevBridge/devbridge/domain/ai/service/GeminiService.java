@@ -12,6 +12,7 @@ import org.springframework.web.client.RestClient;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
 
 // 429 응답 본문에서 추출한 쿼터 정보
 record Quota429Info(boolean isFreeTier, boolean isDailyQuota, long retryDelayMs) {}
@@ -31,6 +32,12 @@ public class GeminiService {
     private final String fallbackModel;
     private final String baseUrl;
     private final RestClient restClient;
+
+    // 레이트리밋 방지(RPM 초과 429 예방): 동시 호출 수 제한 + 호출 간 최소 간격.
+    // 모든 Gemini 호출이 postGenerateContent 를 거치므로 여기 한 곳에서 전역 스로틀링된다.
+    private final Semaphore geminiConcurrency = new Semaphore(4, true);
+    private static final long MIN_CALL_GAP_MS = 120; // 호출 시작 간 최소 간격
+    private volatile long lastCallAtMs = 0;
 
     public GeminiService(
             @Value("${gemini.api.key}") String apiKey,
@@ -213,6 +220,12 @@ public class GeminiService {
                 "참고: https://console.cloud.google.com/billing",
                 targetModel);
         }
+        if (!info.isFreeTier() && info.isDailyQuota()) {
+            return String.format(
+                "Gemini API 결제 크레딧이 소진되었습니다(%s). " +
+                "AI Studio(https://ai.studio/projects)에서 크레딧을 충전하거나 결제 수단을 확인해주세요.",
+                targetModel);
+        }
         if (info.isFreeTier()) {
             long waitSec = info.retryDelayMs() / 1000;
             return String.format("AI 요청 한도에 도달했습니다(%s 무료 티어). %d초 후 다시 시도해 주세요.", targetModel, waitSec);
@@ -228,7 +241,11 @@ public class GeminiService {
         try {
             String body = e.getResponseBodyAsString();
             boolean isFreeTier = body.contains("free_tier") || body.contains("FreeTier");
-            boolean isDailyQuota = body.contains("PerDay") || body.contains("GenerateRequestsPerDay");
+            // "prepayment credits depleted" or "RESOURCE_EXHAUSTED" → 재충전 전까지 재시도 무의미
+            boolean isCreditsExhausted = body.contains("prepayment") || body.contains("credits are depleted")
+                    || body.contains("RESOURCE_EXHAUSTED");
+            boolean isDailyQuota = body.contains("PerDay") || body.contains("GenerateRequestsPerDay")
+                    || isCreditsExhausted;
 
             long retryDelayMs = 5_000L;
             int rdIdx = body.indexOf("\"retryDelay\"");
@@ -250,6 +267,37 @@ public class GeminiService {
         }
     }
 
+    /** 동시 호출 제한(Semaphore) + 호출 간 최소 간격을 적용해 호출 → RPM 초과 429 를 예방. */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> rateLimitedPost(String url, Map<String, Object> body) {
+        boolean acquired = false;
+        try {
+            geminiConcurrency.acquire();
+            acquired = true;
+            synchronized (this) {
+                long wait = (lastCallAtMs + MIN_CALL_GAP_MS) - System.currentTimeMillis();
+                if (wait > 0) Thread.sleep(wait);
+                lastCallAtMs = System.currentTimeMillis();
+            }
+            return restClient.post()
+                    .uri(url)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .onStatus(status -> status.isError(), (req, res) -> {
+                        String errBody = new String(res.getBody().readAllBytes());
+                        log.error("Gemini API Error: Status={}, Body={}", res.getStatusCode(), errBody);
+                        throw new HttpClientErrorException(res.getStatusCode(), res.getStatusText(), res.getHeaders(), errBody.getBytes(), null);
+                    })
+                    .body(Map.class);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Gemini 레이트리밋 대기 중 인터럽트", ie);
+        } finally {
+            if (acquired) geminiConcurrency.release();
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> postGenerateContent(String targetModel, Map<String, Object> body, boolean allowRetry) {
         String url = baseUrl + "/" + targetModel + ":generateContent?key=" + apiKey;
@@ -257,17 +305,7 @@ public class GeminiService {
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                return restClient.post()
-                        .uri(url)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .body(body)
-                        .retrieve()
-                        .onStatus(status -> status.isError(), (req, res) -> {
-                            String errBody = new String(res.getBody().readAllBytes());
-                            log.error("Gemini API Error: Status={}, Body={}", res.getStatusCode(), errBody);
-                            throw new HttpClientErrorException(res.getStatusCode(), res.getStatusText(), res.getHeaders(), errBody.getBytes(), null);
-                        })
-                        .body(Map.class);
+                return rateLimitedPost(url, body);
             } catch (HttpClientErrorException.TooManyRequests e) {
                 Quota429Info info = parse429Info(e);
                 log.warn("Gemini 429 on model={}. isFreeTier={}, isDailyQuota={}, retryDelayMs={}",

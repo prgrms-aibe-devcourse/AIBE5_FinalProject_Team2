@@ -76,7 +76,7 @@ public class AlphaWorkspace {
 
     /**
      * 이 워크스페이스와 매핑된 GitHub repo full name ("owner/repo").
-     * Developer Studio Git 연동: 1 워크스페이스 ↔ 1 repo.
+     * Developer IDE Git 연동: 1 워크스페이스 ↔ 1 repo.
      */
     @Column(name = "github_repo_full_name", length = 200)
     private String githubRepoFullName;
@@ -85,6 +85,13 @@ public class AlphaWorkspace {
     @Column(name = "github_branch", length = 100)
     @Builder.Default
     private String githubBranch = "main";
+
+    /**
+     * Claude Code 에이전트 멀티세션 ID — 같은 워크스페이스의 연속 요청을 --resume 으로 이어간다(VSCode 패리티).
+     * 백엔드 재시작에도 대화 맥락이 유지되도록 DB 영속화. 새 대화 시 null 로 초기화.
+     */
+    @Column(name = "claude_session_id", length = 64)
+    private String claudeSessionId;
 
     @CreationTimestamp
     private LocalDateTime createdAt;

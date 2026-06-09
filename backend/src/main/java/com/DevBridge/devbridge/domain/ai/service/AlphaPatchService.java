@@ -140,8 +140,19 @@ public class AlphaPatchService {
                 .orElseThrow(() -> new NoSuchElementException("changeset not found"));
         if (!"PENDING".equals(cs.getStatus())) return cs;
         cs.setStatus("KEPT");
+        String payload = null;
+        try {
+            payload = om.writeValueAsString(Map.of(
+                "decisionStatus", "ACCEPTED",
+                "title", cs.getTitle() == null ? "변경 유지" : cs.getTitle(),
+                "userChoice", "변경 유지",
+                "changeSetId", cs.getId(),
+                "changeSetStatus", "KEPT"
+            ));
+        } catch (Exception ignore) {
+        }
         helix.recordLog(ws.getId(), "USER", "PARAM_CHANGED",
-                "변경 유지: " + cs.getTitle(), null);
+            "변경 유지: " + cs.getTitle(), payload);
         return changeSetRepo.save(cs);
     }
 
@@ -177,8 +188,19 @@ public class AlphaPatchService {
         workspaceRepo.save(ws);
 
         cs.setStatus("UNDONE");
+        String payload = null;
+        try {
+            payload = om.writeValueAsString(Map.of(
+                "decisionStatus", "HOLD",
+                "title", cs.getTitle() == null ? "변경 보류" : cs.getTitle(),
+                "userChoice", "변경 실행취소",
+                "changeSetId", cs.getId(),
+                "changeSetStatus", "UNDONE"
+            ));
+        } catch (Exception ignore) {
+        }
         helix.recordLog(ws.getId(), "USER", "USER_REVISION",
-                "변경 실행취소: " + cs.getTitle(), null);
+            "변경 실행취소: " + cs.getTitle(), payload);
         return changeSetRepo.save(cs);
     }
 

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface AiUsageLogRepository extends JpaRepository<AiUsageLog, Long> {
 
@@ -18,4 +19,13 @@ public interface AiUsageLogRepository extends JpaRepository<AiUsageLog, Long> {
     long sumTokensByUserAndModelSince(@Param("uid") Long uid,
                                        @Param("model") String modelId,
                                        @Param("since") LocalDateTime since);
+
+    /** userId의 since 이후 모델별 합산 토큰을 한 번에(모델 N개 N+1 쿼리 방지). 각 행 = [modelId(String), sum(Long)]. */
+    @Query("""
+        SELECT u.modelId, COALESCE(SUM(u.tokensIn + u.tokensOut), 0)
+        FROM AiUsageLog u
+        WHERE u.userId = :uid AND u.createdAt >= :since AND u.success = true
+        GROUP BY u.modelId
+    """)
+    List<Object[]> sumTokensByUserSinceGrouped(@Param("uid") Long uid, @Param("since") LocalDateTime since);
 }
