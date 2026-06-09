@@ -7,7 +7,7 @@ uvicorn[standard]==0.32.0
 pydantic==2.9.2
 
 # Market data
-yfinance==0.2.50
+yfinance>=0.2.54
 pandas==2.2.3
 numpy==1.26.4
 pyarrow==17.0.0

@@ -22,6 +22,7 @@ from app.config import DEFAULT_INITIAL_CAPITAL, DEFAULT_FEES, DEFAULT_SLIPPAGE
 StrategyType = Literal[
     "buy_and_hold", "sma_cross", "rsi_meanrev", "macd",
     "momentum_12_1", "vix_risk_off",
+    "infinite_buying", "value_rebalancing",
 ]
 
 
@@ -42,6 +43,17 @@ class BacktestParams:
     initial_capital: float = DEFAULT_INITIAL_CAPITAL
     fees: float = DEFAULT_FEES
     slippage: float = DEFAULT_SLIPPAGE
+    # 무한매수법(infinite_buying) 파라미터 — run_backtest 가 전용 엔진으로 디스패치
+    split: int = 40
+    take_profit_pct: float = 10.0
+    loc_offset_pct: float = 12.0
+    # 밸류 리밸런싱(value_rebalancing) 파라미터
+    rebalance_days: int = 10
+    expected_return: float = 0.02
+    band_pct: float = 0.20
+    pool_target_pct: float = 0.50
+    initial_pool_pct: float = 0.50
+    biweekly_contrib: float = 0.0
 
 
 def _signals(
@@ -107,6 +119,22 @@ def run_backtest(
     Reference: vectorbt Portfolio.from_signals — pf.stats(), pf.returns(), pf.returns_stats().
     `vix` is required for strategy='vix_risk_off'.
     """
+    # 무한매수법/밸류리밸런싱 — 시그널 기반이 아닌 '상태 누적' 전략이라 vbt from_signals 로
+    # 표현 불가. 전용 엔진으로 디스패치하되, 반환 dict 는 run_backtest 와 동일 계약
+    # (stats/equity_curve/_strategy_returns)이므로 Trust·Regime·Walk-Forward·섭동이 그대로 통과한다.
+    if p.strategy == "infinite_buying":
+        from app.backtest.infinite_buying import run_infinite_buying, InfiniteBuyingParams
+        return run_infinite_buying({"ASSET": close}, InfiniteBuyingParams(
+            split=p.split, take_profit_pct=p.take_profit_pct, loc_offset_pct=p.loc_offset_pct,
+            initial_capital=p.initial_capital, fees=p.fees, slippage=p.slippage))
+    if p.strategy == "value_rebalancing":
+        from app.backtest.value_rebalancing import run_value_rebalancing, ValueRebalancingParams
+        return run_value_rebalancing({"ASSET": close}, ValueRebalancingParams(
+            rebalance_days=p.rebalance_days, expected_return=p.expected_return, band_pct=p.band_pct,
+            pool_target_pct=p.pool_target_pct, initial_pool_pct=p.initial_pool_pct,
+            biweekly_contrib=p.biweekly_contrib, initial_capital=p.initial_capital,
+            fees=p.fees, slippage=p.slippage))
+
     entries, exits = _signals(close, p, vix=vix)
     # Look-ahead bias 방지: close로 생성한 신호는 1bar shift (vectorbt docs 권장)
     # buy_and_hold는 첫날 진입이므로 shift 시 다음 날로 밀리는 게 자연스럽다.

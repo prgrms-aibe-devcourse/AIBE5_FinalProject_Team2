@@ -55,10 +55,13 @@ def _round(x, n=4):
 def run_infinite_buying(
     closes: dict[str, pd.Series],
     p: InfiniteBuyingParams,
+    highs: Optional[dict[str, pd.Series]] = None,
 ) -> dict:
     """
     closes: {ticker: pd.Series of daily close prices (DatetimeIndex)}.
             여러 티커일 경우 union index로 정렬 + ffill.
+    highs:  {ticker: pd.Series of daily HIGH} (선택). 주면 익절 '지정가 매도'를 장중 고가
+            기준으로 체결(현실적). 없으면(Trust/Regime 종가전용) 종가 기준으로 폴백.
     """
     tickers = list(closes.keys())
     if not tickers:
@@ -68,6 +71,11 @@ def run_infinite_buying(
         {t: closes[t] for t in tickers},
         axis=1,
     ).sort_index().ffill().dropna(how="all")
+    high_df = None
+    if highs:
+        cols = {t: highs.get(t) for t in tickers if highs.get(t) is not None}
+        if cols:
+            high_df = pd.concat(cols, axis=1).reindex(df.index).ffill()
 
     per_asset_capital = p.initial_capital / len(tickers)
     states: dict[str, _AssetState] = {
@@ -85,11 +93,20 @@ def run_infinite_buying(
             s = states[t]
             budget = s.cycle_budget
 
-            # 1) 익절 체크 (보유 중이고 평단 대비 +take_profit_pct 이상)
+            # 1) 익절 — '지정가 매도'(limit) at 평단×(1+tp). 장중 고가가 지정가에 닿으면
+            #    그 '지정가'에 전량 체결(시장가 슬리피지 없음 — 한정주문). High 없으면 종가 기준.
             if s.qty > 0 and s.avg_price > 0:
                 trigger = s.avg_price * (1.0 + p.take_profit_pct / 100.0)
-                if price >= trigger:
-                    sell_price = price * (1.0 - p.slippage)
+                day_high = None
+                if high_df is not None and t in high_df.columns:
+                    try:
+                        hv = high_df.at[ts, t]
+                        day_high = float(hv) if hv is not None and not pd.isna(hv) else None
+                    except Exception:
+                        day_high = None
+                hit = (day_high >= trigger) if day_high is not None else (price >= trigger)
+                if hit:
+                    sell_price = trigger  # 지정가 체결가
                     proceeds = s.qty * sell_price
                     fee = proceeds * p.fees
                     net = proceeds - fee
@@ -132,23 +149,26 @@ def run_infinite_buying(
             if amount <= 0:
                 continue
 
-            buy_price = price * (1.0 + p.slippage)
-            fee = amount * p.fees
-            qty_bought = (amount - fee) / buy_price
+            buy_price = price * (1.0 + p.slippage)   # LOC 매수 = 종가(동시호가) 체결 + 슬리피지
+            qty_bought = int(amount / (buy_price * (1.0 + p.fees)))  # 정수주 (예산 내, 수수료 감안)
             if qty_bought <= 0:
                 continue
+            cost = qty_bought * buy_price            # 가격 원가(수수료 제외)
+            fee = cost * p.fees
+            spend = cost + fee
+            if spend > s.cash_alloc:
+                continue
 
-            new_cost = s.cost_basis + (amount - fee)
             new_qty = s.qty + qty_bought
-            s.avg_price = new_cost / new_qty if new_qty > 0 else 0.0
+            s.avg_price = (s.cost_basis + cost) / new_qty if new_qty > 0 else 0.0
             s.qty = new_qty
-            s.cost_basis = new_cost
-            s.cash_alloc -= amount
+            s.cost_basis += cost
+            s.cash_alloc -= spend
             s.cycle_idx += buy_fraction  # 0.5 또는 1.0
             s.trades.append({
                 "date": str(ts.date()), "ticker": t, "side": "BUY",
-                "price": _round(buy_price), "qty": _round(qty_bought, 6),
-                "amount": _round(amount), "reason": reason,
+                "price": _round(buy_price), "qty": qty_bought,
+                "amount": _round(spend), "reason": reason,
                 "avg_price_after": _round(s.avg_price),
                 "cycle": _round(s.cycle_idx, 2),
             })

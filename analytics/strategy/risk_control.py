@@ -1,5 +1,5 @@
 """
-Alpha-Helix Developer Studio — risk_control.py
+Alpha-Helix Developer IDE — risk_control.py
 ================================================
 QuantConnect LEAN 리스크 프레임워크 기반 신뢰도 스코어링 & 포지션 관리
 

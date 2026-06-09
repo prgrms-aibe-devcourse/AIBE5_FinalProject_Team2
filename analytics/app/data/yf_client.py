@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, date
 from pathlib import Path
 from typing import Optional
 
+import time
+
 import pandas as pd
 import yfinance as yf
 
@@ -47,7 +49,7 @@ def _read_cache(path: Path, ticker: str) -> Optional[pd.DataFrame]:
 def _period_to_dates(period: str) -> tuple[str, str]:
     """'5y' → (from_date, to_date) ISO 문자열 반환."""
     to_dt = date.today()
-    mapping = {"1d": 1, "5d": 5, "1mo": 30, "3mo": 90, "6mo": 180,
+    mapping = {"1d": 1, "5d": 5, "1mo": 30, "2mo": 60, "3mo": 90, "6mo": 180,
                "1y": 365, "2y": 730, "5y": 1825, "10y": 3650,
                "15y": 5475, "20y": 7300, "25y": 9125, "30y": 10950,
                "ytd": 365, "max": 10950}
@@ -82,10 +84,28 @@ def _fetch_polygon(ticker: str, period: str) -> Optional[pd.DataFrame]:
         return None
 
 
+def _normalize_yf(df: pd.DataFrame) -> Optional[pd.DataFrame]:
+    """yfinance 결과를 표준 OHLCV 포맷으로 정리. 실패 시 None 반환."""
+    if df is None or df.empty:
+        return None
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    cols = ["Open", "High", "Low", "Close", "Volume"]
+    if any(c not in df.columns for c in cols):
+        return None
+    df.index = df.index.tz_localize(None) if getattr(df.index, "tz", None) else df.index
+    out = df[cols].copy()
+    out.dropna(inplace=True)
+    return out if not out.empty else None
+
+
 def _fetch_yfinance(ticker: str, period: str, interval: str) -> Optional[pd.DataFrame]:
-    """yfinance에서 OHLCV를 가져와 표준 포맷으로 반환."""
+    """yfinance에서 OHLCV를 가져와 표준 포맷으로 반환.
+    download() 실패 시 Ticker.history() 경로로 재시도한다.
+    """
+    # 1) yf.download — 가장 빠른 경로
     try:
-        df = yf.download(
+        raw = yf.download(
             ticker,
             period=period,
             interval=interval,
@@ -93,18 +113,27 @@ def _fetch_yfinance(ticker: str, period: str, interval: str) -> Optional[pd.Data
             progress=False,
             threads=False,
         )
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        if df.empty:
-            return None
-        df.index = df.index.tz_localize(None) if df.index.tz else df.index
-        df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
-        df.dropna(inplace=True)
-        log.info("yfinance fetch OK %s (%d rows)", ticker, len(df))
-        return df
+        n = _normalize_yf(raw)
+        if n is not None:
+            log.info("yfinance(download) OK %s (%d rows)", ticker, len(n))
+            return n
     except Exception as e:
-        log.warning("yfinance fetch failed %s: %s", ticker, e)
-        return None
+        log.warning("yfinance(download) failed %s: %s", ticker, e)
+
+    # 2) Ticker.history — JSONDecodeError 등 download 버그 우회
+    for attempt in range(2):
+        try:
+            tk = yf.Ticker(ticker)
+            raw2 = tk.history(period=period, interval=interval, auto_adjust=True)
+            n2 = _normalize_yf(raw2)
+            if n2 is not None:
+                log.info("yfinance(history) OK %s (%d rows)", ticker, len(n2))
+                return n2
+        except Exception as e:
+            log.warning("yfinance(history) failed %s (try %d): %s", ticker, attempt + 1, e)
+        time.sleep(0.5)
+
+    return None
 
 
 def _slice_to_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
@@ -135,6 +164,12 @@ def get_history(
       2) Polygon.io (POLYGON_API_KEY 설정 시)
       3) yfinance (폴백)
       4) 오래된 캐시 (오류 시 최후 수단)
+
+    조정(adjustment) 컨벤션:
+      - Polygon = 분할(split) 조정.  yfinance 폴백 = 분할+배당(총수익) 조정.
+      - 레버리지 ETF(TQQQ/SOXL/QLD 등 배당 ~0%)는 둘의 차이가 무시할 수준이라
+        혼용해도 백테스트 영향 미미. (배당주는 P1 후속에서 총수익 단일화 검토)
+      - 실가격 정합성은 tests/test_golden_prices.py 로 검증(source sanity + 결정성 + 교차대조).
     """
     ticker = ticker.upper()
     path = _cache_path(ticker, interval, period)
@@ -154,28 +189,47 @@ def get_history(
 
     # 1순위: Polygon (일봉만 지원)
     df = None
+    fetched_fresh = False
     if interval == "1d":
         df = _fetch_polygon(ticker, period)
+        if df is not None and not df.empty:
+            fetched_fresh = True
 
     # 2순위: yfinance
     if df is None or df.empty:
         df = _fetch_yfinance(ticker, period, interval)
+        if df is not None and not df.empty:
+            fetched_fresh = True
 
-    # 3순위: 오래된 캐시
+    # 신선 fetch 성공 → 반환 '전에' 캐시에 저장 (이전엔 return 뒤라 영영 실행 안 됐던 버그).
+    # 오래된/교차 캐시 재사용분은 다시 쓰지 않는다(원본 vintage 보존).
+    if fetched_fresh and df is not None and not df.empty:
+        try:
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            df.to_parquet(path)
+            log.info("cache write %s → %s (%d rows)", ticker, path.name, len(df))
+        except Exception as e:
+            log.warning("cache write failed %s: %s", ticker, e)
+        return df
+
+    # 3순위: 오래된 캐시 (요청 period 기준)
     if df is None or df.empty:
         log.warning("all sources failed for %s — trying stale cache", ticker)
         df = _read_cache(path, ticker)
-        if df is not None and not df.empty:
-            return df
-        raise ValueError(f"No data for ticker {ticker}")
 
-    # 캐시에 저장
-    try:
-        df.to_parquet(path)
-    except Exception as e:
-        log.warning("cache write failed %s: %s", ticker, e)
+    # 4순위: 다른 period 캐시 재사용 (SCHD 등 yfinance 일시 장애 시 구제)
+    if (df is None or df.empty) and interval == "1d":
+        for p in sorted(CACHE_DIR.glob(f"{ticker}_{interval}_*.parquet"),
+                        key=lambda x: x.stat().st_mtime, reverse=True):
+            candidate = _read_cache(p, ticker)
+            if candidate is not None and not candidate.empty:
+                log.warning("using cross-period stale cache %s for %s", p.name, ticker)
+                df = _slice_to_period(candidate, period)
+                break
 
-    return df
+    if df is not None and not df.empty:
+        return df
+    raise ValueError(f"No data for ticker {ticker}")
 
 
 def get_latest_close(ticker: str) -> float:

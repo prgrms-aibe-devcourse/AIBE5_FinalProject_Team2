@@ -61,6 +61,7 @@ def classify_regimes(
     method: str = "rule",
     smoothing: int = 0,
     n_states: int = 4,
+    causal: bool = False,
 ) -> pd.Series:
     """
     국면 라벨 시리즈 반환 (close index와 정렬).
@@ -68,23 +69,31 @@ def classify_regimes(
     Parameters
     ----------
     method : "rule" | "hmm"
-        - "rule": 분위수 컷 기반 5분류 (기본, 빠름, 해석 가능)
+        - "rule": expanding 분위수 컷 기반 5분류 (기본, 빠름, 인과적, 해석 가능)
         - "hmm" : Gaussian HMM (hmmlearn) — 학술 표준, 부드러운 상태 전이
     smoothing : int
         Viterbi-style minimum-run filter. N일 미만 지속 라벨은 직전 라벨로 흡수.
         0/1이면 비활성. 권장: 5
     n_states : int
         HMM 상태 수 (3~5). rule-based에서는 무시.
+    causal : bool
+        HMM 전용. True 면 워크포워드 expanding 재디코딩으로 룩어헤드를 제거한 '실시간 국면 라벨'을
+        만든다(느림). False(기본)는 전체표본 fit(빠름, 사후분석) — 결과의 attrs['hmm_causal']로 표기.
     """
+    hmm_causal = None
     if method == "hmm":
-        raw, effective_method = _hmm_regimes(close, n_states=n_states)
+        raw, effective_method = _hmm_regimes(close, n_states=n_states, causal=causal)
+        if effective_method == "hmm":
+            hmm_causal = bool(raw.attrs.get("hmm_causal", causal))
     else:
         raw, effective_method = _rule_regimes(close), "rule"
 
     if smoothing and smoothing > 1:
-        raw = _smooth_states(raw, min_run=int(smoothing))
+        raw = _smooth_states(raw, min_run=int(smoothing))  # 새 Series 반환 → attrs 재설정 필요
     # 실제로 사용된 방법을 기록한다(HMM 요청이 표본부족/fit실패로 rule 로 폴백되면 "rule").
     raw.attrs["effective_method"] = effective_method
+    if hmm_causal is not None:
+        raw.attrs["hmm_causal"] = hmm_causal
     return raw
 
 
@@ -105,8 +114,13 @@ def _rule_regimes(close: pd.Series) -> pd.Series:
     ret = close.pct_change()
     vol60 = ret.rolling(60, min_periods=20).std() * np.sqrt(252)
 
-    vol_q75 = vol60.quantile(0.75)
-    vol_q80 = vol60.quantile(0.80)
+    # 인과적(no look-ahead): 시점 t 의 임계값은 t 까지의 변동성 분포만 사용 (expanding 분위수).
+    # 전체구간 .quantile() 은 미래 데이터로 임계값을 정하는 룩어헤드라 '실시간 국면 라벨'로는 부적합.
+    # ⚠️ 변동성 임계값(min_periods=120)은 MA200(min_periods=100)보다 늦게 확정된다. 그 100~120 구간은
+    #    MA200 은 유효한데 임계값만 NaN → high-vol 분기가 구조적으로 누락(라벨 편향)된다. 따라서 아래에서
+    #    vol_q75.isna() 구간을 '국면 미확정(NaN)'으로 명시 처리한다(거짓 라벨 대신 정직한 미확정).
+    vol_q75 = vol60.expanding(min_periods=120).quantile(0.75)
+    vol_q80 = vol60.expanding(min_periods=120).quantile(0.80)
     vol_high_75 = vol60 >= vol_q75
     vol_high_80 = vol60 >= vol_q80
 
@@ -120,7 +134,8 @@ def _rule_regimes(close: pd.Series) -> pd.Series:
     regime[is_bear_trend & ~vol_high_75] = "bear"
     regime[is_bear_trend & vol_high_75] = "high_vol_unstable"
     regime[~is_bull_trend & ~is_bear_trend & vol_high_80] = "high_vol_unstable"
-    regime[ma200.isna()] = np.nan
+    # MA200 또는 변동성 임계값이 아직 확정 안 된 워밍업 구간 → 국면 미확정(편향 방지)
+    regime[ma200.isna() | vol_q75.isna()] = np.nan
     return regime
 
 
@@ -158,95 +173,134 @@ def _smooth_states(s: pd.Series, min_run: int) -> pd.Series:
     return pd.Series(arr, index=s.index, dtype="object")
 
 
-def _hmm_regimes(close: pd.Series, n_states: int = 4) -> pd.Series:
+# ── HMM 모델/라벨 캐시: 동일 (데이터, n_states, causal) 반복 호출 시 재학습 회피 ──
+# Trust Score 1회가 per_regime_stats 를 부르고 /regime 도 같은 ticker 를 또 부르면 중복 학습이 생긴다.
+# random_state=42 로 결과가 결정적이라 캐시가 안전하다.
+_HMM_CACHE: dict = {}
+_HMM_CACHE_MAX = 64
+
+
+def _hmm_cache_key(close: pd.Series, n_states: int, causal: bool) -> tuple:
+    idx = close.index
+    return (
+        str(idx[0]) if len(idx) else "",
+        str(idx[-1]) if len(idx) else "",
+        int(len(close)),
+        round(float(close.iloc[-1]), 6) if len(close) else 0.0,
+        int(n_states),
+        bool(causal),
+    )
+
+
+def _hmm_label_map(rets, vols, vol_median, zero_band) -> dict:
+    """state index → 의미 라벨. 넘겨받는 통계가 과거-only면 라벨 매핑도 인과적이다."""
+    label_map = {}
+    for s, (r, v) in enumerate(zip(rets, vols)):
+        is_high_vol = v > vol_median
+        if abs(r) <= zero_band:
+            label_map[s] = "high_vol_unstable" if is_high_vol else "sideways"
+        elif r > 0:
+            label_map[s] = "bull_volatile" if is_high_vol else "bull_quiet"
+        else:
+            label_map[s] = "high_vol_unstable" if is_high_vol else "bear"
+    return label_map
+
+
+def _hmm_regimes(
+    close: pd.Series,
+    n_states: int = 4,
+    causal: bool = False,
+    refit_every: int = 21,
+    min_train: int = 252,
+) -> tuple[pd.Series, str]:
     """
-    Gaussian HMM 기반 국면 분류 (Pro 기능).
+    Gaussian HMM 기반 국면 분류 (Pro). 피처: log return, rolling vol(20d), momentum(60d).
 
-    Feature engineering:
-      - log return
-      - rolling vol (20d)
-      - rolling momentum (60d)
+    causal=False (기본): 전체표본 fit+predict (빠름, **사후분석용**). 시점 t 라벨이 미래 데이터로
+        추정된 파라미터로 디코딩되므로 '실시간 라벨'로 쓰면 룩어헤드. labels.attrs['hmm_causal']=False
+        로 이 사실을 정직하게 표기한다.
+    causal=True: 워크포워드 expanding 재디코딩. 경계 end 마다 [:end] 만으로 fit 하고 **다음 구간
+        [end:end+refit_every) 를 OOS 예측**(end ≤ i 이므로 인과적). 라벨 매핑도 [:end] 과거통계로만
+        수행 → 미래정보 누설 0. [0:min_train) 은 학습 이력 부족이라 NaN(미확정). labels.attrs['hmm_causal']=True
 
-    학습 후 각 상태의 평균수익·변동성으로 5라벨 자동 매핑:
-      - 수익률 양 + vol 정상 → bull_quiet
-      - 수익률 양 + vol 높음 → bull_volatile
-      - 수익률 음 + vol 정상 → bear
-      - 수익률 ≈ 0 → sideways
-      - 수익률 음 + vol 높음 → high_vol_unstable
-
-    requires: hmmlearn (BSD-3, https://github.com/hmmlearn/hmmlearn)
+    requires: hmmlearn (BSD-3)
     """
     try:
         from hmmlearn.hmm import GaussianHMM
     except ImportError as e:
         raise ImportError(
-            "HMM 모드는 hmmlearn 패키지가 필요합니다. EC2에서 "
-            "`pip install hmmlearn` 후 서비스 재시작하세요."
+            "HMM 모드는 hmmlearn 패키지가 필요합니다. `pip install hmmlearn` 후 서비스 재시작하세요."
         ) from e
 
     n_states = max(2, min(int(n_states), 6))
+
+    ckey = _hmm_cache_key(close, n_states, causal)
+    hit = _HMM_CACHE.get(ckey)
+    if hit is not None:
+        lab = hit[0].copy()
+        lab.attrs["hmm_causal"] = hit[2]
+        return lab, hit[1]
 
     log_close = np.log(close.astype(float))
     ret = log_close.diff()
     vol20 = ret.rolling(20).std()
     mom60 = log_close.diff(60)
-
     feats = pd.DataFrame({"ret": ret, "vol": vol20, "mom": mom60}).dropna()
     if len(feats) < n_states * 30:
-        # 표본 부족 시 rule-based로 폴백 (학습 불안정)
+        # 표본 부족 → rule 폴백 (캐시하지 않음)
         return _rule_regimes(close), "rule"
 
-    X = feats.values.astype(float)
-    mu = X.mean(axis=0)
-    sd = X.std(axis=0) + 1e-9
-    Xn = (X - mu) / sd
+    vals = feats.values.astype(float)
+    n = len(feats)
 
-    model = GaussianHMM(
-        n_components=n_states,
-        covariance_type="full",
-        n_iter=200,
-        tol=1e-3,
-        random_state=42,
-    )
+    def _mapping(h_arr: np.ndarray, end: int) -> dict:
+        rets = [float(feats["ret"].values[:end][h_arr == s].mean()) if (h_arr == s).any() else 0.0
+                for s in range(n_states)]
+        vols = [float(feats["vol"].values[:end][h_arr == s].mean()) if (h_arr == s).any() else 0.0
+                for s in range(n_states)]
+        vol_median = sorted(vols)[len(vols) // 2] if vols else 0.0
+        zero_band = float(feats["ret"].values[:end].std()) * 0.05
+        return _hmm_label_map(rets, vols, vol_median, zero_band)
+
     try:
-        model.fit(Xn)
+        if not causal:
+            mu = vals.mean(axis=0)
+            sd = vals.std(axis=0) + 1e-9
+            Xn = (vals - mu) / sd
+            model = GaussianHMM(n_components=n_states, covariance_type="full",
+                                n_iter=200, tol=1e-3, random_state=42)
+            model.fit(Xn)
+            hidden = model.predict(Xn)
+            lmap = _mapping(hidden, n)
+            arr = np.array([lmap[h] for h in hidden], dtype=object)
+            hmm_causal = False
+        else:
+            arr = np.empty(n, dtype=object)
+            arr[:] = np.nan
+            end = max(int(min_train), n_states * 30)
+            while end < n:
+                Xtr = vals[:end]
+                mu = Xtr.mean(axis=0)
+                sd = Xtr.std(axis=0) + 1e-9
+                model = GaussianHMM(n_components=n_states, covariance_type="full",
+                                    n_iter=100, tol=1e-3, random_state=42)
+                model.fit((Xtr - mu) / sd)
+                lmap = _mapping(model.predict((Xtr - mu) / sd), end)   # 과거-only 라벨매핑
+                hi = min(end + int(refit_every), n)
+                h_pred = model.predict((vals[end:hi] - mu) / sd)       # OOS 예측(인과적)
+                for k, i in enumerate(range(end, hi)):
+                    arr[i] = lmap[h_pred[k]]
+                end = hi
+            hmm_causal = True
     except Exception:
         return _rule_regimes(close), "rule"
-    hidden = model.predict(Xn)  # 0..K-1
 
-    # 상태별 평균 수익률 / 평균 변동성
-    state_stats = []
-    for s in range(n_states):
-        mask = hidden == s
-        if mask.sum() == 0:
-            state_stats.append({"s": s, "ret": 0.0, "vol": 0.0, "n": 0})
-            continue
-        state_stats.append({
-            "s": s,
-            "ret": float(feats["ret"].values[mask].mean()),
-            "vol": float(feats["vol"].values[mask].mean()),
-            "n": int(mask.sum()),
-        })
-
-    vols = sorted([x["vol"] for x in state_stats])
-    vol_median = vols[len(vols) // 2] if vols else 0.0
-
-    # 수익률 zero-band: 전체 표본 수익률 std의 5%
-    zero_band = float(feats["ret"].std()) * 0.05
-
-    label_map = {}
-    for x in state_stats:
-        is_high_vol = x["vol"] > vol_median
-        if abs(x["ret"]) <= zero_band:
-            label_map[x["s"]] = "high_vol_unstable" if is_high_vol else "sideways"
-        elif x["ret"] > 0:
-            label_map[x["s"]] = "bull_volatile" if is_high_vol else "bull_quiet"
-        else:
-            label_map[x["s"]] = "high_vol_unstable" if is_high_vol else "bear"
-
-    labels = pd.Series([label_map[h] for h in hidden], index=feats.index, dtype="object")
-    # close 전체 index로 정렬, 학습 못 한 앞 구간은 NaN
-    return labels.reindex(close.index), "hmm"
+    labels = pd.Series(arr, index=feats.index, dtype="object").reindex(close.index)
+    labels.attrs["hmm_causal"] = hmm_causal
+    if len(_HMM_CACHE) >= _HMM_CACHE_MAX:
+        _HMM_CACHE.pop(next(iter(_HMM_CACHE)))
+    _HMM_CACHE[ckey] = (labels.copy(), "hmm", hmm_causal)
+    return labels, "hmm"
 
 
 def per_regime_stats(
@@ -257,11 +311,14 @@ def per_regime_stats(
     n_states: int = 4,
     ticker: Optional[str] = None,
     period: Optional[str] = None,
+    causal: bool = False,
 ) -> Dict[str, Any]:
     """Run full backtest, then split equity returns by regime label and compute summary per regime."""
-    regimes_raw = classify_regimes(close, method=method, smoothing=smoothing, n_states=n_states)
+    regimes_raw = classify_regimes(close, method=method, smoothing=smoothing, n_states=n_states, causal=causal)
     # HMM 요청이 표본부족/fit실패로 rule 로 폴백됐는지 실제 사용 방법을 가져온다(dropna 전에 읽음).
     effective_method = regimes_raw.attrs.get("effective_method", method)
+    # HMM 라벨의 인과성(룩어헤드 제거 여부)도 정직하게 노출한다(method=hmm 일 때만 의미).
+    hmm_causal = regimes_raw.attrs.get("hmm_causal", None)
     regimes = regimes_raw.dropna()
     bt = run_backtest(close, params)
 
@@ -451,6 +508,7 @@ def per_regime_stats(
         "method": effective_method,                  # 실제 사용된 방법(폴백 반영)
         "method_requested": method,                  # 요청된 방법
         "hmm_fallback": bool(method == "hmm" and effective_method != "hmm"),
+        "hmm_causal": hmm_causal,                    # HMM 라벨 인과성(True=룩어헤드 제거, False=전체표본 사후, None=rule)
         "smoothing": int(smoothing or 0),
         "n_states": int(n_states),
         "regime_distribution": {k: int((reg == k).sum()) for k in REGIME_LABELS},

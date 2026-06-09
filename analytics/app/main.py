@@ -32,6 +32,11 @@ from app.backtest.infinite_buying import (
     run_infinite_buying,
     latest_order_plan,
 )
+from app.backtest.value_rebalancing import (
+    ValueRebalancingParams,
+    run_value_rebalancing,
+    latest_vr_plan,
+)
 from app.metrics.quantstats_report import compute_metrics
 from app.models.xgb_signal import train_model, predict_proba_up
 from app.models.retrain_scheduler import start_scheduler, retrain_all
@@ -70,7 +75,27 @@ def require_internal_token(x_internal_token: str = Header(default="")) -> None:
 STRATEGY_LITERAL = Literal[
     "buy_and_hold", "sma_cross", "rsi_meanrev", "macd",
     "momentum_12_1", "vix_risk_off",
+    "infinite_buying", "value_rebalancing",
 ]
+
+# Trust/Regime 요청에 실리는 무한매수법/밸류리밸런싱 파라미터 (해당 strategy 일 때만 사용)
+_IB_VR_FIELDS = """split take_profit_pct loc_offset_pct rebalance_days expected_return band_pct pool_target_pct initial_pool_pct biweekly_contrib"""
+
+
+def _bt_params(req) -> "BacktestParams":
+    """Trust/Regime 요청 → BacktestParams (IB/VR 상태기반 전략 파라미터까지 전달)."""
+    return BacktestParams(
+        strategy=req.strategy,
+        split=getattr(req, "split", 40),
+        take_profit_pct=getattr(req, "take_profit_pct", 10.0),
+        loc_offset_pct=getattr(req, "loc_offset_pct", 12.0),
+        rebalance_days=getattr(req, "rebalance_days", 10),
+        expected_return=getattr(req, "expected_return", 0.02),
+        band_pct=getattr(req, "band_pct", 0.20),
+        pool_target_pct=getattr(req, "pool_target_pct", 0.50),
+        initial_pool_pct=getattr(req, "initial_pool_pct", 0.50),
+        biweekly_contrib=getattr(req, "biweekly_contrib", 0.0),
+    )
 
 
 class BacktestReq(BaseModel):
@@ -173,6 +198,9 @@ def backtest(req: BacktestReq):
         # 단순보유 비교용
         result["buy_and_hold_metrics"] = compute_metrics(df["Close"].pct_change().dropna())
         return result
+    except ValueError as e:
+        # 시세 데이터 부재 — 서버 오류가 아니라 요청 데이터 문제
+        raise HTTPException(400, str(e))
     except Exception as e:
         log.exception("backtest failed")
         raise HTTPException(500, str(e))
@@ -249,6 +277,16 @@ def walk_forward_endpoint(req: WalkForwardReq):
         raise HTTPException(500, str(e))
 
 
+def _slice_df(df, start=None, end=None):
+    """ISO start/end 가 주어지면 df 를 그 날짜구간으로 자른다(백테스트·Regime·Trust 공통)."""
+    if not start and not end:
+        return df
+    try:
+        return df.loc[(start or None):(end or None)]
+    except Exception:
+        return df
+
+
 class RegimeReq(BaseModel):
     ticker: str
     period: str = "5y"
@@ -256,13 +294,26 @@ class RegimeReq(BaseModel):
     method: str = "rule"      # "rule" | "hmm"
     smoothing: int = 0        # Viterbi-style minimum-run filter (0=off, 권장 5)
     n_states: int = 4         # HMM 상태 수 (rule-based에서는 무시)
+    causal: bool = False      # HMM 인과(워크포워드) 디코딩 — 룩어헤드 제거(느림). False=전체표본(빠름·사후)
+    # 무한매수법/밸류리밸런싱 파라미터 (strategy 가 해당일 때만 사용)
+    split: int = 40
+    take_profit_pct: float = 10.0
+    loc_offset_pct: float = 12.0
+    rebalance_days: int = 10
+    expected_return: float = 0.02
+    band_pct: float = 0.20
+    pool_target_pct: float = 0.50
+    initial_pool_pct: float = 0.50
+    biweekly_contrib: float = 0.0
+    start: str | None = None  # 직접 지정 시작일(ISO). 주면 period 무시하고 [start,end] 구간 분석
+    end: str | None = None    # 직접 지정 종료일(ISO)
 
 
 @app.post("/regime", dependencies=[Depends(require_internal_token)])
 def regime_endpoint(req: RegimeReq):
     try:
-        df = get_history(req.ticker, period=req.period)
-        params = BacktestParams(strategy=req.strategy)
+        df = _slice_df(get_history(req.ticker, period=req.period), req.start, req.end)
+        params = _bt_params(req)
         return per_regime_stats(
             df["Close"], params,
             method=req.method,
@@ -270,6 +321,7 @@ def regime_endpoint(req: RegimeReq):
             n_states=req.n_states,
             ticker=req.ticker,
             period=req.period,
+            causal=req.causal,
         )
     except Exception as e:
         log.exception("regime failed")
@@ -290,13 +342,27 @@ class TrustReq(BaseModel):
     # 자산 분류 override — "auto" 시 ticker 로 자동 판별
     asset_class: str = "auto"
     leverage: int | None = None
+    regime_method: str = "rule"   # Trust 국면 견고성 채점에 쓸 국면 분류 ("rule"|"hmm")
+    regime_causal: bool = False   # hmm 일 때 인과(워크포워드) 디코딩 여부
+    # 무한매수법/밸류리밸런싱 파라미터 (strategy 가 해당일 때만 사용)
+    split: int = 40
+    take_profit_pct: float = 10.0
+    loc_offset_pct: float = 12.0
+    rebalance_days: int = 10
+    expected_return: float = 0.02
+    band_pct: float = 0.20
+    pool_target_pct: float = 0.50
+    initial_pool_pct: float = 0.50
+    biweekly_contrib: float = 0.0
+    start: str | None = None  # 직접 지정 시작일(ISO). 주면 [start,end] 구간으로 신뢰도 평가
+    end: str | None = None    # 직접 지정 종료일(ISO)
 
 
 @app.post("/trust", dependencies=[Depends(require_internal_token)])
 def trust_endpoint(req: TrustReq):
     try:
-        df = get_history(req.ticker, period=req.period)
-        params = BacktestParams(strategy=req.strategy)
+        df = _slice_df(get_history(req.ticker, period=req.period), req.start, req.end)
+        params = _bt_params(req)
         return compute_trust_score(
             df["Close"], params,
             mdd_target_pct=req.mdd_target_pct,
@@ -307,6 +373,8 @@ def trust_endpoint(req: TrustReq):
             ticker=req.ticker,
             asset_class=req.asset_class,
             leverage=req.leverage,
+            regime_method=req.regime_method,
+            regime_causal=req.regime_causal,
         )
     except Exception as e:
         log.exception("trust failed")
@@ -323,27 +391,56 @@ class InfiniteBuyingReq(BaseModel):
     initial_capital: float = 300_000_000.0
     fees: float = 0.0025      # 0.25% — CLAUDE.md 명세(InfiniteBuyingParams 기본값과 정합)
     slippage: float = 0.001   # 0.1%
+    start: str | None = None  # 직접 지정 시작일(ISO). 주면 [start,end] 구간만 백테스트
+    end: str | None = None    # 직접 지정 종료일(ISO)
+
+
+def _build_ib_params(req: "InfiniteBuyingReq") -> InfiniteBuyingParams:
+    """요청 → InfiniteBuyingParams."""
+    return InfiniteBuyingParams(
+        split=req.split,
+        take_profit_pct=req.take_profit_pct,
+        loc_offset_pct=req.loc_offset_pct,
+        initial_capital=req.initial_capital,
+        fees=req.fees,
+        slippage=req.slippage,
+    )
+
+
+def _ticker_series(closes: dict, max_points: int = 1500) -> dict:
+    """백테스트 응답에 종목별 가격 시계열을 실어 보낸다(프론트 차트 탭용). 과다 포인트는 다운샘플."""
+    out = {}
+    for tk, s in (closes or {}).items():
+        try:
+            ser = s.dropna()
+            if len(ser) > max_points:
+                step = len(ser) // max_points + 1
+                ser = ser.iloc[::step]
+            out[tk] = [
+                {"date": (idx.date().isoformat() if hasattr(idx, "date") else str(idx)), "close": round(float(v), 4)}
+                for idx, v in ser.items()
+            ]
+        except Exception:
+            pass
+    return out
 
 
 @app.post("/backtest/infinite-buying", dependencies=[Depends(require_internal_token)])
 def backtest_infinite_buying(req: InfiniteBuyingReq):
     try:
         closes: dict = {}
+        highs: dict = {}
         for t in req.tickers:
-            df = get_history(t, period=req.period)
+            df = _slice_df(get_history(t, period=req.period), req.start, req.end)
             closes[t.upper()] = df["Close"]
-        params = InfiniteBuyingParams(
-            split=req.split,
-            take_profit_pct=req.take_profit_pct,
-            loc_offset_pct=req.loc_offset_pct,
-            initial_capital=req.initial_capital,
-            fees=req.fees,
-            slippage=req.slippage,
-        )
-        result = run_infinite_buying(closes, params)
+            if "High" in df.columns:
+                highs[t.upper()] = df["High"]
+        params = _build_ib_params(req)
+        result = run_infinite_buying(closes, params, highs=highs or None)
         strat_returns = result.pop("_strategy_returns", None)
         if strat_returns is not None and len(strat_returns) > 1:
             result["risk_metrics"] = compute_metrics(strat_returns)
+        result["ticker_series"] = _ticker_series(closes)
         return result
     except Exception as e:
         log.exception("infinite_buying failed")
@@ -357,17 +454,189 @@ def infinite_buying_plan(req: InfiniteBuyingReq):
         for t in req.tickers:
             df = get_history(t, period=req.period)
             closes[t.upper()] = df["Close"]
-        params = InfiniteBuyingParams(
-            split=req.split,
-            take_profit_pct=req.take_profit_pct,
-            loc_offset_pct=req.loc_offset_pct,
-            initial_capital=req.initial_capital,
-            fees=req.fees,
-            slippage=req.slippage,
-        )
+        params = _build_ib_params(req)
         return latest_order_plan(closes, params)
     except Exception as e:
         log.exception("infinite_buying plan failed")
+        raise HTTPException(500, str(e))
+
+
+# ---------- Value Rebalancing (밸류 리밸런싱 / VR) ----------
+class ValueRebalancingReq(BaseModel):
+    tickers: list[str] = Field(default_factory=lambda: ["QLD"])
+    period: str = "5y"
+    rebalance_days: int = 10
+    expected_return: float = 0.02
+    band_pct: float = 0.20
+    pool_target_pct: float = 0.50
+    initial_pool_pct: float = 0.50
+    biweekly_contrib: float = 0.0
+    initial_capital: float = 150_000_000.0
+    fees: float = 0.0025
+    slippage: float = 0.001
+    start: str | None = None
+    end: str | None = None
+
+
+def _build_vr_params(req: "ValueRebalancingReq") -> ValueRebalancingParams:
+    return ValueRebalancingParams(
+        rebalance_days=req.rebalance_days, expected_return=req.expected_return,
+        band_pct=req.band_pct, pool_target_pct=req.pool_target_pct,
+        initial_pool_pct=req.initial_pool_pct, biweekly_contrib=req.biweekly_contrib,
+        initial_capital=req.initial_capital, fees=req.fees, slippage=req.slippage,
+    )
+
+
+@app.post("/backtest/value-rebalancing", dependencies=[Depends(require_internal_token)])
+def backtest_value_rebalancing(req: ValueRebalancingReq):
+    try:
+        closes: dict = {}
+        for t in req.tickers:
+            df = _slice_df(get_history(t, period=req.period), req.start, req.end)
+            closes[t.upper()] = df["Close"]
+        params = _build_vr_params(req)
+        result = run_value_rebalancing(closes, params)
+        strat_returns = result.pop("_strategy_returns", None)
+        if strat_returns is not None and len(strat_returns) > 1:
+            result["risk_metrics"] = compute_metrics(strat_returns)
+        result["ticker_series"] = _ticker_series(closes)
+        return result
+    except Exception as e:
+        log.exception("value_rebalancing failed")
+        raise HTTPException(500, str(e))
+
+
+@app.post("/orders/value-rebalancing/plan", dependencies=[Depends(require_internal_token)])
+def value_rebalancing_plan(req: ValueRebalancingReq):
+    try:
+        closes: dict = {}
+        for t in req.tickers:
+            df = get_history(t, period=req.period)
+            closes[t.upper()] = df["Close"]
+        return latest_vr_plan(closes, _build_vr_params(req))
+    except Exception as e:
+        log.exception("value_rebalancing plan failed")
+        raise HTTPException(500, str(e))
+
+
+# ---------- 시드 역산: "월 N만원 벌려면 종목별 시드 얼마?" ----------
+# 실현 현금흐름은 시드에 정확히 선형 비례(엔진이 분할금액·수량을 비율로 계산, 소수주 허용).
+# → 참조시드로 1회 백테스트해서 월 실현액을 측정한 뒤, 목표 ÷ 측정 배수로 필요시드를 역산.
+REFERENCE_SEED_USD = 100_000.0  # 측정용 참조 시드(결과 비율엔 영향 없음 — 선형이므로 상쇄)
+
+
+class InfiniteBuyingSizingReq(InfiniteBuyingReq):
+    target_monthly_usd: float | None = None
+    target_monthly_krw: float | None = None
+    fx: float = 1380.0  # KRW per USD
+    start: str | None = None  # 직접 지정 시작일(ISO). 주면 워밍업 포함 측정창 [start,end]
+    end: str | None = None    # 직접 지정 종료일(ISO). 미지정 시 오늘
+
+
+@app.post("/backtest/infinite-buying/sizing", dependencies=[Depends(require_internal_token)])
+def infinite_buying_sizing(req: InfiniteBuyingSizingReq):
+    try:
+        # 목표 월수익(USD) 산출
+        if req.target_monthly_usd and req.target_monthly_usd > 0:
+            target_usd = float(req.target_monthly_usd)
+        elif req.target_monthly_krw and req.target_monthly_krw > 0:
+            target_usd = float(req.target_monthly_krw) / req.fx
+        else:
+            raise HTTPException(400, "target_monthly_usd 또는 target_monthly_krw(>0)가 필요합니다")
+
+        # 데이터 로드 — 직접 지정(start/end) 또는 짧은 프리셋이면 워밍업(평단·분할매수 누적) 포함해 측정창으로 자른다.
+        from datetime import date as _date, timedelta as _td
+        closes: dict = {}
+        _SHORT = {"2mo": 60, "3mo": 90, "6mo": 180}
+        eff_start = req.start
+        eff_end = req.end or _date.today().isoformat()
+        if not eff_start and req.period in _SHORT:
+            eff_start = (_date.today() - _td(days=_SHORT[req.period])).isoformat()
+        win_end = eff_end
+        if eff_start:
+            warm_from = _date.fromisoformat(eff_start) - _td(days=120)   # 측정창 전 워밍업
+            yrs = (_date.today() - warm_from).days / 365.0 + 0.5
+            fetch_period = "max" if yrs > 9 else "10y" if yrs > 4 else "5y" if yrs > 1.5 else "2y"
+            for t in req.tickers:
+                df = get_history(t, period=fetch_period).loc[str(warm_from):win_end]
+                closes[t.upper()] = df["Close"]
+        else:
+            for t in req.tickers:
+                df = get_history(t, period=req.period)
+                closes[t.upper()] = df["Close"]
+
+        # 참조 시드로 측정 (사용자 initial_capital 무시 — 시드를 '구하는' 게 목적)
+        params = _build_ib_params(req)
+        params.initial_capital = REFERENCE_SEED_USD
+        result = run_infinite_buying(closes, params)
+        result.pop("_strategy_returns", None)
+        stats = result["stats"]
+
+        if eff_start:
+            # 측정창 [start, end] 안의 익절(실현)만 합산 → 워밍업 제외, 그 기간 순수 월 현금흐름
+            months = max(0.5, (_date.fromisoformat(win_end) - _date.fromisoformat(eff_start)).days / 30.4)
+            sells = [tr for tr in result.get("recent_trades", [])
+                     if tr.get("side") == "SELL" and eff_start <= str(tr.get("date", "")) <= win_end]
+            window_realized = sum(float(tr.get("realized", 0) or 0) for tr in sells)
+            monthly = window_realized / months
+            stats = {**stats, "estimated_monthly_cashflow": round(monthly, 4),
+                     "window_sells": len(sells), "window_months": round(months, 2)}
+        else:
+            monthly = stats.get("estimated_monthly_cashflow") or 0.0
+
+        period_label = f"{eff_start}~{win_end}" if eff_start else req.period
+
+        if monthly <= 0:
+            return {
+                "feasible": False,
+                "reason": "해당 기간에 익절(실현수익)이 없어 시드 역산 불가 — 기간을 늘리거나 다른 구간을 선택하세요.",
+                "period": period_label,
+                "reference_seed_usd": REFERENCE_SEED_USD,
+                "measured_monthly_usd": round(monthly, 2),
+                "backtest_stats": stats,
+            }
+
+        scale = target_usd / monthly
+        required_usd = REFERENCE_SEED_USD * scale
+
+        up = [t.upper() for t in req.tickers]
+        alloc = {t: required_usd / len(up) for t in up}
+
+        per_ticker = {
+            t: {
+                "seed_usd": round(alloc[t], 2),
+                "seed_krw": round(alloc[t] * req.fx),
+                "daily_buy_usd": round(alloc[t] / params.split, 2),
+                "daily_buy_krw": round(alloc[t] / params.split * req.fx),
+            }
+            for t in up
+        }
+
+        return {
+            "feasible": True,
+            "period": period_label,
+            "fx": req.fx,
+            "split": params.split,
+            "target_monthly_usd": round(target_usd, 2),
+            "target_monthly_krw": round(target_usd * req.fx),
+            "reference_seed_usd": REFERENCE_SEED_USD,
+            "measured_monthly_usd": round(monthly, 2),
+            "measured_monthly_krw": round(monthly * req.fx),
+            "scale_factor": round(scale, 4),
+            "required_seed_usd": round(required_usd, 2),
+            "required_seed_krw": round(required_usd * req.fx),
+            "per_ticker": per_ticker,
+            "backtest_stats": stats,
+            "caveat": (
+                f"{period_label} 과거 성과 기준 선형 추정입니다. 미래 수익은 시장 상황에 따라 달라지며, "
+                f"레버리지 ETF는 낙폭이 큽니다(이 구간 MDD {stats.get('max_drawdown_pct')}%). "
+                f"같은 시드라도 약세장 구간에서는 월수익이 크게 줄 수 있습니다."
+            ),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("infinite_buying sizing failed")
         raise HTTPException(500, str(e))
 
 
