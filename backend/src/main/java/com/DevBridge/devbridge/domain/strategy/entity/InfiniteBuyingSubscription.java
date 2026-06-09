@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
  *  - 매일 하루치(seed/split_count) 만큼 매수
  *      · 절반: LOC 평단가 매수
  *      · 절반: LOC 평단가 +big_buy_premium_pct(기본 12%) 매수
- *  - 매도: 평단 +take_profit_pct(기본 10%) 지정가 매도 매일 갱신
+ *  - 매도: 평단 +take_profit_pct(기본 10%) 지정가 매도 매일 갱신, 익절 시 전량 매도
  *  - 익절 체결 시 사이클 리셋
  *
  * 스케줄러(InfiniteBuyingJob)가 매 거래일 한국시간 22:00 직전 자동 OrderProposal 생성.

@@ -1,6 +1,6 @@
 package com.DevBridge.devbridge.global.config;
 
-import com.DevBridge.devbridge.global.security.AuthContext;
+import com.DevBridge.devbridge.global.security.JwtAuthenticationFilter;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.Refill;
@@ -10,6 +10,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -34,6 +36,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Slf4j
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE + 20)   // JwtAuthenticationFilter(+10) 다음에 실행 — 그래야 request attribute(userId)가 채워진 상태
 public class AiRateLimitFilter extends OncePerRequestFilter {
 
     @Value("${app.ratelimit.ai-chat.capacity:20}")
@@ -71,9 +74,13 @@ public class AiRateLimitFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
-        Long userId = AuthContext.currentUserId();
+        // 신원은 request attribute 에서 직접 읽는다. AuthContext.currentUserId() 는 RequestContextHolder 에 의존하는데
+        // 서블릿 필터 단계에서는 (DispatcherServlet 진입 전이라) 아직 채워지지 않아 항상 null → 레이트리밋이 전원 무력화되던 버그.
+        // JwtAuthenticationFilter(@Order +10)가 먼저 실행돼 이 attribute 를 채워둔다(@Order +20).
+        Object uidAttr = request.getAttribute(JwtAuthenticationFilter.ATTR_USER_ID);
+        Long userId = (uidAttr instanceof Long l) ? l : null;
         if (userId == null) {
-            // 미인증 요청은 SecurityFilter가 처리 — 여기서는 pass
+            // 미인증 요청 — 대상 컨트롤러가 인증을 요구(401)하므로 여기서는 통과. (LLM 호출은 인증 통과 후에만 발생)
             chain.doFilter(request, response);
             return;
         }

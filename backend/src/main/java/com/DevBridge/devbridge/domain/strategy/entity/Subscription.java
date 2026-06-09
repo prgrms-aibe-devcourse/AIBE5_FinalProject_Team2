@@ -10,10 +10,15 @@ import java.time.LocalDateTime;
  * Pro는 Toss 결제 1회당 1개월 ACTIVE → 만료 시 expiredAt 도달하면 FREE 강등.
  */
 @Entity
-@Table(name = "SUBSCRIPTION", indexes = {
-        @Index(name = "ix_sub_user_status", columnList = "user_id, status"),
-        @Index(name = "ix_sub_user_expires", columnList = "user_id, expires_at")
-})
+@Table(name = "SUBSCRIPTION",
+        uniqueConstraints = {
+                // M8: 결제 confirm 멱등성 — 같은 Toss 결제키로 중복 구독이 생기지 않도록 DB 레벨 보장.
+                @UniqueConstraint(name = "uq_subscription_toss_payment_key", columnNames = "toss_payment_key")
+        },
+        indexes = {
+                @Index(name = "ix_sub_user_status", columnList = "user_id, status"),
+                @Index(name = "ix_sub_user_expires", columnList = "user_id, expires_at")
+        })
 @Getter
 @Setter
 @NoArgsConstructor

@@ -8,6 +8,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -24,6 +26,7 @@ import java.io.IOException;
  * 실패해도 요청은 그대로 통과 (인증이 필요한 컨트롤러에서 attribute 체크).
  */
 @Component
+@Order(Ordered.HIGHEST_PRECEDENCE + 10)   // 반드시 AiRateLimitFilter(+20)보다 먼저 실행 — 그래야 요청 attribute(userId)가 채워진다
 @RequiredArgsConstructor
 @Slf4j
 public class JwtAuthenticationFilter extends OncePerRequestFilter {

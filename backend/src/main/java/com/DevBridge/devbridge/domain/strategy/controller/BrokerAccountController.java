@@ -47,6 +47,35 @@ public class BrokerAccountController {
     private static final int AUTO_REAL_MIN_DAYS = 14;
     private static final int AUTO_REAL_MIN_TRADES = 20;
 
+    /**
+     * 실전(REAL) 계좌 한도 안전 상한. 등록(upsert)·수정(patchLimits) <b>양 경로에서 동일하게</b> 강제한다.
+     * (이전엔 patchLimits 에만 캡이 있어 upsert 로는 무제한 큰 한도 등록이 가능한 비대칭이 있었다.)
+     * KIS/Binance 모두 REAL 이면 적용 — 실수/버그로 실계좌 잔고가 한 번에 소진되는 것을 막는 마지막 방어선.
+     */
+    private static final long REAL_MAX_ORDER_USD_CAP   = 50_000L;
+    private static final long REAL_DAILY_ORDER_USD_CAP = 200_000L;
+    private static final long REAL_DAILY_BUY_KRW_CAP   = 100_000_000L;   // 약 USD 77k
+    private static final long REAL_DAILY_SELL_KRW_CAP  = 500_000_000L;   // 약 USD 385k
+
+    /** REAL 계좌 한도 상한 위반 검사. 위반 시 사용자 메시지, 통과 시 null. MOCK 은 항상 통과(상한 없음). */
+    private static String realCapViolation(BrokerAccount.Env env, Long maxOrderUsd, Long dailyOrderUsd,
+                                           Long dailyBuyKrw, Long dailySellKrw) {
+        if (env != BrokerAccount.Env.REAL) return null;
+        if (maxOrderUsd != null && maxOrderUsd > REAL_MAX_ORDER_USD_CAP)
+            return "실전계좌 1건당 한도는 최대 USD " + REAL_MAX_ORDER_USD_CAP + " 까지 가능합니다";
+        if (dailyOrderUsd != null && dailyOrderUsd > REAL_DAILY_ORDER_USD_CAP)
+            return "실전계좌 일일 누적 한도는 최대 USD " + REAL_DAILY_ORDER_USD_CAP + " 까지 가능합니다";
+        if (dailyBuyKrw != null && dailyBuyKrw > REAL_DAILY_BUY_KRW_CAP)
+            return "실전계좌 매수 1일 한도는 최대 1억원 까지 가능합니다";
+        if (dailySellKrw != null && dailySellKrw > REAL_DAILY_SELL_KRW_CAP)
+            return "실전계좌 매도 1일 한도는 최대 5억원 까지 가능합니다";
+        return null;
+    }
+
+    private static ResponseEntity<?> badReq(String msg) {
+        return ResponseEntity.badRequest().body(Map.of("error", msg));
+    }
+
     @GetMapping
     public ResponseEntity<?> getMine() {
         Long uid = AuthContext.currentUserId();
@@ -73,6 +102,10 @@ public class BrokerAccountController {
             var bad = validateBinance(req);
             if (bad != null) return bad;
         }
+
+        // 실전(REAL) 계좌 한도 안전 상한 — 등록 시점에도 강제(patchLimits 와 동일 정책). 실수로 무제한 큰 한도 등록 방지.
+        String capViol = realCapViolation(env, req.maxOrderUsd(), req.dailyOrderUsd(), req.dailyBuyKrw(), req.dailySellKrw());
+        if (capViol != null) return badReq(capViol);
 
         BrokerAccount b = brokerRepo.findByUserIdAndBrokerTypeAndEnv(uid, brokerType, env).orElseGet(() -> {
             User u = userRepo.findById(uid).orElseThrow();
@@ -122,6 +155,14 @@ public class BrokerAccountController {
             return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED)
                     .body(Map.of("error", "먼저 /test로 키 유효성을 검증해야 합니다."));
         }
+        // 실전 자동매매 시작 전 책임고지 1회 동의 필수 (needAck → 프론트가 동의 모달 표시 후 /ack-risk 호출).
+        if (enabled && isReal && !Boolean.TRUE.equals(b.getRealRiskAcknowledged())) {
+            return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED)
+                    .body(Map.of(
+                            "error", "실전 자동매매 시작 전 책임고지 동의가 필요합니다.",
+                            "needAck", true
+                    ));
+        }
         if (enabled && isReal && b.getBrokerType() == BrokerAccount.BrokerType.KIS) {
             var gate = promotionGate.evaluate(uid, b);
             if (!gate.passed()) {
@@ -134,6 +175,26 @@ public class BrokerAccountController {
             }
         }
         b.setTradingEnabled(enabled);
+        brokerRepo.save(b);
+        return ResponseEntity.ok(BrokerAccountDto.from(b));
+    }
+
+    /**
+     * 실전(REAL) 자동매매 책임고지 동의 (1회). 매매 ON 게이트의 needAck 응답을 해소한다.
+     * 프론트는 "투자 책임 본인·자문 아님·레버리지 고위험" 고지에 동의 체크 후 이 엔드포인트를 호출한다.
+     */
+    @PatchMapping("/ack-risk")
+    @Transactional
+    public ResponseEntity<?> acknowledgeRealRisk(
+            @RequestParam("env") BrokerAccount.Env env,
+            @RequestParam(value = "brokerType", required = false) BrokerAccount.BrokerType brokerType) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauthorized();
+        if (brokerType == null) brokerType = BrokerAccount.BrokerType.KIS;
+        BrokerAccount b = brokerRepo.findByUserIdAndBrokerTypeAndEnv(uid, brokerType, env).orElse(null);
+        if (b == null) return ResponseEntity.notFound().build();
+        b.setRealRiskAcknowledged(true);
+        brokerRepo.save(b);
         return ResponseEntity.ok(BrokerAccountDto.from(b));
     }
 
@@ -201,10 +262,13 @@ public class BrokerAccountController {
     @PatchMapping("/limits")
     @Transactional
     public ResponseEntity<?> patchLimits(@RequestParam("env") BrokerAccount.Env env,
+                                         @RequestParam(value = "brokerType", required = false) BrokerAccount.BrokerType brokerType,
                                          @RequestBody Map<String, Object> body) {
         Long uid = AuthContext.currentUserId();
         if (uid == null) return unauthorized();
-        BrokerAccount b = brokerRepo.findByUserIdAndBrokerTypeAndEnv(uid, BrokerAccount.BrokerType.KIS, env).orElse(null);
+        // 이전엔 KIS 로 하드코딩되어 Binance 계좌의 한도를 조정할 수 없었다(REAL Binance 빠른조정 모달이 KIS 계좌를 잘못 건드림).
+        if (brokerType == null) brokerType = BrokerAccount.BrokerType.KIS; // 하위호환
+        BrokerAccount b = brokerRepo.findByUserIdAndBrokerTypeAndEnv(uid, brokerType, env).orElse(null);
         if (b == null) return ResponseEntity.notFound().build();
         Long max = toLong(body.get("maxOrderUsd"));
         Long daily = toLong(body.get("dailyOrderUsd"));
@@ -212,41 +276,23 @@ public class BrokerAccountController {
         Long sellKrw = toLong(body.get("dailySellKrw"));
         Long lossLimit = toLong(body.get("dailyLossLimitUsd"));
         if (max == null && daily == null && buyKrw == null && sellKrw == null && lossLimit == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "한도 필드 중 최소 1개 필요 (maxOrderUsd, dailyOrderUsd, dailyBuyKrw, dailySellKrw, dailyLossLimitUsd)"));
+            return badReq("한도 필드 중 최소 1개 필요 (maxOrderUsd, dailyOrderUsd, dailyBuyKrw, dailySellKrw, dailyLossLimitUsd)");
         }
-        if (lossLimit != null) {
-            if (lossLimit < 0) return ResponseEntity.badRequest().body(Map.of("error", "dailyLossLimitUsd는 0 이상이어야 합니다"));
-            b.setDailyLossLimitUsd(lossLimit == 0 ? null : lossLimit);
-        }
-        if (max != null) {
-            if (max < 0) return ResponseEntity.badRequest().body(Map.of("error", "maxOrderUsd는 0 이상이어야 합니다"));
-            if (env == BrokerAccount.Env.REAL && max > 50_000L) {
-                return ResponseEntity.badRequest().body(Map.of("error", "실전계좌 1건당 한도는 최대 USD 50,000 까지 가능합니다"));
-            }
-            b.setMaxOrderUsd(max);
-        }
-        if (daily != null) {
-            if (daily < 0) return ResponseEntity.badRequest().body(Map.of("error", "dailyOrderUsd는 0 이상이어야 합니다"));
-            if (env == BrokerAccount.Env.REAL && daily > 200_000L) {
-                return ResponseEntity.badRequest().body(Map.of("error", "실전계좌 일일 누적 한도는 최대 USD 200,000 까지 가능합니다"));
-            }
-            b.setDailyOrderUsd(daily);
-        }
-        if (buyKrw != null) {
-            if (buyKrw < 0) return ResponseEntity.badRequest().body(Map.of("error", "dailyBuyKrw는 0 이상이어야 합니다"));
-            // REAL 안전 가드: 1억 원 상한 (대략 USD 72,000)
-            if (env == BrokerAccount.Env.REAL && buyKrw > 100_000_000L) {
-                return ResponseEntity.badRequest().body(Map.of("error", "실전계좌 매수 1일 한도는 최대 1억원 까지 가능합니다"));
-            }
-            b.setDailyBuyKrw(buyKrw);
-        }
-        if (sellKrw != null) {
-            if (sellKrw < 0) return ResponseEntity.badRequest().body(Map.of("error", "dailySellKrw는 0 이상이어야 합니다"));
-            if (env == BrokerAccount.Env.REAL && sellKrw > 500_000_000L) {
-                return ResponseEntity.badRequest().body(Map.of("error", "실전계좌 매도 1일 한도는 최대 5억원 까지 가능합니다"));
-            }
-            b.setDailySellKrw(sellKrw);
-        }
+        // 음수 거부
+        if (max != null && max < 0) return badReq("maxOrderUsd는 0 이상이어야 합니다");
+        if (daily != null && daily < 0) return badReq("dailyOrderUsd는 0 이상이어야 합니다");
+        if (buyKrw != null && buyKrw < 0) return badReq("dailyBuyKrw는 0 이상이어야 합니다");
+        if (sellKrw != null && sellKrw < 0) return badReq("dailySellKrw는 0 이상이어야 합니다");
+        if (lossLimit != null && lossLimit < 0) return badReq("dailyLossLimitUsd는 0 이상이어야 합니다");
+        // REAL 안전 상한 — 등록(upsert) 경로와 동일 정책 재사용. 계좌의 실제 env 기준.
+        String capViol = realCapViolation(b.getEnv(), max, daily, buyKrw, sellKrw);
+        if (capViol != null) return badReq(capViol);
+
+        if (lossLimit != null) b.setDailyLossLimitUsd(lossLimit == 0 ? null : lossLimit);
+        if (max != null) b.setMaxOrderUsd(max);
+        if (daily != null) b.setDailyOrderUsd(daily);
+        if (buyKrw != null) b.setDailyBuyKrw(buyKrw);
+        if (sellKrw != null) b.setDailySellKrw(sellKrw);
         brokerRepo.save(b);
         return ResponseEntity.ok(BrokerAccountDto.from(b));
     }

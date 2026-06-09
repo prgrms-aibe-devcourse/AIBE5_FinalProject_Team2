@@ -72,6 +72,16 @@ public class SubscriptionController {
             log.warn("[Subscription] 허용되지 않은 금액 userId={} amount={}", uid, amount);
             return ResponseEntity.badRequest().body(Map.of("error", "허용되지 않은 결제 금액입니다. (9900 또는 19900원)"));
         }
+        if (paymentKey == null || paymentKey.isBlank() || "null".equals(paymentKey)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "paymentKey 가 없습니다."));
+        }
+
+        // M8 멱등성: 이미 처리된 결제키면 Toss 재confirm 없이 기존 구독을 반환(더블클릭/새로고침/재시도 방어).
+        Subscription already = subscriptionService.findByPaymentKey(paymentKey);
+        if (already != null) {
+            log.info("[Subscription] 멱등 confirm — 이미 처리된 결제 userId={} orderId={}", uid, orderId);
+            return ResponseEntity.ok(idempotentBody(already, true));
+        }
 
         try {
             JsonNode result = toss.confirm(paymentKey, orderId, amount);
@@ -85,9 +95,28 @@ public class SubscriptionController {
                     "status",    sub.getStatus().name(),
                     "expiresAt", sub.getExpiresAt().toString()
             ));
+        } catch (org.springframework.dao.DataIntegrityViolationException dup) {
+            // 동시 confirm 경합 — DB 유니크(uq_subscription_toss_payment_key)에 막힘. 먼저 처리된 구독을 재사용.
+            Subscription existing = subscriptionService.findByPaymentKey(paymentKey);
+            if (existing != null) {
+                log.info("[Subscription] confirm 경합 멱등 처리 userId={} orderId={}", uid, orderId);
+                return ResponseEntity.ok(idempotentBody(existing, true));
+            }
+            log.warn("[Subscription] confirm 무결성 충돌 userId={} orderId={}: {}", uid, orderId, dup.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("error", "결제 처리 중 중복이 감지되었습니다. 잠시 후 구독 상태를 확인해 주세요."));
         } catch (RuntimeException e) {
             log.warn("[Subscription] confirm 실패 userId={} orderId={}: {}", uid, orderId, e.getMessage());
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
+    }
+
+    /** 멱등 응답 바디 — 기존 구독을 그대로 표현. */
+    private static Map<String, Object> idempotentBody(Subscription sub, boolean idempotent) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("tier", SubscriptionService.deriveTierDisplay(sub));
+        body.put("status", sub.getStatus().name());
+        body.put("expiresAt", sub.getExpiresAt() == null ? null : sub.getExpiresAt().toString());
+        body.put("idempotent", idempotent);
+        return body;
     }
 }

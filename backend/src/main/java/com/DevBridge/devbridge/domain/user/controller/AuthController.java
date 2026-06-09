@@ -3,10 +3,14 @@ package com.DevBridge.devbridge.domain.user.controller;
 import com.DevBridge.devbridge.domain.user.dto.AuthResponse;
 import com.DevBridge.devbridge.domain.user.dto.LoginRequest;
 import com.DevBridge.devbridge.domain.user.dto.SignupRequest;
+import com.DevBridge.devbridge.domain.user.entity.RefreshToken;
 import com.DevBridge.devbridge.domain.user.entity.User;
+import com.DevBridge.devbridge.domain.user.repository.RefreshTokenRepository;
+import com.DevBridge.devbridge.domain.user.repository.UserRepository;
 import com.DevBridge.devbridge.global.security.JwtUtil;
 import com.DevBridge.devbridge.domain.user.service.AuthService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
@@ -16,18 +20,26 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
-    public static final String AUTH_COOKIE_NAME = "DEVBRIDGE_TOKEN";
+    public static final String AUTH_COOKIE_NAME    = "DEVBRIDGE_TOKEN";
+    public static final String REFRESH_COOKIE_NAME = "DEVBRIDGE_REFRESH";
 
     private final AuthService authService;
     private final JwtUtil jwtUtil;
+    private final RefreshTokenRepository refreshTokenRepository;
+    private final UserRepository userRepository;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -37,14 +49,19 @@ public class AuthController {
     @Value("${app.cookie.same-site:Lax}")
     private String cookieSameSite;
 
-    @Value("${app.jwt.ttl-hours:24}")
+    @Value("${app.jwt.ttl-hours:1}")
     private long jwtTtlHours;
+
+    @Value("${app.jwt.refresh-ttl-days:15}")
+    private long refreshTtlDays;
 
     @Value("${github.client.id:}")
     private String githubClientId;
 
     @Value("${github.client.secret:}")
     private String githubClientSecret;
+
+    // ───── Cookie builders ─────
 
     private ResponseCookie buildAuthCookie(String token) {
         return ResponseCookie.from(AUTH_COOKIE_NAME, token)
@@ -56,24 +73,50 @@ public class AuthController {
                 .build();
     }
 
-    private ResponseCookie buildClearCookie() {
-        return ResponseCookie.from(AUTH_COOKIE_NAME, "")
+    private ResponseCookie buildRefreshCookie(String token) {
+        return ResponseCookie.from(REFRESH_COOKIE_NAME, token)
                 .httpOnly(true)
                 .secure(cookieSecure)
                 .sameSite(cookieSameSite)
-                .path("/")
+                .path("/api/auth")   // refresh 엔드포인트로만 전송
+                .maxAge(java.time.Duration.ofDays(refreshTtlDays))
+                .build();
+    }
+
+    private ResponseCookie buildClearCookie(String name, String path) {
+        return ResponseCookie.from(name, "")
+                .httpOnly(true)
+                .secure(cookieSecure)
+                .sameSite(cookieSameSite)
+                .path(path)
                 .maxAge(0)
                 .build();
     }
+
+    // ───── 토큰 쌍 발급 헬퍼 ─────
+
+    private String issueRefreshToken(Long userId) {
+        String raw = UUID.randomUUID().toString().replace("-", "");
+        refreshTokenRepository.save(RefreshToken.of(userId, raw, refreshTtlDays));
+        return raw;
+    }
+
+    private ResponseEntity.BodyBuilder withTokenCookies(String accessToken, String refreshToken) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, buildAuthCookie(accessToken).toString())
+                .header(HttpHeaders.SET_COOKIE, buildRefreshCookie(refreshToken).toString());
+    }
+
+    // ───── 엔드포인트 ─────
 
     @PostMapping("/signup")
     public ResponseEntity<AuthResponse> signup(@RequestBody SignupRequest request) {
         try {
             User user = authService.signup(request);
-            String token = jwtUtil.issue(user.getId(), user.getEmail(),
-                    user.getUserType() != null ? user.getUserType().name() : "GUEST");
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.SET_COOKIE, buildAuthCookie(token).toString())
+            String userType = user.getUserType() != null ? user.getUserType().name() : "GUEST";
+            String access  = jwtUtil.issue(user.getId(), user.getEmail(), userType);
+            String refresh = issueRefreshToken(user.getId());
+            return withTokenCookies(access, refresh)
                     .body(AuthResponse.builder()
                             .userId(user.getId())
                             .email(user.getEmail())
@@ -82,13 +125,12 @@ public class AuthController {
                             .birthDate(user.getBirthDate())
                             .userType(user.getUserType())
                             .githubUsername(user.getGithubUsername())
-                            .token(token)
+                            .token(access)
                             .message("회원가입이 완료되었습니다.")
                             .build());
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(AuthResponse.builder()
-                    .message(e.getMessage())
-                    .build());
+                    .message(e.getMessage()).build());
         }
     }
 
@@ -96,10 +138,10 @@ public class AuthController {
     public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request) {
         try {
             User user = authService.login(request);
-            String token = jwtUtil.issue(user.getId(), user.getEmail(),
-                    user.getUserType() != null ? user.getUserType().name() : "GUEST");
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.SET_COOKIE, buildAuthCookie(token).toString())
+            String userType = user.getUserType() != null ? user.getUserType().name() : "GUEST";
+            String access  = jwtUtil.issue(user.getId(), user.getEmail(), userType);
+            String refresh = issueRefreshToken(user.getId());
+            return withTokenCookies(access, refresh)
                     .body(AuthResponse.builder()
                             .userId(user.getId())
                             .email(user.getEmail())
@@ -108,35 +150,70 @@ public class AuthController {
                             .birthDate(user.getBirthDate())
                             .userType(user.getUserType())
                             .githubUsername(user.getGithubUsername())
-                            .token(token)
+                            .token(access)
                             .message("로그인에 성공했습니다.")
                             .build());
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(AuthResponse.builder()
-                    .message(e.getMessage())
-                    .build());
+                    .message(e.getMessage()).build());
         }
     }
 
     /**
-     * 소셜 로그인 (구글 등). 프론트가 OAuth 제공자에서 검증한 이메일을 전달하면,
-     * 해당 이메일로 등록된 User 에 대해 JWT 를 발급한다.
-     * 미가입 이메일은 400 으로 응답하여 호출부에서 회원가입 플로우로 안내.
+     * Access Token 재발급.
+     * DEVBRIDGE_REFRESH 쿠키를 읽어 DB 검증 후 새 Access Token 쿠키를 응답한다.
      */
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refresh(HttpServletRequest request) {
+        String rawToken = extractCookie(request, REFRESH_COOKIE_NAME);
+        if (rawToken == null || rawToken.isBlank()) {
+            return ResponseEntity.status(401).body(Map.of("message", "Refresh token 없음"));
+        }
+
+        RefreshToken rt = refreshTokenRepository.findByToken(rawToken).orElse(null);
+        if (rt == null || rt.isExpired()) {
+            if (rt != null) refreshTokenRepository.deleteByToken(rawToken);
+            return ResponseEntity.status(401).body(Map.of("message", "Refresh token 만료 또는 유효하지 않음"));
+        }
+
+        User user = userRepository.findById(rt.getUserId()).orElse(null);
+        if (user == null) {
+            refreshTokenRepository.deleteByToken(rawToken);
+            return ResponseEntity.status(401).body(Map.of("message", "사용자 없음"));
+        }
+
+        String userType = user.getUserType() != null ? user.getUserType().name() : "GUEST";
+        String newAccess = jwtUtil.issue(user.getId(), user.getEmail(), userType);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, buildAuthCookie(newAccess).toString())
+                .body(Map.of("message", "토큰 재발급 완료"));
+    }
+
     @PostMapping("/social-login")
     public ResponseEntity<AuthResponse> socialLogin(@RequestBody Map<String, String> request) {
-        String email = request.get("email");
-        if (email == null || email.isBlank()) {
+        String accessToken = request.get("accessToken");
+        if (accessToken == null || accessToken.isBlank()) {
             return ResponseEntity.badRequest().body(AuthResponse.builder()
-                    .message("이메일이 필요합니다.")
+                    .message("소셜 로그인 토큰(accessToken)이 필요합니다.")
+                    .build());
+        }
+        // 보안(C2): 클라이언트가 보낸 email 은 신뢰하지 않는다. accessToken 을 Google 에 직접 검증해 verified email 을 얻는다.
+        //          (main 의 `email = request.get("email")` 인입은 위조 가능 — 이 PR 이 막는 취약점이라 폐기.)
+        String email;
+        try {
+            email = verifyGoogleAccessToken(accessToken);
+        } catch (Exception e) {
+            return ResponseEntity.status(401).body(AuthResponse.builder()
+                    .message("소셜 인증 검증 실패 — 다시 시도해 주세요.")
                     .build());
         }
         try {
             User user = authService.socialLogin(email);
-            String token = jwtUtil.issue(user.getId(), user.getEmail(),
-                    user.getUserType() != null ? user.getUserType().name() : "GUEST");
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.SET_COOKIE, buildAuthCookie(token).toString())
+            String userType = user.getUserType() != null ? user.getUserType().name() : "GUEST";
+            String access  = jwtUtil.issue(user.getId(), user.getEmail(), userType);
+            String refresh = issueRefreshToken(user.getId());
+            return withTokenCookies(access, refresh)
                     .body(AuthResponse.builder()
                             .userId(user.getId())
                             .email(user.getEmail())
@@ -145,25 +222,42 @@ public class AuthController {
                             .birthDate(user.getBirthDate())
                             .userType(user.getUserType())
                             .githubUsername(user.getGithubUsername())
-                            .token(token)
+                            .token(access)
                             .message("로그인에 성공했습니다.")
                             .build());
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(AuthResponse.builder()
-                    .message(e.getMessage())
-                    .build());
+                    .message(e.getMessage()).build());
         }
     }
 
     /**
+     * Google access_token 을 서버측에서 직접 검증하고 verified email 을 반환한다.
+     * Google userinfo 엔드포인트를 호출하므로, 유효한 Google 토큰을 가진 사용자만 통과한다(클라이언트 email 위조 불가).
+     */
+    @SuppressWarnings("unchecked")
+    private String verifyGoogleAccessToken(String accessToken) {
+        var headers = new org.springframework.http.HttpHeaders();
+        headers.set("Authorization", "Bearer " + accessToken);
+        Map<String, Object> info = restTemplate.exchange(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                HttpMethod.GET, new org.springframework.http.HttpEntity<>(headers), Map.class
+        ).getBody();
+        if (info == null) throw new RuntimeException("Google userinfo 응답 없음");
+        Object email = info.get("email");
+        if (email == null || String.valueOf(email).isBlank()) throw new RuntimeException("이메일 정보 없음");
+        Object verified = info.get("email_verified");
+        boolean isVerified = Boolean.TRUE.equals(verified) || "true".equalsIgnoreCase(String.valueOf(verified));
+        if (!isVerified) throw new RuntimeException("이메일 미인증 Google 계정");
+        return String.valueOf(email);
+    }
+
+    /**
      * GitHub OAuth 로그인.
-     * 프론트에서 GitHub 인가 코드(code)를 받아 access_token 으로 교환하고,
-     * GitHub /user/emails + /user API 로 이메일·로그인명을 확인한 뒤 JWT 를 발급한다.
-     * 기존 가입 이메일이면 그대로 로그인, 처음이면 자동으로 계정을 생성한다.
      */
     @PostMapping("/github")
     public ResponseEntity<AuthResponse> githubLogin(@RequestBody Map<String, String> request) {
-        String code = request.get("code");
+        String code        = request.get("code");
         String redirectUri = request.get("redirectUri");
 
         if (code == null || code.isBlank()) {
@@ -235,14 +329,13 @@ public class AuthController {
             String githubLogin = ghUser != null && ghUser.get("login") != null
                     ? (String) ghUser.get("login") : email.split("@")[0];
 
-            // 4. 기존 계정 조회 → 없으면 자동 생성 (GitHub OAuth 표준 동작)
-            // accessToken을 함께 저장해 Git 패널에서 별도 PAT 없이 바로 사용 가능
+            // 4. 기존 계정 조회 → 없으면 자동 생성
             User user = authService.findOrCreateGithubUser(email, githubLogin, accessToken);
 
-            String token = jwtUtil.issue(user.getId(), user.getEmail(),
-                    user.getUserType() != null ? user.getUserType().name() : "GUEST");
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.SET_COOKIE, buildAuthCookie(token).toString())
+            String userType  = user.getUserType() != null ? user.getUserType().name() : "GUEST";
+            String jwtAccess = jwtUtil.issue(user.getId(), user.getEmail(), userType);
+            String refresh   = issueRefreshToken(user.getId());
+            return withTokenCookies(jwtAccess, refresh)
                     .body(AuthResponse.builder()
                             .userId(user.getId())
                             .email(user.getEmail())
@@ -251,7 +344,7 @@ public class AuthController {
                             .birthDate(user.getBirthDate())
                             .userType(user.getUserType())
                             .githubUsername(user.getGithubUsername())
-                            .token(token)
+                            .token(jwtAccess)
                             .message("GitHub 로그인에 성공했습니다.")
                             .build());
         } catch (Exception e) {
@@ -261,9 +354,26 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Map<String, String>> logout() {
+    public ResponseEntity<Map<String, String>> logout(HttpServletRequest request) {
+        String rawToken = extractCookie(request, REFRESH_COOKIE_NAME);
+        if (rawToken != null && !rawToken.isBlank()) {
+            refreshTokenRepository.deleteByToken(rawToken);
+        }
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, buildClearCookie().toString())
+                .header(HttpHeaders.SET_COOKIE, buildClearCookie(AUTH_COOKIE_NAME, "/").toString())
+                .header(HttpHeaders.SET_COOKIE, buildClearCookie(REFRESH_COOKIE_NAME, "/api/auth").toString())
                 .body(Map.of("message", "로그아웃 되었습니다."));
+    }
+
+    // ───── 유틸 ─────
+
+    private String extractCookie(HttpServletRequest request, String name) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies == null) return null;
+        return Arrays.stream(cookies)
+                .filter(c -> name.equals(c.getName()))
+                .map(Cookie::getValue)
+                .findFirst()
+                .orElse(null);
     }
 }

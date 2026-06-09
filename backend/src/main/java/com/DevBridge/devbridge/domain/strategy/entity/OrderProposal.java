@@ -69,6 +69,11 @@ public class OrderProposal {
     @Column(name = "limit_price", precision = 18, scale = 4)
     private BigDecimal limitPrice;
 
+    /** 주문 체결타입: LIMIT(지정가, 기본) | LOC(장마감지정가, 무한매수법 평단매수) | MARKET(보통가). */
+    @Column(name = "order_type", nullable = false, length = 8)
+    @Builder.Default
+    private String orderType = "LIMIT";
+
     /** 어디서 발생했나: SIGNAL | MANUAL */
     @Column(nullable = false, length = 16)
     @Builder.Default

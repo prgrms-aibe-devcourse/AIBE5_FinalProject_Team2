@@ -473,11 +473,31 @@ public class KisApiClient {
      *                   안전하게 LOO(지정가)만 권장. 호출측에서 호가 책임.
      * @return { kis_order_no, status, raw }
      */
+    /** KIS 미국주식 ORD_DVSN: 00=지정가(확정). */
+    public static final String ORD_DVSN_LIMIT = "00";
+
+    /**
+     * LOC(장마감지정가) ORD_DVSN 코드 = 34 (KIS 공식 examples_llm/overseas_stock/order/order.py docstring 확정).
+     * ⚠️ 모의투자(VTTT)는 00:지정가만 지원 → LOC(34)는 REAL 전용. (어댑터에서 MOCK 은 00 으로 다운그레이드)
+     * 만일을 위해 설정(kis.overseas.ord-dvsn-loc)으로 교체 가능하게 둔다.
+     */
+    @org.springframework.beans.factory.annotation.Value("${kis.overseas.ord-dvsn-loc:34}")
+    private String ordDvsnLoc;
+
+    public String locOrdDvsn() { return (ordDvsnLoc == null || ordDvsnLoc.isBlank()) ? "34" : ordDvsnLoc; }
+
+    /** 하위호환: 주문구분 미지정 → 지정가(00). */
     public Map<String, Object> placeOverseasOrder(BrokerAccount b, String ticker, Side side,
                                                   long quantity, Double limitPrice) {
+        return placeOverseasOrder(b, ticker, side, quantity, limitPrice, ORD_DVSN_LIMIT);
+    }
+
+    public Map<String, Object> placeOverseasOrder(BrokerAccount b, String ticker, Side side,
+                                                  long quantity, Double limitPrice, String ordDvsn) {
         if (quantity <= 0) throw new IllegalArgumentException("quantity는 1 이상이어야 합니다.");
-        if (tradingControl.isKillSwitchOn()) {
-            throw new IllegalStateException("KIS 주문 차단: 전역 거래 차단 스위치(kill-switch) 활성화");
+        // 전역 kill-switch 는 REAL(실거래) 주문만 차단한다 — MOCK(모의)은 자본 위험이 없어 통과.
+        if (b.getEnv() == BrokerAccount.Env.REAL && tradingControl.isKillSwitchOn()) {
+            throw new IllegalStateException("KIS 주문 차단: 전역 거래 차단 스위치(kill-switch) 활성화 (실거래)");
         }
         String token = getAccessToken(b);
         boolean real = b.getEnv() == BrokerAccount.Env.REAL;
@@ -502,7 +522,7 @@ public class KisApiClient {
             body.put("ORD_QTY", String.valueOf(quantity));
             body.put("OVRS_ORD_UNPR", limitPrice == null ? "0" : String.format("%.2f", limitPrice));
             body.put("ORD_SVR_DVSN_CD", "0");
-            body.put("ORD_DVSN", "00"); // 00: 지정가 (KIS 미국주식 기본)
+            body.put("ORD_DVSN", ordDvsn == null || ordDvsn.isBlank() ? ORD_DVSN_LIMIT : ordDvsn); // 00:지정가 / 34:LOC
 
             try {
                 resp = http(b.getEnv()).post()
@@ -557,15 +577,27 @@ public class KisApiClient {
      */
     public JsonNode getTodayOrders(BrokerAccount b) {
         String token = getAccessToken(b);
+        // 해외주식 주문체결내역(inquire-ccnl) — tr_id 모의 VTTS3035R / 실전 TTTS3035R.
+        // ⚠️ 기존 버그: path 가 inquire-nccs(미체결) 였는데 tr_id 는 ccnl(3035R) 이라 경로/TR_ID 불일치 → KIS 거부(502).
         String trId = b.getEnv() == BrokerAccount.Env.REAL ? "TTTS3035R" : "VTTS3035R";
+        String today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
+                .format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE); // YYYYMMDD
         return http(b.getEnv()).get()
-                .uri(uriBuilder -> uriBuilder.path("/uapi/overseas-stock/v1/trading/inquire-nccs")
+                .uri(uriBuilder -> uriBuilder.path("/uapi/overseas-stock/v1/trading/inquire-ccnl")
                         .queryParam("CANO", b.getCano())
                         .queryParam("ACNT_PRDT_CD", b.getAcntPrdtCd())
-                        .queryParam("OVRS_EXCG_CD", "NASD")
+                        .queryParam("PDNO", "%")
+                        .queryParam("ORD_STRT_DT", today)
+                        .queryParam("ORD_END_DT", today)
+                        .queryParam("SLL_BUY_DVSN", "00")
+                        .queryParam("CCLD_NCCS_DVSN", "00")
+                        .queryParam("OVRS_EXCG_CD", "%")
                         .queryParam("SORT_SQN", "DS")
-                        .queryParam("CTX_AREA_FK200", "")
+                        .queryParam("ORD_DT", "")
+                        .queryParam("ORD_GNO_BRNO", "")
+                        .queryParam("ODNO", "")
                         .queryParam("CTX_AREA_NK200", "")
+                        .queryParam("CTX_AREA_FK200", "")
                         .build())
                 .header("authorization", "Bearer " + token)
                 .header("appkey", b.getAppKey())

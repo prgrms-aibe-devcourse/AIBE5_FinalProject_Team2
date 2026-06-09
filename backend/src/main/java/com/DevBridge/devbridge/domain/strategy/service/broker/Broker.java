@@ -23,6 +23,15 @@ public interface Broker {
 
     enum Side { BUY, SELL }
 
+    /**
+     * 주문 체결 타입.
+     *  - LIMIT : 일반 지정가 (KIS ORD_DVSN=00) — 기존 기본
+     *  - LOC   : 장마감지정가 (Limit On Close) — 무한매수법 LOC평단 매수에 사용 (KIS ORD_DVSN=34)
+     *  - MARKET: 보통가/시장가 — KIS 미국은 시장가 미지원이라 어댑터가 현재가 지정가로 변환
+     * 크립토(Binance)는 LOC 개념이 없어 LIMIT/MARKET 로만 처리한다.
+     */
+    enum OrderType { LIMIT, LOC, MARKET }
+
     /** 주문 결과(정규화). ok=false 면 {@code message} 가 사용자 친화 에러. */
     record OrderResult(boolean ok, String orderNo, String code, String message) {
         public static OrderResult success(String orderNo, String code) {
@@ -43,8 +52,13 @@ public interface Broker {
         }
     }
 
-    /** 실제 주문 전송. 호출측이 모든 안전 게이트(kill-switch/한도/검증)를 먼저 통과시켜야 한다. */
-    OrderResult placeOrder(BrokerAccount account, String symbol, Side side, BigDecimal qty, BigDecimal limitPrice);
+    /** 실제 주문 전송(주문타입 지정). 호출측이 모든 안전 게이트(kill-switch/한도/검증)를 먼저 통과시켜야 한다. */
+    OrderResult placeOrder(BrokerAccount account, String symbol, Side side, BigDecimal qty, BigDecimal limitPrice, OrderType orderType);
+
+    /** 하위호환: 주문타입 미지정 → LIMIT(지정가). */
+    default OrderResult placeOrder(BrokerAccount account, String symbol, Side side, BigDecimal qty, BigDecimal limitPrice) {
+        return placeOrder(account, symbol, side, qty, limitPrice, OrderType.LIMIT);
+    }
 
     /** 이미 접수된 주문(proposal.kisOrderNo 에 저장된 브로커 주문번호)의 현재 체결 상태. */
     FillResult queryFill(BrokerAccount account, OrderProposal proposal);

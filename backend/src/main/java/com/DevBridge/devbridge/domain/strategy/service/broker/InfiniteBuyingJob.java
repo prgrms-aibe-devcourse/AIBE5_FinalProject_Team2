@@ -106,45 +106,51 @@ public class InfiniteBuyingJob {
         // 첫 매수면 평단가 = 현재가
         if (avgPrice == null || avgPrice <= 0) avgPrice = last;
 
+        int createdCount = 0;
+
         // 하루 매수 금액 (USD)
         double dailyBudget = s.getSeedUsd() / s.getSplitCount();
         double avgPriceBuyBudget = dailyBudget * s.getDailyBuySplitRatio();
         double bigBuyBudget = dailyBudget - avgPriceBuyBudget;
-        double bigBuyPrice = avgPrice * (1.0 + s.getBigBuyPremiumPct() / 100.0);
-        double sellPrice = avgPrice * (1.0 + s.getTakeProfitPct() / 100.0);
+        double premiumPrice = avgPrice * (1.0 + s.getBigBuyPremiumPct() / 100.0);
 
+        // 평단가 LOC 매수
         int avgQty = (int) Math.floor(avgPriceBuyBudget / avgPrice);
-        int bigQty = (int) Math.floor(bigBuyBudget / bigBuyPrice);
-        int createdCount = 0;
-
         if (avgQty > 0) {
             createPending(s, b, "BUY", avgQty, avgPrice,
                     String.format("[AUTO][무한매수] 평단가 LOC 매수 %d주 @ $%.2f (round %d/%d)",
-                            avgQty, avgPrice, s.getCurrentSplitRound() + 1, s.getSplitCount()));
+                            avgQty, avgPrice, s.getCurrentSplitRound() + 1, s.getSplitCount()), "LOC");
             createdCount++;
         }
+
+        // 두 번째 절반: LOC 평단×(1+premium)
+        int bigQty = (int) Math.floor(bigBuyBudget / premiumPrice);
         if (bigQty > 0) {
-            createPending(s, b, "BUY", bigQty, bigBuyPrice,
+            createPending(s, b, "BUY", bigQty, premiumPrice,
                     String.format("[AUTO][무한매수] 큰수 LOC 매수 %d주 @ $%.2f (+%.0f%%)",
-                            bigQty, bigBuyPrice, s.getBigBuyPremiumPct()));
+                            bigQty, premiumPrice, s.getBigBuyPremiumPct()), "LOC");
             createdCount++;
         }
+
+        // 익절 지정가 매도: 평단×(1+take_profit) 전량
         if (holdingQty != null && holdingQty > 0) {
+            double sellPrice = avgPrice * (1.0 + s.getTakeProfitPct() / 100.0);
             createPending(s, b, "SELL", holdingQty, sellPrice,
                     String.format("[AUTO][무한매수] 익절 지정가 매도 %d주 @ $%.2f (+%.0f%%)",
-                            holdingQty, sellPrice, s.getTakeProfitPct()));
+                            holdingQty, sellPrice, s.getTakeProfitPct()), "LIMIT");
             createdCount++;
         }
 
         s.setCurrentSplitRound(s.getCurrentSplitRound() + 1);
         s.setLastRunAt(LocalDateTime.now());
-        s.setLastRunMsg(String.format("OK: proposals=%d, round=%d/%d, avg=$%.2f, last=$%.2f",
-                createdCount, s.getCurrentSplitRound(), s.getSplitCount(), avgPrice, last));
+        s.setLastRunMsg(String.format("OK[무한매수]: proposals=%d, round=%d/%d, avg=$%.2f, last=$%.2f",
+                createdCount, s.getCurrentSplitRound(), s.getSplitCount(),
+                avgPrice, last));
         subRepo.save(s);
     }
 
     private void createPending(InfiniteBuyingSubscription s, BrokerAccount b,
-                               String side, int qty, double limitPrice, String rationale) {
+                               String side, int qty, double limitPrice, String rationale, String orderType) {
         OrderProposal p = OrderProposal.builder()
                 .userId(b.getUser().getId())
                 .brokerAccountId(b.getId())
@@ -152,6 +158,7 @@ public class InfiniteBuyingJob {
                 .side(side)
                 .qty(qty)
                 .limitPrice(BigDecimal.valueOf(limitPrice).setScale(4, RoundingMode.HALF_UP))
+                .orderType(orderType)
                 .source("SIGNAL")
                 .status("PENDING")
                 .rationale(rationale)

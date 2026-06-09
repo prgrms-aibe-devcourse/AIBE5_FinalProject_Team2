@@ -290,7 +290,10 @@ public class AnalyticsClient {
         // 10y로 늘려 bear/high-vol regime 표본을 충분히 확보 (이전 5y는 bear=2일에 그침)
         body.put("period", "10y");
         if (options != null) {
-            for (String k : new String[]{"period", "strategy", "method", "smoothing", "n_states"}) {
+            for (String k : new String[]{"period", "strategy", "method", "smoothing", "n_states", "start", "end",
+                    // 무한매수법/밸류리밸런싱 상태기반 전략 파라미터 (per_regime 백테스트가 진짜 전략으로 돌도록)
+                    "split", "take_profit_pct", "loc_offset_pct",
+                    "rebalance_days", "expected_return", "band_pct", "pool_target_pct", "initial_pool_pct", "biweekly_contrib"}) {
                 if (options.containsKey(k) && options.get(k) != null) {
                     body.put(k, options.get(k));
                 }
@@ -319,7 +322,10 @@ public class AnalyticsClient {
             for (String k : new String[]{
                     "period", "weights", "overfit_penalty_max",
                     "wf_train", "wf_test", "mdd_target_pct",
-                    "asset_class", "leverage"
+                    "asset_class", "leverage", "start", "end",
+                    // 무한매수법/밸류리밸런싱 상태기반 전략 파라미터 (진짜 전략으로 Trust 채점)
+                    "split", "take_profit_pct", "loc_offset_pct",
+                    "rebalance_days", "expected_return", "band_pct", "pool_target_pct", "initial_pool_pct", "biweekly_contrib"
             }) {
                 if (options.containsKey(k) && options.get(k) != null) {
                     body.put(k, options.get(k));
@@ -338,6 +344,15 @@ public class AnalyticsClient {
         return call("/backtest/infinite-buying", "POST", body);
     }
 
+    /** POST /backtest/value-rebalancing — 밸류 리밸런싱(VR) 백테스트. */
+    public JsonNode valueRebalancing(List<String> tickers, Map<String, Object> extra) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("tickers", tickers);
+        body.put("period", "10y");
+        if (extra != null) body.putAll(extra);
+        return call("/backtest/value-rebalancing", "POST", body);
+    }
+
     /** POST /orders/infinite-buying/plan — 다음 거래일 주문 계획. */
     public JsonNode infiniteBuyingPlan(List<String> tickers, Map<String, Object> extra) {
         Map<String, Object> body = new java.util.HashMap<>();
@@ -345,6 +360,15 @@ public class AnalyticsClient {
         body.put("period", "10y");
         if (extra != null) body.putAll(extra);
         return call("/orders/infinite-buying/plan", "POST", body);
+    }
+
+    /** POST /backtest/infinite-buying/sizing — 목표 월수익 → 필요 시드 역산. */
+    public JsonNode infiniteBuyingSizing(List<String> tickers, Map<String, Object> extra) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("tickers", tickers);
+        body.put("period", "2y");
+        if (extra != null) body.putAll(extra);
+        return call("/backtest/infinite-buying/sizing", "POST", body);
     }
 
     public static class AnalyticsException extends RuntimeException {

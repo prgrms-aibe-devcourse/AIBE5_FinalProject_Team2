@@ -71,7 +71,7 @@ public class User {
     @Column(name = "profile_image_url", columnDefinition = "TEXT")
     private String profileImageUrl;
 
-    /** GitHub 사용자명 (Developer Studio Git 연동). */
+    /** GitHub 사용자명 (Developer IDE Git 연동). */
     @Column(name = "github_username", length = 100)
     private String githubUsername;
 
