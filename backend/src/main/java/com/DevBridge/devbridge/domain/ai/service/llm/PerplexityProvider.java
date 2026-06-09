@@ -6,9 +6,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -24,7 +27,12 @@ public class PerplexityProvider implements LlmProvider {
 
     public PerplexityProvider(@Value("${perplexity.api.key:}") String apiKey) {
         this.apiKey = apiKey;
-        this.client = RestClient.builder().build();
+        // sonar-pro 딥서치는 60~90초까지 걸릴 수 있어 read timeout 을 넉넉히 두되,
+        // 프론트 axios(200s) 보다는 작게 해 '백엔드는 성공했는데 프론트가 먼저 끊는' 레이스를 방지.
+        SimpleClientHttpRequestFactory rf = new SimpleClientHttpRequestFactory();
+        rf.setConnectTimeout(Duration.ofSeconds(15));
+        rf.setReadTimeout(Duration.ofSeconds(120));
+        this.client = RestClient.builder().requestFactory(rf).build();
     }
 
     @Override public String id() { return "perplexity"; }
@@ -38,12 +46,26 @@ public class PerplexityProvider implements LlmProvider {
         );
     }
 
+    /** 검색 결과 1건 (실시간 뉴스 출처). */
+    public record Source(String title, String url, String snippet, String date) {}
+
+    /** Perplexity 응답 — 본문 + 웹검색 출처 목록. */
+    public record Answer(String content, List<Source> sources) {}
+
     @Override
     public String oneShot(String systemInstruction, String userPrompt, String model) {
+        return ask(systemInstruction, userPrompt, model).content();
+    }
+
+    /**
+     * 본문 + 실시간 검색 출처(search_results)를 함께 반환한다.
+     * Living Briefing 처럼 "신뢰소스 인용 링크"가 필요한 경우 사용.
+     */
+    public Answer ask(String systemInstruction, String userPrompt, String model) {
         if (!available()) throw new IllegalStateException("PERPLEXITY_API_KEY 가 설정되지 않았습니다.");
         String useModel = (model == null || model.isBlank()) ? "sonar-pro" : model;
 
-        var messages = new java.util.ArrayList<Map<String, Object>>();
+        var messages = new ArrayList<Map<String, Object>>();
         if (systemInstruction != null && !systemInstruction.isBlank()) {
             messages.add(Map.of("role", "system", "content", systemInstruction));
         }
@@ -65,10 +87,38 @@ public class PerplexityProvider implements LlmProvider {
                 .body(String.class);
 
             JsonNode root = mapper.readTree(response);
-            return root.path("choices").path(0).path("message").path("content").asText("(빈 응답)");
+            String content = root.path("choices").path(0).path("message").path("content").asText("(빈 응답)");
+            return new Answer(content, parseSources(root));
         } catch (Exception e) {
             log.error("Perplexity 호출 실패", e);
             throw new RuntimeException("Perplexity 호출 실패: " + e.getMessage());
         }
+    }
+
+    /** search_results(제목·URL·스니펫·날짜) 우선, 없으면 citations(URL만) 로 폴백. */
+    private List<Source> parseSources(JsonNode root) {
+        List<Source> out = new ArrayList<>();
+        JsonNode sr = root.path("search_results");
+        if (sr.isArray() && sr.size() > 0) {
+            for (JsonNode n : sr) {
+                String url = n.path("url").asText("");
+                if (url.isBlank()) continue;
+                out.add(new Source(
+                    n.path("title").asText(""),
+                    url,
+                    n.path("snippet").asText(""),
+                    n.path("date").asText("")
+                ));
+            }
+            return out;
+        }
+        JsonNode cites = root.path("citations");
+        if (cites.isArray()) {
+            for (JsonNode n : cites) {
+                String url = n.asText("");
+                if (!url.isBlank()) out.add(new Source("", url, "", ""));
+            }
+        }
+        return out;
     }
 }

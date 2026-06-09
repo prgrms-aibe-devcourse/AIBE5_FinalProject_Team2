@@ -34,13 +34,15 @@ public class BinanceBrokerAdapter implements Broker {
     }
 
     @Override
-    public OrderResult placeOrder(BrokerAccount b, String symbol, Side side, BigDecimal qty, BigDecimal limitPrice) {
+    public OrderResult placeOrder(BrokerAccount b, String symbol, Side side, BigDecimal qty, BigDecimal limitPrice, OrderType orderType) {
+        // 크립토(현물)는 LOC(장마감지정가) 개념이 없다 — orderType 은 LIMIT/MARKET 처럼 취급(limitPrice 유무로 결정).
         if (b.getBinanceMode() == BrokerAccount.BinanceMode.FUTURES) {
             return OrderResult.failure("FUTURES_DISABLED",
                     "Binance 선물(FUTURES) 주문은 현재 비활성화되어 있습니다 — 안전을 위해 SPOT(현물)만 지원합니다.");
         }
-        if (tradingControl.isKillSwitchOn()) {
-            return OrderResult.failure("KILL_SWITCH", "전역 거래 차단(kill-switch) 활성화 — 모든 주문 거부");
+        // 전역 kill-switch 는 REAL(메인넷) 주문만 차단 — testnet(MOCK)은 자본 위험이 없어 통과.
+        if (b.getEnv() == BrokerAccount.Env.REAL && tradingControl.isKillSwitchOn()) {
+            return OrderResult.failure("KILL_SWITCH", "전역 거래 차단(kill-switch) 활성화 — 실거래(REAL) 주문 거부");
         }
         try {
             BinanceApiClient.SymbolFilters f = binance.getSymbolFilters(b, symbol);

@@ -77,33 +77,49 @@ public class AnthropicProvider implements AiProvider {
         body.put("messages", messages);
         if (system != null && !system.isBlank()) body.put("system", system);
 
-        try {
-            String raw = http.post()
-                    .uri(baseUrl + "/v1/messages")
-                    .header("x-api-key", apiKey)
-                    .header("anthropic-version", "2023-06-01")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .retrieve()
-                    .body(String.class);
-            JsonNode json = om.readTree(raw);
-            JsonNode contents = json.path("content");
-            StringBuilder out = new StringBuilder();
-            if (contents.isArray()) {
-                for (JsonNode c : contents) {
-                    if ("text".equals(c.path("type").asText())) out.append(c.path("text").asText());
+        // 최초 1회 + 429(Too Many Requests) 지수 백오프 재시도 2회.
+        // 전체 브리핑이 여러 LIVE 워크스페이스를 잇따라 생성할 때 일시적 폭주를 흡수(429 노출 방지 안전망).
+        final int maxAttempts = 3;
+        HttpClientErrorException last429 = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                String raw = http.post()
+                        .uri(baseUrl + "/v1/messages")
+                        .header("x-api-key", apiKey)
+                        .header("anthropic-version", "2023-06-01")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(body)
+                        .retrieve()
+                        .body(String.class);
+                JsonNode json = om.readTree(raw);
+                JsonNode contents = json.path("content");
+                StringBuilder out = new StringBuilder();
+                if (contents.isArray()) {
+                    for (JsonNode c : contents) {
+                        if ("text".equals(c.path("type").asText())) out.append(c.path("text").asText());
+                    }
                 }
+                long tIn = json.path("usage").path("input_tokens").asLong(0);
+                long tOut = json.path("usage").path("output_tokens").asLong(0);
+                return new Result(out.toString(), tIn, tOut);
+            } catch (HttpClientErrorException e) {
+                if (e.getStatusCode().value() == 429 && attempt < maxAttempts) {
+                    last429 = e;
+                    long waitMs = 1500L * (1L << (attempt - 1));   // 1.5s, 3s
+                    log.warn("[Anthropic] 429 — {}회차, {}ms 대기 후 재시도", attempt, waitMs);
+                    try { Thread.sleep(waitMs); }
+                    catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                    continue;
+                }
+                log.warn("[Anthropic] HTTP {} body={}", e.getStatusCode(), e.getResponseBodyAsString());
+                throw new RuntimeException("Anthropic API 호출 실패: " + e.getStatusCode());
+            } catch (Exception e) {
+                log.warn("[Anthropic] error: {}", e.getMessage());
+                throw new RuntimeException("Anthropic API 호출 실패: " + e.getMessage());
             }
-            long tIn = json.path("usage").path("input_tokens").asLong(0);
-            long tOut = json.path("usage").path("output_tokens").asLong(0);
-            return new Result(out.toString(), tIn, tOut);
-        } catch (HttpClientErrorException e) {
-            log.warn("[Anthropic] HTTP {} body={}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new RuntimeException("Anthropic API 호출 실패: " + e.getStatusCode());
-        } catch (Exception e) {
-            log.warn("[Anthropic] error: {}", e.getMessage());
-            throw new RuntimeException("Anthropic API 호출 실패: " + e.getMessage());
         }
+        throw new RuntimeException("Anthropic API 호출 실패: "
+                + (last429 != null ? last429.getStatusCode() : "429 재시도 소진"));
     }
 
     private void ensureKey() {

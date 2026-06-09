@@ -15,4 +15,11 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
     /** 만료 처리할 후보 (status=ACTIVE && expires_at < now) */
     List<Subscription> findByStatusAndExpiresAtBefore(
             Subscription.Status status, java.time.LocalDateTime now);
+
+    /** 만료 임박 구독 (status=ACTIVE && from <= expires_at <= to) */
+    List<Subscription> findByStatusAndExpiresAtBetween(
+            Subscription.Status status, java.time.LocalDateTime from, java.time.LocalDateTime to);
+
+    /** M8: Toss 결제키로 기존 구독 조회 — confirm 멱등성(중복 처리 방지)용. */
+    Optional<Subscription> findByTossPaymentKey(String tossPaymentKey);
 }

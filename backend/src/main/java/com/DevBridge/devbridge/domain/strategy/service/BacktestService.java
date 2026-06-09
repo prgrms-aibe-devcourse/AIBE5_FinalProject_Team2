@@ -1,5 +1,7 @@
 package com.DevBridge.devbridge.domain.strategy.service;
 
+import com.DevBridge.devbridge.domain.notification.entity.Notification;
+import com.DevBridge.devbridge.domain.notification.service.NotificationService;
 import com.DevBridge.devbridge.domain.strategy.entity.Strategy;
 import com.DevBridge.devbridge.domain.user.entity.*;
 import com.DevBridge.devbridge.domain.client.entity.*;
@@ -31,8 +33,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 무한매수법(LOC) + VR 밸류 리밸런싱 백테스트 엔진.
- * Frontend lib/backtest.js의 알고리즘과 1:1 동일.
+ * 무한매수법(LOC) + VR 밸류 리밸런싱 백테스트 엔진 (인-프로세스, DB MarketOhlcDaily 기반).
+ * DailySignalGenerator cron(평일 22:30 KST)과 /strategies/.../backtest 경로에서 호출되는 **라이브 코드**다.
+ * (워크스페이스 Alpha 경로의 정밀 백테스트는 파이썬 analytics 가 담당 — 별개 파이프라인.)
  *
  * 결과:
  *  - StrategyTrade rows (source=BACKTEST) 재생성
@@ -53,6 +56,7 @@ public class BacktestService {
     private final StrategyStateRepository stateRepo;
     private final StrategyBacktestSummaryRepository summaryRepo;
     private final DailySignalRepository signalRepo;
+    private final NotificationService notificationService;
     private final ObjectMapper om = new ObjectMapper();
 
     // ─────────────────────────────────────── public
@@ -106,6 +110,20 @@ public class BacktestService {
         summary.setEquityKrw(bd(last.equity * USD_KRW));
         summary.setTradesCount(r.trades.size());
         summaryRepo.save(summary);
+
+        // 백테스트 완료 알림
+        try {
+            if (s.getUser() != null) {
+                String msg = String.format("CAGR %.1f%%, MDD %.1f%%, 총 수익률 %.1f%%",
+                        summary.getCagrPct().doubleValue(),
+                        summary.getMddPct().doubleValue(),
+                        summary.getTotalReturnPct().doubleValue());
+                notificationService.create(s.getUser(), Notification.NotificationType.BACKTEST_COMPLETE,
+                        "백테스트 완료 — " + s.getCode(), msg, "STRATEGY", s.getId());
+            }
+        } catch (Exception e) {
+            log.warn("[Backtest] 알림 전송 실패 (무시): {}", e.getMessage());
+        }
 
         // 4) 오늘의 시그널 upsert
         if (r.signal != null) {

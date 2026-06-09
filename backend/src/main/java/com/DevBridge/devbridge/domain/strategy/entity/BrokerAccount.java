@@ -24,6 +24,12 @@ import java.time.LocalDateTime;
 @EntityListeners(AuditingEntityListener.class)
 public class BrokerAccount {
 
+    /**
+     * KIS KRW 한도(dailyBuyKrw/dailySellKrw) 검증 시 USD 명목가를 KRW 로 환산하는 근사 환율.
+     * TODO: 실시간 환율 API 로 교체(현재 BacktestService.USD_KRW 와 동일한 1300 근사).
+     */
+    public static final double USD_KRW_APPROX = 1300.0;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -112,6 +118,14 @@ public class BrokerAccount {
     @Column(name = "auto_execute", nullable = false)
     @Builder.Default
     private Boolean autoExecute = false;
+
+    /**
+     * 실전(REAL) 자동매매 책임고지 동의 여부. REAL tradingEnabled ON 전 1회 동의 필요.
+     * 투자 책임은 전적으로 본인에게 있으며 Alpha-Helix는 자문이 아님을 사용자가 명시 동의했음을 기록.
+     */
+    @Column(name = "real_risk_acknowledged", nullable = false)
+    @Builder.Default
+    private Boolean realRiskAcknowledged = false;
 
     /** 마지막 연결 테스트 성공 시각 (잔고조회로 검증) */
     @Column(name = "last_verified_at")

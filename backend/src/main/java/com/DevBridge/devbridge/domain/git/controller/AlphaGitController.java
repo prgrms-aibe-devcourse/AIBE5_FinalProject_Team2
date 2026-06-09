@@ -21,7 +21,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
- * Developer Studio Git 연동: PAT 관리, repo 매핑, 커밋/diff 조회, push, PR.
+ * Developer IDE Git 연동: PAT 관리, repo 매핑, 커밋/diff 조회, push, PR.
  *
  * <pre>
  *   POST  /api/alpha/git/connect                          PAT 등록
@@ -251,7 +251,7 @@ public class AlphaGitController {
     @DeleteMapping("/workspaces/{wsId}/git/file")
     public ResponseEntity<?> deleteGitFile(@PathVariable Long wsId,
                                             @RequestParam String path,
-                                            @RequestParam(required = false, defaultValue = "Delete via AlphaHelix Developer Studio") String message) {
+                                            @RequestParam(required = false, defaultValue = "Delete via AlphaHelix Developer IDE") String message) {
         AlphaWorkspace ws = requireLinkedWs(wsId);
         if (ws == null) return forbidden();
         String token = requireToken();
@@ -304,7 +304,7 @@ public class AlphaGitController {
         String[] or = ws.getGithubRepoFullName().split("/", 2);
         String branch = (req.branch() == null || req.branch().isBlank()) ? ws.getGithubBranch() : req.branch();
         String msg = (req.commitMessage() == null || req.commitMessage().isBlank())
-                ? "Update from AlphaHelix Developer Studio (" + DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(LocalDateTime.now()) + ")"
+                ? "Update from AlphaHelix Developer IDE (" + DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(LocalDateTime.now()) + ")"
                 : req.commitMessage();
         List<PushResult> results = new ArrayList<>();
         for (var e : req.files().entrySet()) {

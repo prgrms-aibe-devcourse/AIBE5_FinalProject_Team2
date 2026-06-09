@@ -53,10 +53,6 @@ public class ProposalExecutionService {
      */
     @Transactional
     public Result execute(OrderProposal p, BrokerAccount ba, boolean auto) {
-        if (tradingControl.isKillSwitchOn()) {
-            log.warn("[exec] kill-switch ON — 주문 거부 proposal={}", p.getId());
-            return new Result(false, "전역 거래 차단(kill-switch) 활성화 — 모든 주문 거부", p);
-        }
         if (!"PENDING".equals(p.getStatus())) {
             return new Result(false, "PENDING 상태가 아님 (현재=" + p.getStatus() + ")", p);
         }
@@ -66,6 +62,13 @@ public class ProposalExecutionService {
             return new Result(false, "이미 만료됨", p);
         }
         if (ba == null) return new Result(false, "BrokerAccount 없음", p);
+        // 전역 kill-switch 는 **실거래(REAL) 주문만** 차단한다(설계 의도: "모든 KIS 실주문 차단").
+        // MOCK(모의/페이퍼) 은 자본 위험이 없으므로 통과시켜 검증·데모가 막히지 않게 한다.
+        // (MOCK 도 계정별 tradingEnabled·1건/일일 한도·키 검증은 그대로 거친다.)
+        if (ba.getEnv() == BrokerAccount.Env.REAL && tradingControl.isKillSwitchOn()) {
+            log.warn("[exec] kill-switch ON (REAL) — 실거래 주문 거부 proposal={}", p.getId());
+            return new Result(false, "전역 거래 차단(kill-switch) 활성화 — 실거래(REAL) 주문 거부", p);
+        }
         if (!Boolean.TRUE.equals(ba.getTradingEnabled())) {
             return new Result(false, "BrokerAccount.tradingEnabled=false — 자동매매 마스터 스위치 OFF", p);
         }
@@ -88,6 +91,11 @@ public class ProposalExecutionService {
             }
         }
 
+        // M3: KIS KRW 일일 매수/매도 한도 (KIS 는 KRW 한도 우선). USD 명목가를 근사 환율로 KRW 환산.
+        //     dailyBuyKrw/dailySellKrw 는 설정만 되고 두 주문 경로 어디서도 집행되지 않던 dead 한도였다(32c121b).
+        String krwViol = krwDailyLimitViolation(proposalRepo, ba, p.getSide(), p.getUserId(), estUsd);
+        if (krwViol != null) return new Result(false, krwViol, p);
+
         // 손실 한도 서킷브레이커 (B3): B2 잔고스냅샷의 미실현 총손실이 한도 초과면 신규 매수 차단
         if ("BUY".equals(p.getSide()) && ba.getDailyLossLimitUsd() != null && ba.getDailyLossLimitUsd() > 0) {
             Double pnl = totalUnrealizedPnl(ba);
@@ -105,7 +113,10 @@ public class ProposalExecutionService {
 
         try {
             Broker.Side side = "BUY".equals(p.getSide()) ? Broker.Side.BUY : Broker.Side.SELL;
-            Broker.OrderResult res = broker.placeOrder(ba, p.getTicker(), side, qtyEff, p.getLimitPrice());
+            Broker.OrderType otype;
+            try { otype = Broker.OrderType.valueOf(p.getOrderType() == null ? "LIMIT" : p.getOrderType()); }
+            catch (IllegalArgumentException ex) { otype = Broker.OrderType.LIMIT; }
+            Broker.OrderResult res = broker.placeOrder(ba, p.getTicker(), side, qtyEff, p.getLimitPrice(), otype);
             if (!res.ok()) {
                 p.setStatus("EXEC_FAILED");
                 p.setExecError(res.code() != null ? "[" + res.code() + "] " + res.message() : res.message());
@@ -137,6 +148,30 @@ public class ProposalExecutionService {
     private static BigDecimal effectiveQty(OrderProposal p) {
         if (p.getQtyDecimal() != null) return p.getQtyDecimal();
         return BigDecimal.valueOf(p.getQty() == null ? 0 : p.getQty());
+    }
+
+    /**
+     * M3: KIS KRW 일일 매수/매도 한도 위반 검사. 위반 시 사용자 메시지, 아니면 null.
+     * <p>KIS 계정에서만 적용된다(다른 브로커는 USD 한도 사용). {@code estUsd} 는 이번 주문의 명목가(USD)이며
+     * 오늘 같은 side 로 EXECUTED 된 누적분과 합쳐 근사 환율로 KRW 환산 후 한도와 비교한다.
+     * 수동 주문 경로(BrokerOrderController.place)도 이 메서드를 재사용해 두 경로의 한도 정책을 일치시킨다.
+     */
+    public static String krwDailyLimitViolation(OrderProposalRepository repo, BrokerAccount ba,
+                                                String side, Long userId, double estUsd) {
+        if (ba == null || ba.getBrokerType() != BrokerAccount.BrokerType.KIS) return null;
+        boolean isBuy = "BUY".equalsIgnoreCase(side);
+        Long krwLimit = isBuy ? ba.getDailyBuyKrw() : ba.getDailySellKrw();
+        if (krwLimit == null || krwLimit <= 0) return null;
+        BigDecimal sideSum = repo.sumExecutedUsdSinceBySide(userId, isBuy ? "BUY" : "SELL",
+                LocalDate.now().atStartOfDay());
+        double todayKrw = (sideSum == null ? 0.0 : sideSum.doubleValue()) * BrokerAccount.USD_KRW_APPROX;
+        double newKrw = estUsd * BrokerAccount.USD_KRW_APPROX;
+        if (todayKrw + newKrw > krwLimit) {
+            return "KIS 일일 " + (isBuy ? "매수" : "매도") + " 한도(KRW " + krwLimit + ") 초과: 오늘 약 "
+                    + Math.round(todayKrw) + " + 신규 약 " + Math.round(newKrw)
+                    + " (USD→KRW " + (long) BrokerAccount.USD_KRW_APPROX + " 근사)";
+        }
+        return null;
     }
 
     /** 주문 추정 명목가(USD). 지정가는 그 값, 시장가는 현재가 조회로 추정(실패 시 0 — 기존 동작). */

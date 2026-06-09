@@ -24,6 +24,7 @@ public record BrokerAccountDto(
         Long dailySellKrw,
         Boolean tradingEnabled,
         Boolean autoExecute,
+        Boolean realRiskAcknowledged,
         LocalDateTime lastVerifiedAt,
         LocalDateTime createdAt
 ) {
@@ -43,6 +44,7 @@ public record BrokerAccountDto(
                 b.getDailySellKrw(),
                 b.getTradingEnabled(),
                 b.getAutoExecute(),
+                b.getRealRiskAcknowledged(),
                 b.getLastVerifiedAt(),
                 b.getCreatedAt()
         );

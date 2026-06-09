@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * AlphaHelix Developer Studio Git 연동 DTO 모음.
+ * AlphaHelix Developer IDE Git 연동 DTO 모음.
  */
 public final class AlphaGitDto {
     private AlphaGitDto() {}

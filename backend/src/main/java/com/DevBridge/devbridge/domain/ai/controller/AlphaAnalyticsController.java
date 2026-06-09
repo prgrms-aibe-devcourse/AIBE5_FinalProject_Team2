@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Alpha-Helix Analytics Pipeline.
@@ -48,15 +49,85 @@ public class AlphaAnalyticsController {
         try {
             String periodFinal = (body != null && body.containsKey("period"))
                     ? (String) body.get("period") : period;
-            @SuppressWarnings("unchecked")
-            Map<String, Object> customParams = (body != null && body.containsKey("customParams"))
-                    ? (Map<String, Object>) body.get("customParams") : Map.of();
+            Map<String, Object> customParams = new java.util.HashMap<>();
+            if (body != null && body.get("customParams") instanceof Map<?, ?> cp) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> cpm = (Map<String, Object>) cp;
+                customParams.putAll(cpm);
+            }
+            // 직접 지정(달력) 기간 — 시드계산기와 같은 selector 공유
+            if (body != null && body.get("start") != null) customParams.put("start", body.get("start"));
+            if (body != null && body.get("end") != null) customParams.put("end", body.get("end"));
             String json = svc.doBacktest(ws, periodFinal, customParams);
+
+            // 백테스트 완료 후 개선 제안서 자동 생성 (비동기 — 응답 블로킹 없음)
+            final var wsFinal = ws;
+            final Long uidFinal = uid;
+            final String pFinal = periodFinal;
+            final Map<String, Object> cpFinal = new java.util.HashMap<>(customParams);
+            CompletableFuture.runAsync(() -> {
+                try {
+                    svc.doImproveProposal(wsFinal, uidFinal, pFinal, cpFinal);
+                } catch (Exception ex) {
+                    log.warn("[auto improve-proposal] ws={} {}", id, ex.getMessage());
+                }
+            });
+
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(json);
         } catch (Exception e) {
             log.error("backtest fail", e);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        }
+    }
+
+    // ─────────────────────────────────────────── P3: 개선 제안서
+
+    /** 전략 개선 제안서 — 진단 + 선택지(기존/안정형/공격형) + 각 선택지 전후 백테스트 비교. */
+    @PostMapping("/workspaces/{id}/improve-proposal")
+    public ResponseEntity<?> improveProposal(
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, Object> body) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauth();
+        var wsOpt = svc.getWorkspaceRepo().findByIdAndUserId(id, uid);
+        if (wsOpt.isEmpty()) return ResponseEntity.notFound().build();
+        try {
+            String period = body != null && body.get("period") != null ? String.valueOf(body.get("period")) : null;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> customParams = (body != null && body.get("customParams") instanceof Map)
+                    ? (Map<String, Object>) body.get("customParams") : Map.of();
+            Map<String, Object> result = svc.doImproveProposal(wsOpt.get(), uid, period, customParams);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("improve-proposal fail ws={}", id, e);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        }
+    }
+
+    /** P4: Claude 패치(또는 임의 전후) 효과를 같은 비교 포맷으로 측정 — before/after 파라미터 각각 실측 백테스트. */
+    @PostMapping("/workspaces/{id}/compare-backtest")
+    public ResponseEntity<?> compareBacktest(
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, Object> body) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauth();
+        var wsOpt = svc.getWorkspaceRepo().findByIdAndUserId(id, uid);
+        if (wsOpt.isEmpty()) return ResponseEntity.notFound().build();
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> before = (body != null && body.get("before") instanceof Map)
+                    ? (Map<String, Object>) body.get("before") : Map.of();
+            @SuppressWarnings("unchecked")
+            Map<String, Object> after = (body != null && body.get("after") instanceof Map)
+                    ? (Map<String, Object>) body.get("after") : Map.of();
+            String period = body != null && body.get("period") != null ? String.valueOf(body.get("period")) : null;
+            return ResponseEntity.ok(svc.doCompareBacktest(wsOpt.get(), before, after, period));
+        } catch (Exception e) {
+            log.error("compare-backtest fail ws={}", id, e);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(Map.of("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         }
@@ -167,8 +238,9 @@ public class AlphaAnalyticsController {
             Map<String, Object> resp = svc.doBriefing(wsOpt.get(), uid);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", e.getMessage()));
+            log.error("briefing fail ws={}", id, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", e.getMessage() != null ? e.getMessage() : "브리핑 생성 실패"));
         }
     }
 

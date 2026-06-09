@@ -41,18 +41,22 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         String[] origins = resolveOrigins();
-        registry.addMapping("/api/**")
-                .allowedOrigins(origins)
+        // allowCredentials(true) 와 allowedOrigins("*") 는 Spring 이 금지 → "*" 면 allowedOriginPatterns 사용.
+        // (동일 오리진 nginx 서빙 + JWT 쿠키 SameSite=Lax 이므로 CSRF 는 쿠키 정책으로 방어. 운영은 도메인 명시 권장)
+        boolean wildcard = java.util.Arrays.asList(origins).contains("*");
+
+        var api = registry.addMapping("/api/**")
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(true)
                 .maxAge(3600);
+        if (wildcard) api.allowedOriginPatterns("*"); else api.allowedOrigins(origins);
 
         // 업로드 파일 다운로드용 (FE에서 <a href> 또는 fetch로 직접 받음)
-        registry.addMapping(publicBase + "/**")
-                .allowedOrigins(origins)
+        var files = registry.addMapping(publicBase + "/**")
                 .allowedMethods("GET", "HEAD", "OPTIONS")
                 .maxAge(3600);
+        if (wildcard) files.allowedOriginPatterns("*"); else files.allowedOrigins(origins);
     }
 
     @Override

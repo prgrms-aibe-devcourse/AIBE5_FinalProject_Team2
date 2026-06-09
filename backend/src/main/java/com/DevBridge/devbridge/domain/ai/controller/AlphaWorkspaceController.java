@@ -234,12 +234,55 @@ public class AlphaWorkspaceController {
     // ─────────────────────────────────────────── Decision Log + Orders (read-only)
 
     @GetMapping("/workspaces/{id}/log")
-    public ResponseEntity<?> log(@PathVariable Long id) {
+    public ResponseEntity<?> log(@PathVariable Long id,
+                                  @RequestParam(value = "view", required = false) String view,
+                                  @RequestParam(value = "filter", required = false, defaultValue = "all") String filter) {
         Long uid = AuthContext.currentUserId();
         if (uid == null) return unauth();
         if (svc.getWorkspaceRepo().findByIdAndUserId(id, uid).isEmpty())
             return ResponseEntity.notFound().build();
+        if ("timeline".equalsIgnoreCase(view)) {
+            return ResponseEntity.ok(svc.buildDecisionTimeline(id, filter));
+        }
         return ResponseEntity.ok(svc.getLogRepo().findByWorkspaceIdOrderByCreatedAtAsc(id));
+    }
+
+    @PostMapping("/workspaces/{id}/log/decision")
+    @Transactional
+    public ResponseEntity<?> recordDecision(@PathVariable Long id,
+                                             @RequestBody Map<String, Object> body) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauth();
+        if (svc.getWorkspaceRepo().findByIdAndUserId(id, uid).isEmpty())
+            return ResponseEntity.notFound().build();
+        String decision = String.valueOf(body.getOrDefault("decision", "")).trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("ACCEPTED", "HOLD", "REJECTED").contains(decision)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "decision 은 ACCEPTED/HOLD/REJECTED 중 하나여야 합니다"));
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("decisionStatus", decision);
+        payload.put("title", body.getOrDefault("title", "사용자 결정"));
+        payload.put("userChoice", body.get("userChoice"));
+        payload.put("userNote", body.get("userNote"));
+        payload.put("aiReason", body.get("aiReason"));
+        payload.put("sourceLogId", body.get("sourceLogId"));
+        payload.put("options", body.get("options"));
+
+        String summary = switch (decision) {
+            case "ACCEPTED" -> "사용자 선택 수락";
+            case "HOLD" -> "사용자 선택 보류";
+            case "REJECTED" -> "사용자 선택 거절";
+            default -> "사용자 선택";
+        };
+
+        try {
+            svc.recordLog(id, "USER", "USER_DECISION", summary, svc.getOm().writeValueAsString(payload));
+            return ResponseEntity.ok(Map.of("ok", true, "decision", decision));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "decision log 저장 실패: " + e.getMessage()));
+        }
     }
 
     @GetMapping("/workspaces/{id}/orders")

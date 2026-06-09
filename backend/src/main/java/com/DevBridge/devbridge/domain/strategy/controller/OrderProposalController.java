@@ -97,6 +97,10 @@ public class OrderProposalController {
             return ResponseEntity.badRequest().body(Map.of("error", "주식 수량은 1 이상 정수여야 합니다"));
         }
 
+        String orderTypeRaw = asString(body.get("orderType"));
+        String orderType = (orderTypeRaw != null && (orderTypeRaw.equals("LIMIT") || orderTypeRaw.equals("MARKET") || orderTypeRaw.equals("LOC")))
+                ? orderTypeRaw : "LIMIT";
+
         OrderProposal p = proposalRepo.save(OrderProposal.builder()
                 .userId(uid)
                 .workspaceId(asLong(body.get("workspaceId")))
@@ -105,7 +109,8 @@ public class OrderProposalController {
                 .side(side.toUpperCase())
                 .qty(qtyInt)
                 .qtyDecimal(crypto ? qtyDec : null)
-                .limitPrice(asBigDecimal(body.get("limitPrice")))
+                .limitPrice("MARKET".equals(orderType) ? null : asBigDecimal(body.get("limitPrice")))
+                .orderType(orderType)
                 .source("MANUAL")
                 .rationale(asString(body.getOrDefault("rationale", "사용자 수동 제안")))
                 .status("PENDING")

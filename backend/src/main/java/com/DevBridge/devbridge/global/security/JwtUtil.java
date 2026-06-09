@@ -24,7 +24,7 @@ public class JwtUtil {
 
     public JwtUtil(
             @Value("${app.jwt.secret:dev-bridge-default-secret-key-change-in-production-please}") String secret,
-            @Value("${app.jwt.ttl-hours:24}") long ttlHours
+            @Value("${app.jwt.ttl-hours:1}") long ttlHours
     ) {
         byte[] bytes = secret.getBytes(StandardCharsets.UTF_8);
         if (bytes.length < 32) {

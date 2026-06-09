@@ -9,6 +9,7 @@ import com.DevBridge.devbridge.domain.user.repository.UserRepository;
 import com.DevBridge.devbridge.domain.client.repository.ClientProfileRepository;
 import com.DevBridge.devbridge.global.security.AesGcmCryptoService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +21,7 @@ public class AuthService {
     private final ClientProfileRepository clientProfileRepository;
     private final StreamChatService streamChatService;
     private final AesGcmCryptoService crypto;
+    private final PasswordEncoder passwordEncoder;
 
     @Transactional
     public User signup(SignupRequest request) {
@@ -34,7 +36,7 @@ public class AuthService {
                 .email(request.getEmail())
                 .phone(request.getPhone())
                 .username(request.getUsername())
-                .password(request.getPassword())
+                .password(passwordEncoder.encode(request.getPassword()))
                 .userType(request.getUserType())
                 .birthDate(request.getBirthDate())
                 .build();
@@ -79,14 +81,27 @@ public class AuthService {
         };
     }
 
+    @Transactional
     public User login(LoginRequest request) {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new RuntimeException("가입되지 않은 이메일입니다."));
 
-        if (!user.getPassword().equals(request.getPassword())) {
+        String stored = user.getPassword();
+        String raw = request.getPassword();
+        boolean ok;
+        if (stored != null && stored.startsWith("$2")) {
+            ok = passwordEncoder.matches(raw, stored);          // BCrypt 해시 비교
+        } else {
+            // 레거시 평문 비번 — 일치 시 즉시 BCrypt 로 재해싱(투명 마이그레이션)
+            ok = stored != null && stored.equals(raw);
+            if (ok) {
+                user.setPassword(passwordEncoder.encode(raw));
+                userRepository.save(user);
+            }
+        }
+        if (!ok) {
             throw new RuntimeException("비밀번호가 일치하지 않습니다.");
         }
-
         return user;
     }
 
@@ -131,7 +146,7 @@ public class AuthService {
                     User newUser = User.builder()
                             .email(email)
                             .username(username)
-                            .password(java.util.UUID.randomUUID().toString())
+                            .password(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
                             .phone("00000000000")
                             .userType(User.UserType.FREE)
                             .githubUsername(githubLogin)

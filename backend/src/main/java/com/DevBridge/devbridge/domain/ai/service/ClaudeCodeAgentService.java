@@ -2,6 +2,9 @@ package com.DevBridge.devbridge.domain.ai.service;
 
 import com.DevBridge.devbridge.domain.ai.entity.AlphaWorkspace;
 import com.DevBridge.devbridge.domain.ai.entity.AlphaWorkspaceChangeSet;
+import com.DevBridge.devbridge.domain.ai.repository.AlphaWorkspaceRepository;
+import com.DevBridge.devbridge.domain.user.entity.UserApiKey;
+import com.DevBridge.devbridge.domain.user.service.UserApiKeyService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,6 +44,8 @@ import java.util.stream.Stream;
 public class ClaudeCodeAgentService {
 
     private final AlphaPatchService patchService;
+    private final UserApiKeyService userApiKeyService;
+    private final AlphaWorkspaceRepository workspaceRepo;
     private final ObjectMapper om = new ObjectMapper();
 
     @Value("${app.claude.cli.enabled:false}")
@@ -58,7 +63,19 @@ public class ClaudeCodeAgentService {
     private static final Set<String> CODE_EXT = Set.of(
             "py", "js", "jsx", "ts", "tsx", "json", "txt", "md", "yaml", "yml", "csv", "ipynb", "java");
 
+    // 워크스페이스(=포트폴리오/repo 단위)별 Claude 멀티세션 ID 는 alpha_workspace.claude_session_id 에 **영속**된다.
+    // 같은 워크스페이스의 연속 요청은 같은 세션을 --resume 해 대화 맥락을 이어가며(VSCode Claude Code 동일),
+    // 백엔드를 재시작해도 DB 에서 세션을 복구한다. 워크스페이스당 Claude 세션 1개(+ Heli 별도) → 포트폴리오 1개에 2세션.
+
     public boolean isEnabled() { return enabled; }
+
+    /** 새 대화 시작 — 워크스페이스 Claude 세션 맥락을 비우고(DB 초기화) 작업 디렉터리도 정리(다음 요청은 새 세션). */
+    public void resetSession(Long wsId) {
+        if (wsId != null) {
+            try { workspaceRepo.updateClaudeSessionId(wsId, null); } catch (Exception e) { log.warn("[ClaudeAgent] 세션 리셋 실패 ws={}: {}", wsId, e.getMessage()); }
+        }
+        try { deleteRecursive(workspaceDir(wsId)); } catch (IOException ignore) { /* 정리 실패 무시 */ }
+    }
 
     /** 변경 파일 한 건의 before/after (프론트 Monaco diff 용). */
     public record FileChange(String path, String filename, String before, String after) {}
@@ -69,14 +86,13 @@ public class ClaudeCodeAgentService {
 
     // ─────────────────────────────────────── 동기 실행 (호환)
 
-    public AgentResult runAgent(AlphaWorkspace ws, String request) {
+    public AgentResult runAgent(AlphaWorkspace ws, String request, Long uid) {
         guard(request);
+        String userKey = resolveKey(uid);
         long t0 = System.currentTimeMillis();
-        Path tmp = null;
         try {
             Materialized m = materialize(ws);
-            tmp = m.tmp;
-            String[] outErr = runCli(tmp, request, false, null);
+            String[] outErr = runCliSession(m.tmp, request, false, null, userKey, ws);
             String narration = parseJsonNarration(outErr[0]);
             if (narration == null && !outErr[1].isBlank()) {
                 throw new RuntimeException("Claude Code CLI 실패: " + tail(outErr[1], 1200));
@@ -87,9 +103,8 @@ public class ClaudeCodeAgentService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Claude Code 에이전트 중단됨", e);
-        } finally {
-            if (tmp != null) deleteRecursive(tmp);
         }
+        // dir 은 워크스페이스 세션 유지를 위해 삭제하지 않는다(다음 턴 materialize 가 정리).
     }
 
     // ─────────────────────────────────────── A2: 스트리밍 잡
@@ -97,13 +112,21 @@ public class ClaudeCodeAgentService {
     private final Map<String, ClaudeJob> jobs = new ConcurrentHashMap<>();
     private static final int MAX_JOBS = 64;
 
-    public String startAgent(AlphaWorkspace ws, String request) {
+    public String startAgent(AlphaWorkspace ws, String request, Long uid) {
         guard(request);
+        String userKey = resolveKey(uid);
         ClaudeJob job = createJob();
-        Thread t = new Thread(() -> runStreamingJob(job, ws, request), "claude-agent-" + job.id);
+        Thread t = new Thread(() -> runStreamingJob(job, ws, request, userKey), "claude-agent-" + job.id);
         t.setDaemon(true);
         t.start();
         return job.id;
+    }
+
+    /** BYOK 키 해석: 사용자 본인 Claude 키(복호화). 평문은 즉시 사용·미보관. 없으면 null(→ 서버키/CLI 로그인 폴백). */
+    private String resolveKey(Long uid) {
+        if (uid == null) return null;
+        try { return userApiKeyService.getDecryptedKey(uid, UserApiKey.PROVIDER_ANTHROPIC); }
+        catch (Exception e) { return null; }
     }
 
     public Map<String, Object> jobSnapshot(String jobId, int since) {
@@ -112,15 +135,13 @@ public class ClaudeCodeAgentService {
         return job.snapshot(since);
     }
 
-    private void runStreamingJob(ClaudeJob job, AlphaWorkspace ws, String request) {
+    private void runStreamingJob(ClaudeJob job, AlphaWorkspace ws, String request, String userKey) {
         long t0 = System.currentTimeMillis();
-        Path tmp = null;
         try {
             job.setPhase("🤖 Claude Code 에이전트 시작");
             Materialized m = materialize(ws);
-            tmp = m.tmp;
             // stream-json: 라인별 이벤트 → 사람이 읽는 진행 로그로 변환해 잡에 누적
-            String[] outErr = runCli(tmp, request, true, line -> streamLineToJob(job, line));
+            String[] outErr = runCliSession(m.tmp, request, true, line -> streamLineToJob(job, line), userKey, ws);
             String narration = job.finalNarration != null ? job.finalNarration : parseJsonNarration(outErr[0]);
             AgentResult r = finishApply(ws, request, m, narration, t0);
             Map<String, Object> result = new LinkedHashMap<>();
@@ -136,9 +157,8 @@ public class ClaudeCodeAgentService {
             log.error("[ClaudeAgent] streaming job 실패 ws={}", ws.getId(), e);
             job.log("error", "실패: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
             job.finishErr(e.getMessage());
-        } finally {
-            if (tmp != null) deleteRecursive(tmp);
         }
+        // dir 은 워크스페이스 세션 유지를 위해 삭제하지 않는다(다음 턴 materialize 가 정리).
     }
 
     /** stream-json 한 라인 → 진행 메시지. */
@@ -188,40 +208,94 @@ public class ClaudeCodeAgentService {
     private Materialized materialize(AlphaWorkspace ws) throws IOException {
         Map<String, Object> codeMap = readMap(ws.getCodeJson());
         if (codeMap.isEmpty()) codeMap.put("main", "");
-        Path tmp = Files.createTempDirectory("alpha-claude-ws-" + ws.getId() + "-");
+        // 세션 --resume 은 cwd 경로로 대화 기록을 찾으므로, 워크스페이스마다 디렉터리 경로를 고정한다.
+        // (transcript 는 ~/.claude 전역에 저장 → 프로젝트 파일을 비워도 세션 맥락은 유지됨)
+        Path dir = workspaceDir(ws.getId());
+        clearRegularFiles(dir); // 이전 턴 잔여 파일 제거 → 항상 dir == 현재 codeJson
         Map<String, String> fileToKey = new LinkedHashMap<>();
         Map<String, String> original = new LinkedHashMap<>();
         for (Map.Entry<String, Object> e : codeMap.entrySet()) {
             String key = e.getKey();
             String content = e.getValue() == null ? "" : String.valueOf(e.getValue());
             String filename = key.contains(".") ? key : key + ".py";
-            Files.writeString(tmp.resolve(filename), content, StandardCharsets.UTF_8);
+            Files.writeString(dir.resolve(filename), content, StandardCharsets.UTF_8);
             fileToKey.put(filename, key);
             original.put(filename, content);
         }
-        return new Materialized(tmp, fileToKey, original);
+        return new Materialized(dir, fileToKey, original);
     }
 
-    private List<String> buildCommand(boolean streaming) {
+    /** 워크스페이스별 고정 작업 디렉터리. 세션 resume 을 위해 경로가 매 요청 동일해야 한다. */
+    private Path workspaceDir(Long wsId) throws IOException {
+        Path dir = Path.of(System.getProperty("java.io.tmpdir"), "alpha-claude", "ws-" + (wsId == null ? "anon" : wsId));
+        Files.createDirectories(dir);
+        return dir;
+    }
+
+    /** dir 의 일반 파일만 삭제(숨김/.claude·하위 디렉터리는 보존). */
+    private void clearRegularFiles(Path dir) {
+        try (Stream<Path> s = Files.list(dir)) {
+            s.filter(Files::isRegularFile)
+             .filter(p -> !p.getFileName().toString().startsWith("."))
+             .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignore) {} });
+        } catch (IOException ignore) {}
+    }
+
+    private List<String> buildCommand(boolean streaming, String sessionId, boolean resume) {
         List<String> cmd = new ArrayList<>(List.of(resolveCli(), "-p",
                 "--output-format", streaming ? "stream-json" : "json"));
         if (streaming) cmd.add("--verbose");
         cmd.addAll(List.of(
                 "--allowedTools", "Read,Edit,Write,Glob,Grep",
                 "--disallowedTools", "Bash,WebFetch,WebSearch",   // 보안: 임의 명령/네트워크 차단
-                "--no-session-persistence",
                 "--max-budget-usd", "1"));
+        // 멀티세션: 첫 턴은 --session-id 로 생성, 이후 턴은 --resume 로 대화 맥락 이어감(VSCode 동일).
+        if (sessionId != null && !sessionId.isBlank()) {
+            if (resume) { cmd.add("--resume"); cmd.add(sessionId); }
+            else { cmd.add("--session-id"); cmd.add(sessionId); }
+        }
         return cmd;
     }
 
+    /**
+     * 세션 인지 실행: 워크스페이스의 기존 세션을 --resume, 없으면 새 --session-id 생성.
+     * resume 이 실패(만료/유실)하면 새 세션으로 1회 재시도해 끊김 없이 이어간다.
+     */
+    private String[] runCliSession(Path cwd, String request, boolean streaming, Consumer<String> onLine,
+                                   String userKey, AlphaWorkspace ws) throws IOException, InterruptedException {
+        String prev = ws.getClaudeSessionId();              // DB 영속 세션 ID (재시작에도 유지)
+        boolean resume = (prev != null && !prev.isBlank());
+        String sid = resume ? prev : UUID.randomUUID().toString();
+        String[] r = runCli(cwd, request, streaming, onLine, userKey, sid, resume);
+        boolean failed = parseJsonNarration(r[0]) == null && !r[1].isBlank();
+        if (resume && failed) {
+            log.warn("[ClaudeAgent] 세션 resume 실패 ws={} → 새 세션으로 재시도", ws.getId());
+            sid = UUID.randomUUID().toString();
+            r = runCli(cwd, request, streaming, onLine, userKey, sid, false);
+        }
+        // 새로 만들었거나 바뀐 세션이면 DB 에 영속화 → 다음 턴(재시작 후 포함) resume
+        if (!sid.equals(prev) && ws.getId() != null) {
+            ws.setClaudeSessionId(sid);
+            try { workspaceRepo.updateClaudeSessionId(ws.getId(), sid); }
+            catch (Exception e) { log.warn("[ClaudeAgent] 세션 영속화 실패 ws={}: {}", ws.getId(), e.getMessage()); }
+        }
+        return r;
+    }
+
     /** claude CLI 실행. returns [stdout, stderr]. onLine!=null 이면 stdout 라인별 콜백(스트리밍). */
-    private String[] runCli(Path cwd, String request, boolean streaming, Consumer<String> onLine)
+    private String[] runCli(Path cwd, String request, boolean streaming, Consumer<String> onLine, String userKey,
+                            String sessionId, boolean resume)
             throws IOException, InterruptedException {
         String prompt = "이 디렉터리는 퀀트 트레이딩 전략 코드입니다. 코드를 직접 편집해 다음 요청을 수행하세요.\n요청: " + request;
-        ProcessBuilder pb = new ProcessBuilder(buildCommand(streaming));
+        ProcessBuilder pb = new ProcessBuilder(buildCommand(streaming, sessionId, resume));
         pb.directory(cwd.toFile());
-        if (apiKey != null && !apiKey.isBlank()) pb.environment().put("ANTHROPIC_API_KEY", apiKey);
-        log.info("[ClaudeAgent] cwd={} streaming={} timeout={}s", cwd, streaming, timeoutSec);
+        // BYOK: 사용자 본인 키 우선, 없으면 서버 키(개발 폴백). 운영 배포물엔 서버 키가 없으므로 사용자 키가 필수.
+        // 복호화된 키는 자식 프로세스 env 로만 전달하고 로그/응답에 절대 싣지 않는다.
+        String effectiveKey = (userKey != null && !userKey.isBlank()) ? userKey
+                : (apiKey != null && !apiKey.isBlank() ? apiKey : null);
+        if (effectiveKey != null) pb.environment().put("ANTHROPIC_API_KEY", effectiveKey);
+        log.info("[ClaudeAgent] cwd={} streaming={} timeout={}s byok={} resume={}", cwd, streaming, timeoutSec,
+                (userKey != null && !userKey.isBlank()), resume);
 
         Process proc = pb.start();
         StringBuilder out = new StringBuilder();

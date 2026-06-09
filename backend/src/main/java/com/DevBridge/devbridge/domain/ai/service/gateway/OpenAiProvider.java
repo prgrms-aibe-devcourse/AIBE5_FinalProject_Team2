@@ -97,12 +97,24 @@ public class OpenAiProvider implements AiProvider {
             long tOut = json.path("usage").path("completion_tokens").asLong(0);
             return new Result(text, tIn, tOut);
         } catch (HttpClientErrorException e) {
-            log.warn("[OpenAI] HTTP {} body={}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new RuntimeException("OpenAI API 호출 실패: " + e.getStatusCode());
+            String body2 = e.getResponseBodyAsString();
+            log.warn("[OpenAI] HTTP {} body={}", e.getStatusCode(), body2);
+            String detail = extractOpenAiErrorMessage(body2);
+            throw new RuntimeException("OpenAI API 호출 실패: " + e.getStatusCode() + " — " + detail);
         } catch (Exception e) {
             log.warn("[OpenAI] error: {}", e.getMessage());
             throw new RuntimeException("OpenAI API 호출 실패: " + e.getMessage());
         }
+    }
+
+    private String extractOpenAiErrorMessage(String body) {
+        try {
+            JsonNode err = om.readTree(body).path("error");
+            if (!err.isMissingNode()) {
+                return err.path("message").asText(body);
+            }
+        } catch (Exception ignored) {}
+        return body;
     }
 
     private void ensureKey() {

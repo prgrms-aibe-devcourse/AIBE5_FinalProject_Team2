@@ -33,6 +33,17 @@ public interface OrderProposalRepository extends JpaRepository<OrderProposal, Lo
     java.math.BigDecimal sumExecutedUsdSince(@Param("uid") Long userId,
                                              @Param("since") LocalDateTime since);
 
+    /**
+     * 당일 EXECUTED 주문 합산 USD — 매수/매도(side) 분리. KIS KRW 일일 매수·매도 한도 검증용(M3).
+     * 단가/수량 산정은 {@link #sumExecutedUsdSince} 와 동일.
+     */
+    @Query("select coalesce(sum(coalesce(p.qtyDecimal, p.qty) * coalesce(p.limitPrice, p.fillAvgPrice, 0)), 0) " +
+           "from OrderProposal p " +
+           "where p.userId = :uid and p.status = 'EXECUTED' and p.side = :side and p.executedAt >= :since")
+    java.math.BigDecimal sumExecutedUsdSinceBySide(@Param("uid") Long userId,
+                                                   @Param("side") String side,
+                                                   @Param("since") LocalDateTime since);
+
     /** REAL 자동매매 졸업 게이트: 특정 계정에서 자동 체결(EXECUTED + autoExecuted=true)된 건수. */
     long countByBrokerAccountIdAndStatusAndAutoExecutedTrue(Long brokerAccountId, String status);
 

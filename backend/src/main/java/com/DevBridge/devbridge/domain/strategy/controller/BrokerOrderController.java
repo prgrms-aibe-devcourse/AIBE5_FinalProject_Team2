@@ -7,6 +7,7 @@ import com.DevBridge.devbridge.domain.strategy.service.broker.Broker;
 import com.DevBridge.devbridge.domain.strategy.service.broker.BrokerRouter;
 import com.DevBridge.devbridge.domain.strategy.service.broker.KisApiClient;
 import com.DevBridge.devbridge.domain.strategy.service.broker.KisFillWebSocketService;
+import com.DevBridge.devbridge.domain.strategy.service.broker.ProposalExecutionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -68,8 +69,13 @@ public class BrokerOrderController {
         try {
             return ResponseEntity.ok(kis.getTodayOrders(b));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "주문내역 조회 실패: " + e.getMessage()));
+            // KIS 당일주문 직접조회가 일시 오류여도 페이지가 502 로 깨지지 않게 graceful degrade.
+            // 우리가 보낸 주문/체결은 '주문 제안'·'실행 감사'(DB 기반) 패널에서 신뢰성 있게 확인된다.
+            log.warn("[orders/today] KIS 조회 실패(graceful) user={}: {}", uid, e.getMessage());
+            return ResponseEntity.ok(Map.of(
+                    "output", java.util.List.of(),
+                    "note", "KIS 당일주문 직접조회 일시 오류 — 체결 내역은 '주문 제안/실행 감사' 패널에서 확인하세요.",
+                    "error_detail", e.getMessage() == null ? "" : e.getMessage()));
         }
     }
 
@@ -191,6 +197,12 @@ public class BrokerOrderController {
                 return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED).body(Map.of(
                     "error", "일일 누적 한도(USD " + b.getDailyOrderUsd() + ") 초과: 오늘 " + todayTotal + " + 신규 " + estUsd));
             }
+        }
+        // M3: KIS KRW 일일 매수/매도 한도 — 자동 경로(ProposalExecutionService.execute)와 동일 정책 재사용해
+        //     수동 주문 경로가 KRW 한도를 우회하던 문제(두번째 주문경로 우회)를 막는다.
+        String krwViol = ProposalExecutionService.krwDailyLimitViolation(proposalRepo, b, req.side(), uid, estUsd);
+        if (krwViol != null) {
+            return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED).body(Map.of("error", krwViol));
         }
         try {
             Broker.Side side = "SELL".equalsIgnoreCase(req.side()) ? Broker.Side.SELL : Broker.Side.BUY;

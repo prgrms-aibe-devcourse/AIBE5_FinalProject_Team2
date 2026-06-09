@@ -81,7 +81,7 @@ public class AnalyticsController {
 
     /**
      * 수집된 시장 데이터 현황 (소스/심볼별 행 수 + 최신 시각).
-     * Developer Studio 데이터셋 패널이 실제 DB 적재 현황을 표시하는 데 사용.
+     * Developer IDE 데이터셋 패널이 실제 DB 적재 현황을 표시하는 데 사용.
      */
     @GetMapping("/data-status")
     public ResponseEntity<JsonNode> dataStatus() {
