@@ -37,14 +37,14 @@ export const runCompareBacktest  = (id, before, after, period) =>
   api.post(`/alpha/workspaces/${id}/compare-backtest`, { before: before || {}, after: after || {}, period: period || "5y" }, { timeout: 120000 }).then(r => r.data);
 export const runRegime           = (id, options) => api.post(`/alpha/workspaces/${id}/regime`, options || {}, { timeout: 120000 }).then(r => r.data);
 export const runTrust            = (id, options) => api.post(`/alpha/workspaces/${id}/trust`, options || {}, { timeout: 120000 }).then(r => r.data);
-export const runBriefing         = (id) => api.post(`/alpha/workspaces/${id}/briefing`).then(r => r.data);
+export const runBriefing         = (id) => api.post(`/alpha/workspaces/${id}/briefing`, {}, { timeout: 200000 }).then(r => r.data); // 백엔드 Perplexity read 120s 보다 충분히 큰 여유
 export const runAutoPipeline     = (id) => api.post(`/alpha/workspaces/${id}/auto-run`).then(r => r.data);
 export const saveCode            = (id, codeJson) =>
   api.patch(`/alpha/workspaces/${id}/code`, { codeJson }).then(r => r.data);
 export const queueOrders         = (id) =>
   api.post(`/alpha/workspaces/${id}/queue-orders`).then(r => r.data);
 
-// Developer Studio 데이터셋 — 실제 수집 현황(polygon/binance/...) + OHLCV 미리보기
+// Developer IDE 데이터셋 — 실제 수집 현황(polygon/binance/...) + OHLCV 미리보기
 export const getDataStatus  = () => api.get("/analytics/data-status").then(r => r.data);
 export const getDataPreview = (symbol, tf = "1d", source, limit = 30) =>
   api.get("/analytics/data-ohlcv", { params: { symbol, tf, source, limit } }).then(r => r.data);
@@ -72,7 +72,7 @@ export const runClaudeAgentStatus = (wsId, jobId, since = 0) =>
 export const resetClaudeSession = (wsId) =>
   api.post(`/alpha/workspaces/${wsId}/claude-agent/reset`).then(r => r.data);
 
-// BYOK(본인 Claude 키 연동) + Developer Studio 접근 게이팅
+// BYOK(본인 Claude 키 연동) + Developer IDE 접근 게이팅
 export const getDeveloperAccess = () => api.get("/user/access").then(r => r.data);          // { developer, reason, userType, requiredPlan }
 export const listApiKeys        = () => api.get("/user/api-keys").then(r => r.data);         // [{ provider, hint, connected }]
 export const saveApiKey         = (provider, key) => api.put(`/user/api-keys/${provider}`, { key }).then(r => r.data);
@@ -80,6 +80,10 @@ export const deleteApiKey       = (provider) => api.delete(`/user/api-keys/${pro
 
 // Decision Log
 export const fetchDecisionLog    = (id) => api.get(`/alpha/workspaces/${id}/log`).then(r => r.data);
+export const fetchDecisionTimeline = (id, filter = "all") =>
+  api.get(`/alpha/workspaces/${id}/log`, { params: { view: "timeline", filter } }).then(r => r.data);
+export const recordDecisionLog = (id, body) =>
+  api.post(`/alpha/workspaces/${id}/log/decision`, body).then(r => r.data);
 
 // Alpha Ezer Live Patch (ChangeSet)
 export const applyPatch          = (id, title, ops) =>
@@ -128,7 +132,7 @@ export const createProposal      = (body) => api.post("/proposals", body).then(r
 export const approveProposal     = (id) => api.post(`/proposals/${id}/approve`).then(r => r.data);
 export const rejectProposal      = (id, reason) => api.post(`/proposals/${id}/reject`, { reason }).then(r => r.data);
 
-// Developer Studio Git 연동
+// Developer IDE Git 연동
 export const getGitStatus            = () => api.get("/alpha/git/status").then(r => r.data);
 export const connectGit              = (token) => api.post("/alpha/git/connect", { token }).then(r => r.data);
 export const disconnectGit           = () => api.delete("/alpha/git/connect").then(r => r.data);
