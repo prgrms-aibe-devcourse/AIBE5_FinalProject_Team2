@@ -1,12 +1,9 @@
 package com.DevBridge.devbridge.domain.user.service;
 
-import com.DevBridge.devbridge.domain.chat.service.StreamChatService;
 import com.DevBridge.devbridge.domain.user.entity.User;
-import com.DevBridge.devbridge.domain.client.entity.ClientProfile;
 import com.DevBridge.devbridge.domain.user.dto.LoginRequest;
 import com.DevBridge.devbridge.domain.user.dto.SignupRequest;
 import com.DevBridge.devbridge.domain.user.repository.UserRepository;
-import com.DevBridge.devbridge.domain.client.repository.ClientProfileRepository;
 import com.DevBridge.devbridge.global.security.AesGcmCryptoService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -18,8 +15,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuthService {
 
     private final UserRepository userRepository;
-    private final ClientProfileRepository clientProfileRepository;
-    private final StreamChatService streamChatService;
     private final AesGcmCryptoService crypto;
     private final PasswordEncoder passwordEncoder;
 
@@ -41,44 +36,7 @@ public class AuthService {
                 .birthDate(request.getBirthDate())
                 .build();
 
-        User savedUser = userRepository.save(user);
-
-        if (request.getUserType() == User.UserType.FREE) {
-            createClientProfile(savedUser, request);
-        }
-
-        // Sync the new user to Stream Chat so they can connect immediately after signup
-        try {
-            streamChatService.upsertStreamUser(savedUser);
-        } catch (Exception e) {
-            System.err.println("[StreamChat] Warning: upsertStreamUser failed for new user "
-                    + savedUser.getId() + ": " + e.getMessage());
-        }
-
-        return savedUser;
-    }
-
-    private void createClientProfile(User user, SignupRequest request) {
-        ClientProfile clientProfile = ClientProfile.builder()
-                .user(user)
-                .clientType(mapClientType(request.getClientType()))
-                .industry(request.getIndustry())
-                .heroKey("hero_check.png")
-                .build();
-        clientProfileRepository.save(clientProfile);
-    }
-
-    // --- 매핑 도우미 메서드 (프론트엔드 한글/설명 -> Enum) ---
-
-    private ClientProfile.ClientType mapClientType(String type) {
-        if (type == null || type.isBlank()) return ClientProfile.ClientType.INDIVIDUAL;
-        return switch (type) {
-            case "법인사업자" -> ClientProfile.ClientType.CORPORATION;
-            case "개인 사업자" -> ClientProfile.ClientType.SOLE_PROPRIETOR;
-            case "개인" -> ClientProfile.ClientType.INDIVIDUAL;
-            case "팀" -> ClientProfile.ClientType.TEAM;
-            default -> ClientProfile.ClientType.INDIVIDUAL;
-        };
+        return userRepository.save(user);
     }
 
     @Transactional
@@ -90,9 +48,9 @@ public class AuthService {
         String raw = request.getPassword();
         boolean ok;
         if (stored != null && stored.startsWith("$2")) {
-            ok = passwordEncoder.matches(raw, stored);          // BCrypt 해시 비교
+            ok = passwordEncoder.matches(raw, stored);
         } else {
-            // 레거시 평문 비번 — 일치 시 즉시 BCrypt 로 재해싱(투명 마이그레이션)
+            // 레거시 평문 비번 — 일치 시 즉시 BCrypt 로 재해싱
             ok = stored != null && stored.equals(raw);
             if (ok) {
                 user.setPassword(passwordEncoder.encode(raw));
@@ -107,8 +65,6 @@ public class AuthService {
 
     /**
      * 소셜 로그인 (구글 등) — 이메일 기반으로 기존 User 조회.
-     * 비밀번호 검증을 건너뛰고 토큰 발급 대상 User를 반환한다.
-     * 가입되지 않은 경우 예외를 던지므로 호출부에서 회원가입 안내로 분기.
      */
     public User socialLogin(String email) {
         return userRepository.findByEmail(email)
@@ -117,7 +73,6 @@ public class AuthService {
 
     /**
      * GitHub OAuth 전용 — 이메일로 기존 계정을 찾고, 없으면 GitHub 정보로 자동 생성.
-     * 신규·기존 모두 github_username / github_token_encrypted / github_connected_at 을 최신값으로 갱신한다.
      */
     @Transactional
     public User findOrCreateGithubUser(String email, String githubLogin, String accessToken) {
@@ -154,16 +109,7 @@ public class AuthService {
                             .githubConnectedAt(now)
                             .build();
 
-                    User saved = userRepository.save(newUser);
-
-                    try {
-                        streamChatService.upsertStreamUser(saved);
-                    } catch (Exception e) {
-                        System.err.println("[StreamChat] Warning: upsertStreamUser failed for github user "
-                                + saved.getId() + ": " + e.getMessage());
-                    }
-
-                    return saved;
+                    return userRepository.save(newUser);
                 });
     }
 }

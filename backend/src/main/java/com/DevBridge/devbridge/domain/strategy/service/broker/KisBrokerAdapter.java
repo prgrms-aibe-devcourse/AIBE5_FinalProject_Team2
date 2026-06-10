@@ -31,31 +31,38 @@ public class KisBrokerAdapter implements Broker {
     public OrderResult placeOrder(BrokerAccount b, String symbol, Side side, BigDecimal qty, BigDecimal limitPrice, OrderType orderType) {
         try {
             KisApiClient.Side ks = side == Side.BUY ? KisApiClient.Side.BUY : KisApiClient.Side.SELL;
-            long q = qty.setScale(0, RoundingMode.DOWN).longValue();   // 미국주식은 정수 수량
+            long q = qty.setScale(0, RoundingMode.DOWN).longValue();
             Double lim = limitPrice == null ? null : limitPrice.doubleValue();
-            // LOC=장마감지정가(34, 무한매수법 평단매수)는 REAL 전용 — KIS 모의투자는 00(지정가)만 지원(공식 docstring 명시).
-            //   ⇒ MOCK 이거나 LIMIT/MARKET 이면 00, REAL+LOC 일 때만 34. (모의에서 34 전송 시 주문 거부)
-            boolean realLoc = orderType == OrderType.LOC && b.getEnv() == BrokerAccount.Env.REAL;
-            String ordDvsn = realLoc ? kis.locOrdDvsn() : KisApiClient.ORD_DVSN_LIMIT;
-            // M4: KIS 미국주식은 단가 0(=limitPrice null) 이면 0원 지정가로 거부된다.
-            //     시장가/LOC 의도라도 단가가 비면 현재가를 조회해 그 가격의 지정가로 변환(0원 전송 방지).
-            if (lim == null) {
-                try {
-                    Map<String, Object> quote = kis.getOverseasQuote(b, symbol);
-                    Object lp = quote.get("last_price");
-                    double px = lp instanceof Number n ? n.doubleValue() : Double.parseDouble(String.valueOf(lp));
-                    if (px > 0) lim = px;
-                } catch (Exception ignore) { /* 아래에서 일괄 처리 */ }
+
+            Map<String, Object> resp;
+            if (KisApiClient.isDomesticTicker(symbol)) {
+                // 국내주식: 6자리 숫자 종목코드. 시장가는 placeDomesticOrder 내부에서 ORD_DVSN=01로 처리.
+                resp = kis.placeDomesticOrder(b, symbol, ks, q, lim);
+            } else {
+                // 해외주식
+                // LOC=장마감지정가(34)는 REAL 전용 — KIS 모의투자는 00(지정가)만 지원.
+                boolean realLoc = orderType == OrderType.LOC && b.getEnv() == BrokerAccount.Env.REAL;
+                String ordDvsn = realLoc ? kis.locOrdDvsn() : KisApiClient.ORD_DVSN_LIMIT;
+                // 단가 null이면 현재가 조회로 대체 (0원 전송 방지).
                 if (lim == null) {
-                    return OrderResult.failure("NO_QUOTE",
-                            "KIS 지정가 산정 실패: " + symbol + " 현재가를 조회할 수 없어 0원 지정가 전송을 막았습니다. 잠시 후 다시 시도하세요.");
+                    try {
+                        Map<String, Object> quote = kis.getOverseasQuote(b, symbol);
+                        Object lp = quote.get("last_price");
+                        double px = lp instanceof Number n ? n.doubleValue() : Double.parseDouble(String.valueOf(lp));
+                        if (px > 0) lim = px;
+                    } catch (Exception ignore) { }
+                    if (lim == null) {
+                        return OrderResult.failure("NO_QUOTE",
+                                "KIS 지정가 산정 실패: " + symbol + " 현재가를 조회할 수 없어 0원 지정가 전송을 막았습니다. 잠시 후 다시 시도하세요.");
+                    }
                 }
+                resp = kis.placeOverseasOrder(b, symbol, ks, q, lim, ordDvsn);
             }
-            Map<String, Object> resp = kis.placeOverseasOrder(b, symbol, ks, q, lim, ordDvsn);
+
             String rtCd = String.valueOf(resp.getOrDefault("rt_cd", ""));
             if (!"0".equals(rtCd)) {
                 String msgCd = String.valueOf(resp.getOrDefault("msg_cd", ""));
-                String msg = String.valueOf(resp.getOrDefault("msg", ""));
+                String msg   = String.valueOf(resp.getOrDefault("msg", ""));
                 return OrderResult.failure(msgCd, friendlyKisError(msgCd, msg, b));
             }
             return OrderResult.success(String.valueOf(resp.getOrDefault("kis_order_no", "")), rtCd);

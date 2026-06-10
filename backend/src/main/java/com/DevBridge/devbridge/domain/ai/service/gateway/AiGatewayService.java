@@ -13,7 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,51 +37,33 @@ public class AiGatewayService {
     private final SubscriptionService subscriptionService;
     private final List<AiProvider> providers;
 
-    /** 채팅 호출 — 최종 텍스트 반환. 주 프로바이더 실패 시 다음 프로바이더로 폴백. */
+    /** 채팅 호출 — 최종 텍스트 반환. quota/provider 에러는 RuntimeException. */
     public String chat(Long userId, String modelId, AiChatRequest request) {
         AiModelCatalog model = ensureUsable(userId, modelId);
-        RuntimeException lastErr = null;
-        for (AiProvider provider : buildProviderChain(model)) {
-            try {
-                AiProvider.Result result = provider.chat(model.getModelId(), request);
-                recordUsage(userId, modelId, result.tokensIn(), result.tokensOut(), true, null);
-                return result.text();
-            } catch (RuntimeException e) {
-                log.warn("[AiGateway] chat: provider {} 실패 — {}. 다음 프로바이더 시도.", provider.providerKey(), e.getMessage());
-                lastErr = e;
-            }
+        AiProvider provider = providerFor(model);
+        AiProvider.Result result;
+        try {
+            result = provider.chat(model.getModelId(), request);
+            recordUsage(userId, modelId, result.tokensIn(), result.tokensOut(), true, null);
+            return result.text();
+        } catch (RuntimeException e) {
+            recordUsage(userId, modelId, 0, 0, false, e.getMessage());
+            throw e;
         }
-        recordUsage(userId, modelId, 0, 0, false, lastErr != null ? lastErr.getMessage() : "no provider");
-        throw lastErr != null ? lastErr : new RuntimeException("사용 가능한 AI 프로바이더가 없습니다.");
     }
 
     public String oneShot(Long userId, String modelId, String systemInstruction, String userPrompt, boolean wantJson) {
         AiModelCatalog model = ensureUsable(userId, modelId);
-        RuntimeException lastErr = null;
-        for (AiProvider provider : buildProviderChain(model)) {
-            try {
-                AiProvider.Result result = provider.oneShot(model.getModelId(), systemInstruction, userPrompt, wantJson);
-                recordUsage(userId, modelId, result.tokensIn(), result.tokensOut(), true, null);
-                return result.text();
-            } catch (RuntimeException e) {
-                log.warn("[AiGateway] oneShot: provider {} 실패 — {}. 다음 프로바이더 시도.", provider.providerKey(), e.getMessage());
-                lastErr = e;
-            }
+        AiProvider provider = providerFor(model);
+        AiProvider.Result result;
+        try {
+            result = provider.oneShot(model.getModelId(), systemInstruction, userPrompt, wantJson);
+            recordUsage(userId, modelId, result.tokensIn(), result.tokensOut(), true, null);
+            return result.text();
+        } catch (RuntimeException e) {
+            recordUsage(userId, modelId, 0, 0, false, e.getMessage());
+            throw e;
         }
-        recordUsage(userId, modelId, 0, 0, false, lastErr != null ? lastErr.getMessage() : "no provider");
-        throw lastErr != null ? lastErr : new RuntimeException("사용 가능한 AI 프로바이더가 없습니다.");
-    }
-
-    /** 주 프로바이더를 맨 앞에, 나머지 사용 가능한 프로바이더를 순서대로 이어 붙인 폴백 체인 */
-    private List<AiProvider> buildProviderChain(AiModelCatalog model) {
-        List<AiProvider> chain = new ArrayList<>();
-        providerForOpt(model).ifPresent(chain::add);
-        for (AiProvider p : providers) {
-            if (chain.stream().noneMatch(c -> c.providerKey().equals(p.providerKey())) && p.isAvailable()) {
-                chain.add(p);
-            }
-        }
-        return chain;
     }
 
     /** UI에 노출할 모델 목록 + 사용 가능 여부 + 잔여 한도. */

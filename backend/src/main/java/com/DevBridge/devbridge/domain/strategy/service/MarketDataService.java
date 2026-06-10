@@ -56,7 +56,11 @@ public class MarketDataService {
         var lastDate = existing.isEmpty() ? null : existing.get(existing.size() - 1).getTradeDate();
         boolean stale = lastDate == null || lastDate.isBefore(LocalDate.now().minusDays(2));
         if (stale) {
-            int added = refreshTicker(t, startDate);
+            // 이미 로드한 existing을 날짜 셋으로 변환해 refreshTicker에 전달 — 중복 쿼리 방지
+            var existingDates = existing.stream()
+                    .map(MarketOhlcDaily::getTradeDate)
+                    .collect(Collectors.toSet());
+            int added = refreshTicker(t, startDate, existingDates);
             if (added > 0) {
                 existing = ohlcRepo.findByTickerAndTradeDateGreaterThanEqualOrderByTradeDateAsc(t, startDate);
             }
@@ -67,6 +71,15 @@ public class MarketDataService {
     /** 외부에서 받아와 upsert. 새로 추가된 row 수 반환. */
     @Transactional
     public int refreshTicker(String ticker, LocalDate startDate) {
+        return refreshTicker(ticker, startDate, null);
+    }
+
+    /**
+     * 외부에서 받아와 upsert. existingDates가 null이면 DB에서 조회.
+     * saveAll로 배치 INSERT — 개별 save보다 최대 수백 배 빠름.
+     */
+    @Transactional
+    public int refreshTicker(String ticker, LocalDate startDate, Set<LocalDate> existingDates) {
         String t = ticker.toUpperCase();
         List<Row> rows;
         try {
@@ -78,26 +91,28 @@ public class MarketDataService {
         }
         if (rows.isEmpty()) return 0;
 
-        // 기존 날짜 셋 — 새 row만 insert
-        var existing = ohlcRepo.findByTickerAndTradeDateGreaterThanEqualOrderByTradeDateAsc(t, startDate)
-                .stream().map(MarketOhlcDaily::getTradeDate).collect(Collectors.toSet());
+        // 기존 날짜 셋 — 전달받지 못한 경우에만 DB 조회
+        Set<LocalDate> known = existingDates != null ? existingDates :
+                ohlcRepo.findByTickerAndTradeDateGreaterThanEqualOrderByTradeDateAsc(t, startDate)
+                        .stream().map(MarketOhlcDaily::getTradeDate).collect(Collectors.toSet());
 
-        int added = 0;
-        for (Row r : rows) {
-            if (existing.contains(r.date)) continue;
-            ohlcRepo.save(MarketOhlcDaily.builder()
-                    .ticker(t).tradeDate(r.date)
-                    .open(BigDecimal.valueOf(r.open))
-                    .high(BigDecimal.valueOf(r.high))
-                    .low(BigDecimal.valueOf(r.low))
-                    .close(BigDecimal.valueOf(r.close))
-                    .volume(r.volume)
-                    .source(isCrypto(t) ? "BINANCE" : "STOOQ")
-                    .build());
-            added++;
-        }
-        log.info("[MarketData] {} refreshed +{} rows (start {})", t, added, startDate);
-        return added;
+        String source = isCrypto(t) ? "BINANCE" : "STOOQ";
+        List<MarketOhlcDaily> toInsert = rows.stream()
+                .filter(r -> !known.contains(r.date))
+                .map(r -> MarketOhlcDaily.builder()
+                        .ticker(t).tradeDate(r.date)
+                        .open(BigDecimal.valueOf(r.open))
+                        .high(BigDecimal.valueOf(r.high))
+                        .low(BigDecimal.valueOf(r.low))
+                        .close(BigDecimal.valueOf(r.close))
+                        .volume(r.volume)
+                        .source(source)
+                        .build())
+                .collect(Collectors.toList());
+
+        if (!toInsert.isEmpty()) ohlcRepo.saveAll(toInsert);
+        log.info("[MarketData] {} refreshed +{} rows (start {})", t, toInsert.size(), startDate);
+        return toInsert.size();
     }
 
     /**

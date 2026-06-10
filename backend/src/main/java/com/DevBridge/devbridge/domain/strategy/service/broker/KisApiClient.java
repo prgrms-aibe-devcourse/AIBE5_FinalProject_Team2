@@ -129,6 +129,9 @@ public class KisApiClient {
                 .baseUrl(host(env))
                 .messageConverters(c -> {
                     c.clear();
+                    // byte[] body를 raw bytes로 전송하기 위해 ByteArrayHttpMessageConverter가 Jackson보다 앞에 있어야 함.
+                    // 없으면 Jackson이 byte[]를 Base64 문자열로 직렬화 → KIS가 JSON 오브젝트 대신 문자열을 받아 500 반환.
+                    c.add(new org.springframework.http.converter.ByteArrayHttpMessageConverter());
                     c.add(new StringHttpMessageConverter(StandardCharsets.UTF_8));
                     c.add(jackson);
                 })
@@ -486,6 +489,33 @@ public class KisApiClient {
 
     public String locOrdDvsn() { return (ordDvsnLoc == null || ordDvsnLoc.isBlank()) ? "34" : ordDvsnLoc; }
 
+    /**
+     * KIS POST 주문 API는 body hashkey 헤더가 필요.
+     * /uapi/hashkey 에 동일 body 를 보내면 HASH 값을 반환한다.
+     * 실패 시 null 반환 — null 이면 hashkey 헤더 생략(일부 환경에서 선택적).
+     */
+    private static final MediaType APP_JSON_UTF8 =
+            new MediaType("application", "json", StandardCharsets.UTF_8);
+
+    private String getHashkey(BrokerAccount b, byte[] bodyBytes) {
+        try {
+            JsonNode resp = http(b.getEnv()).post()
+                    .uri("/uapi/hashkey")
+                    .contentType(APP_JSON_UTF8)
+                    .header("appkey", b.getAppKey())
+                    .header("appsecret", crypto.decrypt(b.getAppSecretEnc()))
+                    .body(bodyBytes)
+                    .retrieve()
+                    .body(JsonNode.class);
+            String hash = resp == null ? null : resp.path("HASH").asText(null);
+            log.info("[KIS] hashkey 발급 {} ({})", hash != null ? "성공" : "null응답", b.getEnv());
+            return hash;
+        } catch (Exception e) {
+            log.warn("[KIS] hashkey 발급 실패: {}", e.getMessage());
+            return null;
+        }
+    }
+
     /** 하위호환: 주문구분 미지정 → 지정가(00). */
     public Map<String, Object> placeOverseasOrder(BrokerAccount b, String ticker, Side side,
                                                   long quantity, Double limitPrice) {
@@ -495,6 +525,11 @@ public class KisApiClient {
     public Map<String, Object> placeOverseasOrder(BrokerAccount b, String ticker, Side side,
                                                   long quantity, Double limitPrice, String ordDvsn) {
         if (quantity <= 0) throw new IllegalArgumentException("quantity는 1 이상이어야 합니다.");
+        if (b.getCano() == null || b.getCano().isBlank()
+                || b.getAcntPrdtCd() == null || b.getAcntPrdtCd().isBlank()) {
+            throw new IllegalArgumentException(
+                    "KIS 계좌번호(CANO) 또는 계좌상품코드(ACNT_PRDT_CD)가 설정되지 않았습니다. 브로커 계좌 설정을 확인하세요.");
+        }
         // 전역 kill-switch 는 REAL(실거래) 주문만 차단한다 — MOCK(모의)은 자본 위험이 없어 통과.
         if (b.getEnv() == BrokerAccount.Env.REAL && tradingControl.isKillSwitchOn()) {
             throw new IllegalStateException("KIS 주문 차단: 전역 거래 차단 스위치(kill-switch) 활성화 (실거래)");
@@ -524,22 +559,37 @@ public class KisApiClient {
             body.put("ORD_SVR_DVSN_CD", "0");
             body.put("ORD_DVSN", ordDvsn == null || ordDvsn.isBlank() ? ORD_DVSN_LIMIT : ordDvsn); // 00:지정가 / 34:LOC
 
+            byte[] bodyBytes = jsonBytes(body);
+            log.info("[KIS] order request ticker={} excg={} tr_id={} body={}",
+                    ticker, excg, trId, new String(bodyBytes, StandardCharsets.UTF_8));
+            String hashkey = getHashkey(b, bodyBytes);
             try {
-                resp = http(b.getEnv()).post()
+                var req = http(b.getEnv()).post()
                         .uri("/uapi/overseas-stock/v1/trading/order")
-                        .contentType(MediaType.APPLICATION_JSON)
+                        .contentType(APP_JSON_UTF8)
                         .header("authorization", "Bearer " + token)
                         .header("appkey", b.getAppKey())
                         .header("appsecret", crypto.decrypt(b.getAppSecretEnc()))
                         .header("tr_id", trId)
+                        .header("custtype", "P");
+                if (hashkey != null) req = req.header("hashkey", hashkey);
+                resp = req
                         // CRITICAL: Map 그대로 보내면 chunked encoding으로 전송되어 KIS GW가 EGW00202로 거부.
                         // byte[]로 직렬화하여 Content-Length를 명시한다.
-                        .body(jsonBytes(body))
+                        .body(bodyBytes)
                         .retrieve()
                         .body(JsonNode.class);
             } catch (RestClientResponseException ex) {
                 lastBody = ex.getResponseBodyAsString();
-                throw new IllegalStateException("KIS 주문 거부: " + lastBody, ex);
+                log.warn("[KIS] HTTP {} placeOverseasOrder ticker={} excg={}: {}",
+                        ex.getStatusCode().value(), ticker, excg, lastBody);
+                // KIS가 4xx/5xx를 반환해도 본문이 JSON이면 rt_cd 체크 경로로 처리.
+                try { resp = om.readTree(lastBody); } catch (Exception ignored) { resp = null; }
+                if (resp == null) {
+                    throw new IllegalStateException(
+                            "KIS 주문 거부 [HTTP " + ex.getStatusCode().value() + "]: " + lastBody, ex);
+                }
+                break;
             }
 
             String rtCd = resp == null ? "" : resp.path("rt_cd").asText("");
@@ -569,7 +619,94 @@ public class KisApiClient {
         return out;
     }
 
-    // ───────────────────────────────────────────── 4. 미국주식 체결/주문 내역 조회
+    // ───────────────────────────────────────────── 4. 국내주식 현금 주문
+
+    /**
+     * 국내주식 현금 주문 (매수/매도).
+     * 모의: VTTC0802U(매수) / VTTC0801U(매도) — 실전: TTTC0802U / TTTC0801U
+     * 지정가(ORD_DVSN=00): limitPrice 지정. 시장가(ORD_DVSN=01): limitPrice=null → ORD_UNPR=0.
+     */
+    public Map<String, Object> placeDomesticOrder(BrokerAccount b, String ticker, Side side,
+                                                   long quantity, Double limitPrice) {
+        if (quantity <= 0) throw new IllegalArgumentException("quantity는 1 이상이어야 합니다.");
+        if (b.getCano() == null || b.getCano().isBlank()
+                || b.getAcntPrdtCd() == null || b.getAcntPrdtCd().isBlank()) {
+            throw new IllegalArgumentException(
+                    "KIS 계좌번호(CANO) 또는 계좌상품코드(ACNT_PRDT_CD)가 설정되지 않았습니다. 브로커 계좌 설정을 확인하세요.");
+        }
+        if (b.getEnv() == BrokerAccount.Env.REAL && tradingControl.isKillSwitchOn()) {
+            throw new IllegalStateException("KIS 주문 차단: 전역 거래 차단 스위치(kill-switch) 활성화 (실거래)");
+        }
+        String token = getAccessToken(b);
+        boolean real = b.getEnv() == BrokerAccount.Env.REAL;
+        String trId = (real ? "TTTC" : "VTTC") + (side == Side.BUY ? "0802U" : "0801U");
+
+        String ordDvsn = (limitPrice == null || limitPrice <= 0) ? "01" : "00"; // 01=시장가, 00=지정가
+        long ordPrice  = (limitPrice == null || limitPrice <= 0) ? 0L : limitPrice.longValue();
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("CANO", b.getCano());
+        body.put("ACNT_PRDT_CD", b.getAcntPrdtCd());
+        body.put("PDNO", ticker);
+        body.put("ORD_DVSN", ordDvsn);
+        body.put("ORD_QTY", String.valueOf(quantity));
+        body.put("ORD_UNPR", String.valueOf(ordPrice));
+
+        byte[] bodyBytes = jsonBytes(body);
+        log.info("[KIS] domestic order request ticker={} tr_id={} body={}",
+                ticker, trId, new String(bodyBytes, StandardCharsets.UTF_8));
+        String hashkey = getHashkey(b, bodyBytes);
+
+        JsonNode resp;
+        try {
+            var req = http(b.getEnv()).post()
+                    .uri("/uapi/domestic-stock/v1/trading/order-cash")
+                    .contentType(APP_JSON_UTF8)
+                    .header("authorization", "Bearer " + token)
+                    .header("appkey", b.getAppKey())
+                    .header("appsecret", crypto.decrypt(b.getAppSecretEnc()))
+                    .header("tr_id", trId)
+                    .header("custtype", "P");
+            if (hashkey != null) req = req.header("hashkey", hashkey);
+            resp = req.body(bodyBytes)
+                    .retrieve()
+                    .body(JsonNode.class);
+        } catch (RestClientResponseException ex) {
+            String errBody = ex.getResponseBodyAsString();
+            log.warn("[KIS] HTTP {} placeDomesticOrder ticker={}: {}", ex.getStatusCode().value(), ticker, errBody);
+            try { resp = om.readTree(errBody); } catch (Exception ignored) { resp = null; }
+            if (resp == null) {
+                throw new IllegalStateException(
+                        "KIS 국내 주문 거부 [HTTP " + ex.getStatusCode().value() + "]: " + errBody, ex);
+            }
+        }
+
+        if (!"0".equals(resp == null ? "" : resp.path("rt_cd").asText(""))) {
+            log.warn("[KIS] domestic order rt_cd={} msg_cd={} msg={} ticker={}",
+                    resp == null ? "" : resp.path("rt_cd").asText(""),
+                    resp == null ? "" : resp.path("msg_cd").asText(""),
+                    resp == null ? "" : resp.path("msg1").asText(""), ticker);
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("rt_cd",         resp == null ? "" : resp.path("rt_cd").asText(""));
+        out.put("msg_cd",        resp == null ? "" : resp.path("msg_cd").asText(""));
+        out.put("msg",           resp == null ? "" : resp.path("msg1").asText(""));
+        out.put("kis_order_no",  resp == null ? "" : resp.path("output").path("ODNO").asText(""));
+        out.put("kis_order_time",resp == null ? "" : resp.path("output").path("ORD_TMD").asText(""));
+        out.put("ticker",  ticker);
+        out.put("side",    side.name());
+        out.put("qty",     quantity);
+        out.put("limit_price", limitPrice);
+        return out;
+    }
+
+    /** 6자리 숫자이면 국내 종목코드로 판단. */
+    public static boolean isDomesticTicker(String ticker) {
+        return ticker != null && ticker.matches("\\d{6}");
+    }
+
+    // ───────────────────────────────────────────── 5. 미국주식 체결/주문 내역 조회
 
     /**
      * 당일 미체결 + 체결 통합 조회 (간이).

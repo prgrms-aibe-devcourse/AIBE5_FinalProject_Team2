@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.concurrent.Semaphore;
 
 // 429 응답 본문에서 추출한 쿼터 정보
-record Quota429Info(boolean isFreeTier, boolean isDailyQuota, long retryDelayMs) {}
+record Quota429Info(boolean isFreeTier, boolean isDailyQuota, boolean isPrepaymentDepleted, long retryDelayMs) {}
 
 /**
  * Gemini API를 서버에서 직접 호출.
@@ -47,18 +47,18 @@ public class GeminiService {
     ) {
         this.apiKey = apiKey;
         this.model = model;
-    this.fallbackModel = fallbackModel;
+        this.fallbackModel = fallbackModel;
         this.baseUrl = baseUrl;
         this.restClient = RestClient.create();
 
-    log.info(
-        "Gemini configured. model={}, fallbackModel={}, apiKeyPresent={}, apiKeyLen={}, apiKeyTail={}",
-        model,
-        fallbackModel == null || fallbackModel.isBlank() ? "(none)" : fallbackModel,
-        apiKey != null && !apiKey.isBlank(),
-        apiKey == null ? 0 : apiKey.length(),
-        apiKey == null || apiKey.length() < 4 ? "(none)" : apiKey.substring(apiKey.length() - 4)
-    );
+        log.info(
+            "Gemini configured. model={}, fallbackModel={}, apiKeyPresent={}, apiKeyLen={}, apiKeyTail={}",
+            model,
+            fallbackModel == null || fallbackModel.isBlank() ? "(none)" : fallbackModel,
+            apiKey != null && !apiKey.isBlank(),
+            apiKey == null ? 0 : apiKey.length(),
+            apiKey == null || apiKey.length() < 4 ? "(none)" : apiKey.substring(apiKey.length() - 4)
+        );
     }
 
     public String chat(AiChatRequest request) {
@@ -213,17 +213,18 @@ public class GeminiService {
 
     /** 429 원인에 따른 사용자 친화적 메시지 생성 */
     private String buildQuotaMessage(Quota429Info info, String targetModel) {
+        if (info.isPrepaymentDepleted()) {
+            return String.format(
+                "Gemini API 선불 크레딧이 소진되었습니다(%s). " +
+                "AI Studio(https://aistudio.google.com/apikey)에서 크레딧을 충전하거나 " +
+                "Google Cloud Console에서 결제를 활성화해 주세요.",
+                targetModel);
+        }
         if (info.isFreeTier() && info.isDailyQuota()) {
             return String.format(
                 "Gemini API 무료 티어 일간 한도(%s)가 소진되었습니다. " +
                 "Google Cloud Console에서 결제를 활성화하면 유료 한도(RPM 2,000+)가 적용됩니다. " +
                 "참고: https://console.cloud.google.com/billing",
-                targetModel);
-        }
-        if (!info.isFreeTier() && info.isDailyQuota()) {
-            return String.format(
-                "Gemini API 결제 크레딧이 소진되었습니다(%s). " +
-                "AI Studio(https://ai.studio/projects)에서 크레딧을 충전하거나 결제 수단을 확인해주세요.",
                 targetModel);
         }
         if (info.isFreeTier()) {
@@ -241,11 +242,9 @@ public class GeminiService {
         try {
             String body = e.getResponseBodyAsString();
             boolean isFreeTier = body.contains("free_tier") || body.contains("FreeTier");
-            // "prepayment credits depleted" or "RESOURCE_EXHAUSTED" → 재충전 전까지 재시도 무의미
-            boolean isCreditsExhausted = body.contains("prepayment") || body.contains("credits are depleted")
-                    || body.contains("RESOURCE_EXHAUSTED");
-            boolean isDailyQuota = body.contains("PerDay") || body.contains("GenerateRequestsPerDay")
-                    || isCreditsExhausted;
+            boolean isDailyQuota = body.contains("PerDay") || body.contains("GenerateRequestsPerDay");
+            boolean isPrepaymentDepleted = body.contains("prepayment") || body.contains("credits are depleted")
+                    || body.contains("credits_depleted") || body.contains("RESOURCE_EXHAUSTED");
 
             long retryDelayMs = 5_000L;
             int rdIdx = body.indexOf("\"retryDelay\"");
@@ -261,9 +260,9 @@ public class GeminiService {
                     } catch (NumberFormatException ignored) {}
                 }
             }
-            return new Quota429Info(isFreeTier, isDailyQuota, retryDelayMs);
+            return new Quota429Info(isFreeTier, isDailyQuota, isPrepaymentDepleted, retryDelayMs);
         } catch (Exception ex) {
-            return new Quota429Info(false, false, 5_000L);
+            return new Quota429Info(false, false, false, 5_000L);
         }
     }
 
@@ -311,6 +310,11 @@ public class GeminiService {
                 log.warn("Gemini 429 on model={}. isFreeTier={}, isDailyQuota={}, retryDelayMs={}",
                         targetModel, info.isFreeTier(), info.isDailyQuota(), info.retryDelayMs());
 
+                if (info.isPrepaymentDepleted()) {
+                    // 선불 크레딧 소진 — 재시도해도 무의미, 즉시 실패
+                    log.error("Gemini prepayment credits depleted on model {}.", targetModel);
+                    throw e;
+                }
                 if (info.isFreeTier() && info.isDailyQuota()) {
                     // 일간 무료 한도 소진 — 재시도해도 무의미, 즉시 실패 → 상위 generateContent에서 fallback 모델로 전환
                     log.warn("Gemini free tier daily quota exhausted on model {}.", targetModel);
@@ -338,9 +342,5 @@ public class GeminiService {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Gemini API 대기 중 인터럽트 발생.", e);
         }
-    }
-
-    private void sleepBeforeRetry() {
-        sleepMs(5_000L);
     }
 }

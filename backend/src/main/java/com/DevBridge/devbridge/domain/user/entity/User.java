@@ -94,7 +94,8 @@ public class User {
     public enum UserType {
         FREE,       // 무료 회원
         STANDARD,   // 스탠다드 구독 회원
-        PREMIUM;    // 프리미엄 구독 회원
+        PREMIUM,    // 프리미엄 구독 회원
+        EXPERT;     // 익스퍼트 구독 회원
 
         /** 구 값("CLIENT"/"USER"/"PARTNER"/"PRO") 역방향 호환 처리. */
         @JsonCreator
@@ -104,6 +105,7 @@ public class User {
                 case "CLIENT", "USER", "FREE" -> FREE;
                 case "PARTNER", "PRO", "STANDARD" -> STANDARD;
                 case "PREMIUM" -> PREMIUM;
+                case "EXPERT" -> EXPERT;
                 default -> FREE;
             };
         }

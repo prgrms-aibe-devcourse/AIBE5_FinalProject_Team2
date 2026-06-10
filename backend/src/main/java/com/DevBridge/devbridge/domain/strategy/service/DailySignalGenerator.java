@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -48,6 +49,9 @@ public class DailySignalGenerator {
     private final com.DevBridge.devbridge.domain.strategy.service.broker.ProposalExecutionService exec; // 자동 체결
     private final com.DevBridge.devbridge.domain.strategy.service.broker.BrokerRouter brokerRouter; // 크립토 현재가 라우팅
     private final ObjectMapper om = new ObjectMapper();
+
+    @Value("${app.exchange.usd-krw-fallback:1350}")
+    private double usdKrw;
 
     /** 매 평일 22:30 KST (월~금) */
     @Scheduled(cron = "0 30 22 * * MON-FRI", zone = "Asia/Seoul")
@@ -223,7 +227,7 @@ public class DailySignalGenerator {
             JsonNode n = om.readTree(s.getParamsJson());
             if (n.has("orderUsdt")) return Math.max(6.0, n.get("orderUsdt").asDouble());
             int splits = n.path("splits").asInt(40);
-            double perOrder = (s.getPrincipalKrw() / 1300.0) / Math.max(1, splits);
+            double perOrder = (s.getPrincipalKrw() / usdKrw) / Math.max(1, splits);
             return Math.max(6.0, perOrder);
         } catch (Exception e) {
             return 6.0;

@@ -24,8 +24,21 @@ public interface DailySignalRepository extends JpaRepository<DailySignal, Long> 
             """)
     List<DailySignal> findLatestPerStrategyByUser(@org.springframework.data.repository.query.Param("userId") Long userId);
 
-    /** 알림 발송 대상: deliveredAt이 null이고 asOfDate가 오늘인 시그널 */
+    /** 알림 발송 대상: deliveredAt이 null이고 asOfDate가 오늘인 시그널 (단순 조회) */
     List<DailySignal> findByAsOfDateAndDeliveredAtIsNull(LocalDate asOfDate);
+
+    /**
+     * 알림 발송 대상 시그널 + strategy/user 즉시 로딩.
+     * dispatchPending에서 s.getStrategy().getUser() 접근 시 N+1이 발생하므로
+     * JOIN FETCH로 한 번에 로드한다.
+     */
+    @org.springframework.data.jpa.repository.Query("""
+            SELECT s FROM DailySignal s
+            JOIN FETCH s.strategy st
+            JOIN FETCH st.user
+            WHERE s.asOfDate = :asOf AND s.deliveredAt IS NULL
+            """)
+    List<DailySignal> findPendingFetchStrategyUser(@org.springframework.data.repository.query.Param("asOf") LocalDate asOf);
 
     /** 특정 일자의 모든 시그널 (자동 OrderProposal 생성용) */
     List<DailySignal> findByAsOfDate(LocalDate asOfDate);

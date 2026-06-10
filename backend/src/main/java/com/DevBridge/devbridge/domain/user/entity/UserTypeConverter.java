@@ -23,6 +23,7 @@ public class UserTypeConverter implements AttributeConverter<User.UserType, Stri
             case "CLIENT", "USER", "FREE" -> User.UserType.FREE;
             case "PARTNER", "PRO", "STANDARD" -> User.UserType.STANDARD;
             case "PREMIUM" -> User.UserType.PREMIUM;
+            case "EXPERT" -> User.UserType.EXPERT;
             default -> User.UserType.FREE;
         };
     }

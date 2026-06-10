@@ -1,11 +1,6 @@
 package com.DevBridge.devbridge.domain.ai.controller;
 
-import com.DevBridge.devbridge.domain.user.entity.User;
-import com.DevBridge.devbridge.domain.strategy.entity.BrokerAccount;
 import com.DevBridge.devbridge.domain.user.entity.*;
-import com.DevBridge.devbridge.domain.client.entity.*;
-import com.DevBridge.devbridge.domain.project.entity.*;
-import com.DevBridge.devbridge.domain.chat.entity.*;
 import com.DevBridge.devbridge.domain.notification.entity.*;
 import com.DevBridge.devbridge.domain.payment.entity.*;
 import com.DevBridge.devbridge.domain.strategy.entity.*;

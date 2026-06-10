@@ -54,6 +54,7 @@ public class SubscriptionService {
     public static String deriveTierDisplay(Subscription sub) {
         if (sub == null) return "FREE";
         long amt = sub.getAmountKrw() != null ? sub.getAmountKrw() : 0L;
+        if (amt >= 39900L) return "EXPERT";
         if (amt >= 19900L) return "PREMIUM";
         return "STANDARD";
     }
@@ -86,9 +87,10 @@ public class SubscriptionService {
                 .amountKrw(amountKrw)
                 .build();
         Subscription saved = repo.save(sub);
-        String planName = amountKrw >= 19900L ? "PREMIUM" : "STANDARD";
+        String planName = amountKrw >= 39900L ? "EXPERT" : amountKrw >= 19900L ? "PREMIUM" : "STANDARD";
         userRepository.findById(userId).ifPresent(u -> {
-            u.setUserType(amountKrw >= 19900L ? User.UserType.PREMIUM : User.UserType.STANDARD);
+            u.setUserType(amountKrw >= 39900L ? User.UserType.EXPERT
+                    : amountKrw >= 19900L ? User.UserType.PREMIUM : User.UserType.STANDARD);
             userRepository.save(u);
             notificationService.create(u, Notification.NotificationType.SUBSCRIPTION_ACTIVATED,
                     planName + " 플랜 구독이 시작되었습니다",

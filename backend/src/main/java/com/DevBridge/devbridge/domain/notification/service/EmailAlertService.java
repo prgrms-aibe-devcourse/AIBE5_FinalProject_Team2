@@ -89,7 +89,8 @@ public class EmailAlertService {
     /** 미발송 시그널을 user별로 묶어서 일괄 발송. */
     @Transactional
     public int dispatchPending(java.time.LocalDate asOfDate) {
-        var pending = signalRepo.findByAsOfDateAndDeliveredAtIsNull(asOfDate);
+        // JOIN FETCH로 strategy/user를 한 번에 로드 — lazy 접근에 의한 N+1 방지
+        var pending = signalRepo.findPendingFetchStrategyUser(asOfDate);
         if (pending.isEmpty()) return 0;
         var byUser = pending.stream().collect(Collectors.groupingBy(s -> s.getStrategy().getUser()));
         byUser.forEach(this::sendDigest);

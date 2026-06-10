@@ -4,25 +4,16 @@ import com.DevBridge.devbridge.domain.notification.entity.Notification;
 import com.DevBridge.devbridge.domain.notification.service.NotificationService;
 import com.DevBridge.devbridge.domain.strategy.entity.Strategy;
 import com.DevBridge.devbridge.domain.user.entity.*;
-import com.DevBridge.devbridge.domain.client.entity.*;
-import com.DevBridge.devbridge.domain.project.entity.*;
-import com.DevBridge.devbridge.domain.chat.entity.*;
 import com.DevBridge.devbridge.domain.notification.entity.*;
-import com.DevBridge.devbridge.domain.payment.entity.*;
 import com.DevBridge.devbridge.domain.strategy.entity.*;
-import com.DevBridge.devbridge.domain.ai.entity.*;
 import com.DevBridge.devbridge.domain.user.repository.*;
-import com.DevBridge.devbridge.domain.client.repository.*;
-import com.DevBridge.devbridge.domain.project.repository.*;
-import com.DevBridge.devbridge.domain.chat.repository.*;
 import com.DevBridge.devbridge.domain.notification.repository.*;
-import com.DevBridge.devbridge.domain.payment.repository.*;
 import com.DevBridge.devbridge.domain.strategy.repository.*;
-import com.DevBridge.devbridge.domain.ai.repository.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,7 +39,8 @@ import java.util.List;
 @Slf4j
 public class BacktestService {
 
-    private static final double USD_KRW = 1300.0; // TODO: 실시간 환율 API로 교체
+    @Value("${app.exchange.usd-krw-fallback:1350}")
+    private double usdKrw;
 
     private final MarketDataService marketDataService;
     private final StrategyRepository strategyRepo;
@@ -71,8 +63,10 @@ public class BacktestService {
     public StrategyBacktestSummary runFor(Strategy s) {
         var ohlc = marketDataService.getDaily(s.getTicker(), s.getStartDate());
         if (ohlc.size() < 30) {
-            log.warn("[Backtest] {} insufficient OHLC ({} rows)", s.getCode(), ohlc.size());
-            return null;
+            log.warn("[Backtest] {} insufficient OHLC ({} rows) — 최소 30일 필요", s.getCode(), ohlc.size());
+            throw new IllegalStateException(
+                    "[" + s.getCode() + "] 백테스트 데이터 부족: " + ohlc.size() + "일 (최소 30일 필요). " +
+                    "시작일을 앞당기거나 시장 데이터를 먼저 수집해주세요.");
         }
         Result r = s.getMethod() == Strategy.Method.INFINITE_BUY
                 ? runInfiniteBuy(s, ohlc)
@@ -107,7 +101,7 @@ public class BacktestService {
         summary.setWinRate(bd(r.metrics.winRate));
         summary.setTrustScore(computeTrustScore(r.metrics));
         summary.setEquityUsd(bd(last.equity));
-        summary.setEquityKrw(bd(last.equity * USD_KRW));
+        summary.setEquityKrw(bd(last.equity * usdKrw));
         summary.setTradesCount(r.trades.size());
         summaryRepo.save(summary);
 
@@ -146,7 +140,7 @@ public class BacktestService {
     private Result runInfiniteBuy(Strategy s, List<MarketOhlcDaily> ohlc) {
         Params p = parseParams(s.getParamsJson());
         boolean crypto = isCryptoTicker(s.getTicker()); // 크립토는 분수 수량(고가 코인이라 정수 floor 면 0주)
-        double principalUsd = s.getPrincipalKrw() / USD_KRW;
+        double principalUsd = s.getPrincipalKrw() / usdKrw;
         double dailyBudget = principalUsd / p.splits;
         double cash = principalUsd, shares = 0, totalCost = 0;
         var trades = new ArrayList<StrategyTrade>();
@@ -249,7 +243,7 @@ public class BacktestService {
 
     private Result runValueRebalancing(Strategy s, List<MarketOhlcDaily> ohlc) {
         Params p = parseParams(s.getParamsJson());
-        double principalUsd = s.getPrincipalKrw() / USD_KRW;
+        double principalUsd = s.getPrincipalKrw() / usdKrw;
         var trades = new ArrayList<StrategyTrade>();
         var curve = new ArrayList<Point>();
         var sellPnLs = new ArrayList<Double>();
@@ -261,7 +255,7 @@ public class BacktestService {
         double shares = invested / startPx;
         double totalCost = invested;
         double V = invested;
-        double VNext = V * (1 + p.expectedReturn) + (p.biweeklyContribKrw / USD_KRW);
+        double VNext = V * (1 + p.expectedReturn) + (p.biweeklyContribKrw / usdKrw);
         int days = 0;
 
         trades.add(buildTrade(s, first.getTradeDate(), StrategyTrade.Side.BUY, StrategyTrade.Kind.VR_INIT,
@@ -304,8 +298,8 @@ public class BacktestService {
 
             if (days >= p.rebalanceDays) {
                 V = VNext;
-                VNext = V * (1 + p.expectedReturn) + (p.biweeklyContribKrw / USD_KRW);
-                pool += (p.biweeklyContribKrw / USD_KRW);
+                VNext = V * (1 + p.expectedReturn) + (p.biweeklyContribKrw / usdKrw);
+                pool += (p.biweeklyContribKrw / usdKrw);
                 days = 0;
             } else {
                 days++;

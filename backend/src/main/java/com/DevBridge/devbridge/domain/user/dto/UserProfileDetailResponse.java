@@ -2,7 +2,6 @@ package com.DevBridge.devbridge.domain.user.dto;
 
 import com.DevBridge.devbridge.domain.user.entity.User;
 import com.DevBridge.devbridge.domain.user.entity.UserProfileDetail;
-import com.DevBridge.devbridge.domain.client.entity.ClientProfile;
 import lombok.*;
 
 import java.util.List;

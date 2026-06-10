@@ -31,7 +31,6 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
 	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 	implementation 'org.springframework.boot:spring-boot-starter-mail'
-	implementation 'io.getstream:stream-chat-java:1.30.0'
 	implementation 'com.fasterxml.jackson.core:jackson-databind'
 	implementation 'io.github.cdimascio:dotenv-java:3.1.0'
 
@@ -67,16 +66,11 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+}
+
 tasks.named('test') {
 	useJUnitPlatform()
 }
 
-// ===== ERD v2 mock JSON 시드 데이터 자동 복사 =====
-// frontend/src/data/erd/*.json -> build/resources/main/seed/erd/
-// SSOT(Single Source of Truth)를 frontend로 유지.
-tasks.named('processResources') {
-	from('frontend/src/data/erd') {
-		into 'seed/erd'
-		include '*.json'
-	}
-}

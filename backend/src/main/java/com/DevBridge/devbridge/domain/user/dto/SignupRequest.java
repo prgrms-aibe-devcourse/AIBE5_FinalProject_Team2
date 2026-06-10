@@ -1,6 +1,5 @@
 package com.DevBridge.devbridge.domain.user.dto;
 
-import com.DevBridge.devbridge.domain.client.entity.ClientProfile;
 import com.DevBridge.devbridge.domain.user.entity.User;
 import lombok.*;
 

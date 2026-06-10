@@ -28,7 +28,8 @@ public class SubscriptionController {
     /** 허용 결제 금액 (원) → 플랜 이름 매핑. 추가 플랜 출시 시 여기만 수정. */
     private static final java.util.Map<Long, String> VALID_PLANS = java.util.Map.of(
             9900L,  "STANDARD",
-            19900L, "PREMIUM"
+            19900L, "PREMIUM",
+            39900L, "EXPERT"
     );
 
     private final SubscriptionService subscriptionService;
@@ -70,7 +71,7 @@ public class SubscriptionController {
 
         if (!VALID_PLANS.containsKey(amount)) {
             log.warn("[Subscription] 허용되지 않은 금액 userId={} amount={}", uid, amount);
-            return ResponseEntity.badRequest().body(Map.of("error", "허용되지 않은 결제 금액입니다. (9900 또는 19900원)"));
+            return ResponseEntity.badRequest().body(Map.of("error", "허용되지 않은 결제 금액입니다. (9900 / 19900 / 39900원)"));
         }
         if (paymentKey == null || paymentKey.isBlank() || "null".equals(paymentKey)) {
             return ResponseEntity.badRequest().body(Map.of("error", "paymentKey 가 없습니다."));
