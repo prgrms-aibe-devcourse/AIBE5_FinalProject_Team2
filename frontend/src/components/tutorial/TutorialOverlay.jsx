@@ -7,6 +7,8 @@ import useTutorialStore, { TUTORIAL_STEPS, TOTAL_STEPS } from "../../store/useTu
 const TOOLTIP_W = 292;
 const TOOLTIP_GAP = 18;
 const OUTLINE_OFFSET = 6; // outline-offset (px)
+const ARROW_SIZE = 8;
+const ARROW_OVERLAP = 1; // 카드와 화살표를 1px 겹쳐 seam(빈틈) 제거
 
 /* ── 툴팁 위치 계산 (getBoundingClientRect 기준) ── */
 const TOOLTIP_APPROX_H = 280; // 대략적인 툴팁 높이 (뷰포트 하단 클램핑용)
@@ -43,20 +45,54 @@ function calcTooltipPos(rect, side, leftShift = 0, topShift = 0) {
 }
 
 /* ── 말풍선 꼬리 ── */
-function Arrow({ side, tooltipLeft, tooltipTop, targetRect }) {
-  const base = { position: "absolute", width: 0, height: 0, border: "8px solid transparent" };
+function Arrow({ side, tooltipLeft, tooltipTop, targetRect, shiftX = 0, shiftY = 0 }) {
+  const base = {
+    position: "absolute",
+    width: 0,
+    height: 0,
+    border: `${ARROW_SIZE}px solid transparent`,
+  };
   if (side === "right" || side === "left") {
     // 타겟 요소 중심 높이로 동적 정렬
     const arrowTop = targetRect
-      ? Math.max(12, Math.min(200, targetRect.top + targetRect.height / 2 - tooltipTop))
-      : 22;
+      ? Math.max(12, Math.min(200, targetRect.top + targetRect.height / 2 - tooltipTop + shiftY))
+      : 22 + shiftY;
     if (side === "right")
-      return <div style={{ ...base, left: -16, top: arrowTop, borderRightColor: "white" }} />;
-    return <div style={{ ...base, right: -16, top: arrowTop, borderLeftColor: "white" }} />;
+      return (
+        <div
+          style={{
+            ...base,
+            left: -(ARROW_SIZE * 2 - ARROW_OVERLAP) + shiftX,
+            top: arrowTop,
+            borderRightColor: "white",
+          }}
+        />
+      );
+    return (
+      <div
+        style={{
+          ...base,
+          right: -(ARROW_SIZE * 2 - ARROW_OVERLAP) + shiftX,
+          top: arrowTop,
+          borderLeftColor: "white",
+        }}
+      />
+    );
   }
   // bottom / bottom-left: 타겟 버튼 중앙을 동적으로 가리킴
-  const arrowLeft = targetRect ? (targetRect.left + targetRect.width / 2) - tooltipLeft : TOOLTIP_W / 2;
-  return <div style={{ ...base, top: -16, left: Math.max(12, Math.min(TOOLTIP_W - 24, arrowLeft)), borderBottomColor: "white" }} />;
+  const arrowLeft = targetRect
+    ? targetRect.left + targetRect.width / 2 - tooltipLeft + shiftX
+    : TOOLTIP_W / 2 + shiftX;
+  return (
+    <div
+      style={{
+        ...base,
+        top: -(ARROW_SIZE * 2 - ARROW_OVERLAP) + shiftY,
+        left: Math.max(12, Math.min(TOOLTIP_W - 24, arrowLeft)),
+        borderBottomColor: "white",
+      }}
+    />
+  );
 }
 
 /* ── 툴팁 카드 ── */
@@ -78,7 +114,14 @@ function TooltipCard({ rect, stepData, step, onNext, onStop }) {
       border: "1px solid rgba(99,102,241,0.18)",
       animation: "_tut_card_in 0.22s ease",
     }}>
-      <Arrow side={stepData.side} tooltipLeft={pos.left} tooltipTop={pos.top} targetRect={rect} />
+      <Arrow
+        side={stepData.side}
+        tooltipLeft={pos.left}
+        tooltipTop={pos.top}
+        targetRect={rect}
+        shiftX={stepData.arrowShiftX || 0}
+        shiftY={stepData.arrowShiftY || 0}
+      />
 
       {/* 단계 배지 + 진행바 */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -194,8 +237,11 @@ export default function TutorialOverlay() {
         z-index: 9005 !important;
       }
 
-      /* 사이드바 스텝: 사이드바 전체 stacking context를 overlay 위로 올림 */
+      /* 사이드바/모달/워크스페이스 본문 스텝: 해당 stacking context를 overlay 위로 올림 */
       ${stepData.raiseSidebar ? "[data-tut-sidebar] { z-index: 9005 !important; }" : ""}
+      ${stepData.raiseModalRoot ? "[data-tutorial-modal-root] { z-index: 9005 !important; }" : ""}
+      ${stepData.raiseWorkspaceMain ? "[data-tutorial-workspace-main] { position: relative !important; z-index: 9005 !important; }" : ""}
+      ${stepData.raiseChatDock ? "[data-tut-chat] { z-index: 9005 !important; }" : ""}
     `;
     document.head.appendChild(style);
     return cleanup;
