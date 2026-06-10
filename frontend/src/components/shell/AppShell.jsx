@@ -20,6 +20,9 @@ export default function AppShell({ children, hideChat = false }) {
   const isWorkspace = loc.pathname.startsWith("/alpha/w/");
   const [chatOpen, setChatOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [sidebarExpanded, setSidebarExpanded] = useState(() => {
+    try { return localStorage.getItem("alpha.sidebar.expanded") !== "false"; } catch { return true; }
+  });
 
   useEffect(() => {
     const handler = () => setChatOpen(true);
@@ -42,21 +45,28 @@ export default function AppShell({ children, hideChat = false }) {
     localStorage.setItem("aiDockWidth", String(w));
   };
 
-  const leftOffset = 52 + (guideOpen ? guideWidth : 0);
+  const sidebarW = sidebarExpanded ? 240 : 52;
+  const leftOffset = sidebarW + (guideOpen ? guideWidth : 0);
   const rightOffset = !hideChat && chatOpen ? chatWidth : 0;
 
   return (
     <div style={{ minHeight: "100vh", background: "#F8FAFC" }}>
       <LeftSidebar
+        expanded={sidebarExpanded}
+        onToggleExpanded={() => setSidebarExpanded(o => {
+          const next = !o;
+          try { localStorage.setItem("alpha.sidebar.expanded", String(next)); } catch {}
+          return next;
+        })}
         guideOpen={guideOpen}
         onToggleGuide={() => setGuideOpen(o => !o)}
       />
-      <GuideDock open={guideOpen} onClose={() => setGuideOpen(false)} width={guideWidth} />
+      <GuideDock open={guideOpen} onClose={() => setGuideOpen(false)} width={guideWidth} sidebarWidth={sidebarW} />
       <TopBar
         onToggleChat={() => setChatOpen(o => !o)}
         chatOpen={chatOpen}
         rightOffset={rightOffset}
-        leftOffset={52 + (guideOpen ? guideWidth : 0)}
+        leftOffset={leftOffset}
       />
       <main style={{
         marginLeft: leftOffset,
