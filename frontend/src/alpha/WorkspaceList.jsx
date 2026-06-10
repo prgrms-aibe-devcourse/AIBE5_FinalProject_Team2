@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Trash2, ArrowRight, MessageSquare, Star, BookOpen, ChevronRight, Zap, TrendingUp, Bitcoin, Layers, X } from "lucide-react";
+import CreateWorkspaceModal from "./CreateWorkspaceModal";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import { listWorkspaces, createWorkspace, deleteWorkspace, updateWorkspaceStatus } from "./alphaApi";
 
 const PRIMARY_KEY = "alpha.primaryWsId";
+const MAX_LIVE = 3; // 동시에 LIVE(운용 중)로 둘 수 있는 워크스페이스 최대 개수
 
 const STATUS_LABEL = {
   DRAFT:      "초안",
@@ -33,6 +35,7 @@ export default function WorkspaceList() {
   const [createModalName, setCreateModalName] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null); // { id, name }
   const [primaryTarget, setPrimaryTarget] = useState(null); // { id, name } — 대표 설정 확인 모달
+  const [liveLimitOpen, setLiveLimitOpen] = useState(false); // LIVE 최대 개수 초과 경고 모달
   const [primaryId, setPrimaryId] = useState(() => {
     const v = localStorage.getItem(PRIMARY_KEY);
     return v ? Number(v) : null;
@@ -94,6 +97,11 @@ export default function WorkspaceList() {
 
   const onToggleLive = async (w) => {
     const next = w.status === "LIVE" ? "TESTED" : "LIVE";
+    // LIVE 로 전환 시 최대 개수 제한 — 초과하면 팝업 띄우고 중단.
+    if (next === "LIVE") {
+      const liveCount = (items || []).filter(it => it.status === "LIVE").length;
+      if (liveCount >= MAX_LIVE) { setLiveLimitOpen(true); return; }
+    }
     // 낙관적 업데이트
     setItems(prev => (prev || []).map(it => it.id === w.id ? { ...it, status: next } : it));
     try {
@@ -342,11 +350,15 @@ export default function WorkspaceList() {
         onConfirm={onConfirmPrimary}
         onClose={() => setPrimaryTarget(null)}
       />
+      <LiveLimitModal
+        open={liveLimitOpen}
+        onClose={() => setLiveLimitOpen(false)}
+      />
     </div>
   );
 }
 
-function CreateWorkspaceModal({ open, name, onChange, onConfirm, onClose, theme }) {
+function LiveLimitModal({ open, onClose }) {
   if (!open) return null;
   return (
     <div onClick={onClose} style={{
@@ -354,84 +366,54 @@ function CreateWorkspaceModal({ open, name, onChange, onConfirm, onClose, theme 
       display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        background: "white", borderRadius: 20, width: "100%", maxWidth: 460,
+        background: "white", borderRadius: 20, width: "100%", maxWidth: 420,
         boxShadow: "0 24px 64px rgba(0,0,0,0.22)", overflow: "hidden",
       }}>
-        {/* 헤더 */}
         <div style={{
           padding: "24px 28px 20px",
-          background: "linear-gradient(135deg,#eff6ff 0%,#e0e7ff 100%)",
-          borderBottom: "1px solid #E2E8F0",
-          display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "linear-gradient(135deg,#fffbeb 0%,#fef3c7 100%)",
+          borderBottom: "1px solid #FDE68A",
+          display: "flex", alignItems: "center", gap: 14,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: 14, flexShrink: 0,
-              background: "linear-gradient(135deg,#60a5fa,#6366f1)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 4px 12px rgba(99,102,241,0.3)",
-            }}>
-              <Layers size={20} color="white" />
-            </div>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1e3a8a" }}>새 워크스페이스</h2>
-              <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>삶의 목표를 투자 전략으로 변환합니다</p>
-            </div>
+          <div style={{
+            width: 44, height: 44, borderRadius: 14, flexShrink: 0,
+            background: "linear-gradient(135deg,#fbbf24,#f59e0b)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 12px rgba(245,158,11,0.3)",
+          }}>
+            <Zap size={20} color="white" />
           </div>
-          <button onClick={onClose} style={{
-            width: 30, height: 30, borderRadius: "50%", border: "1px solid #C7D2FE",
-            background: "white", cursor: "pointer", display: "flex",
-            alignItems: "center", justifyContent: "center", color: "#475569", flexShrink: 0,
-          }}><X size={14} /></button>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#78350F" }}>LIVE 전략은 최대 {MAX_LIVE}개</h2>
+            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#92400E" }}>운용 중 전략 개수 제한</p>
+          </div>
         </div>
-
-        {/* 본문 */}
         <div style={{ padding: "24px 28px" }}>
-          <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 8 }}>
-            워크스페이스 이름
-          </label>
-          <input
-            autoFocus
-            value={name}
-            onChange={e => onChange(e.target.value)}
-            onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") onConfirm(); if (e.key === "Escape") onClose(); }}
-            placeholder="예: 5년 후 월 300만원 현금흐름"
-            style={{
-              width: "100%", padding: "12px 14px", borderRadius: 10,
-              border: "1.5px solid #C7D2FE", fontSize: 14, outline: "none",
-              boxSizing: "border-box", color: "#0F172A",
-              transition: "border-color 0.15s",
-            }}
-            onFocus={e => e.target.style.borderColor = "#6366f1"}
-            onBlur={e => e.target.style.borderColor = "#C7D2FE"}
-          />
-          <p style={{ margin: "10px 0 0", fontSize: 12, color: "#94A3B8", lineHeight: 1.6 }}>
-            이름은 나중에 AI와 대화하면서 자동으로 목표에 맞게 구체화됩니다.
+          <p style={{ margin: 0, fontSize: 14, color: "#374151", lineHeight: 1.7 }}>
+            이미 <b style={{ color: "#111827" }}>{MAX_LIVE}개</b>의 전략이 LIVE 상태입니다.
+            새 전략을 LIVE 로 전환하려면 기존 전략 중 하나를 먼저 해제해 주세요.
           </p>
+          <div style={{
+            marginTop: 14, padding: "12px 14px", borderRadius: 10,
+            background: "#FFFBEB", border: "1px solid #FDE68A",
+            fontSize: 12.5, color: "#78350F", lineHeight: 1.65,
+          }}>
+            ⚡ 전체 브리핑은 대표 전략을 포함해 LIVE 전략을 한눈에 보여줍니다. 핵심 전략만 LIVE 로 유지하는 것을 권장합니다.
+          </div>
         </div>
-
-        {/* 푸터 */}
         <div style={{ padding: "0 28px 24px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button onClick={onClose} style={{
-            padding: "10px 20px", borderRadius: 10,
-            border: "1px solid #E2E8F0", background: "white", color: "#374151",
-            fontSize: 13, fontWeight: 600, cursor: "pointer",
-          }}>취소</button>
-          <button onClick={onConfirm} disabled={!name.trim()} style={{
             padding: "10px 20px", borderRadius: 10, border: "none",
-            background: name.trim()
-              ? "linear-gradient(135deg,#60a5fa 0%,#3b82f6 50%,#6366f1 100%)"
-              : "#E2E8F0",
-            color: name.trim() ? "white" : "#94A3B8",
-            fontSize: 13, fontWeight: 700,
-            cursor: name.trim() ? "pointer" : "not-allowed",
-            boxShadow: name.trim() ? "0 3px 10px rgba(99,102,241,0.3)" : "none",
-          }}>워크스페이스 생성</button>
+            background: "linear-gradient(135deg,#fbbf24,#f59e0b)",
+            color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer",
+            boxShadow: "0 3px 10px rgba(245,158,11,0.3)",
+          }}>확인</button>
         </div>
       </div>
     </div>
   );
 }
+
 
 function DeleteWorkspaceModal({ target, onConfirm, onClose, theme }) {
   if (!target) return null;
