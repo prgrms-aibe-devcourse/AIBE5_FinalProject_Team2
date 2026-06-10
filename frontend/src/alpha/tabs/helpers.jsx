@@ -1,5 +1,107 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useMemo, useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import ReactDOM from "react-dom";
 import { BRAND_GRADIENT } from "../ThemeContext";
+
+// ──────────────────────────────────────────────
+// 공통 툴팁 아이콘 — portal 로 body 에 마운트해 transform/overflow 완전 우회
+// ──────────────────────────────────────────────
+export function TooltipIcon({ hint, width = 220 }) {
+  const [visible, setVisible] = useState(false);
+  const [pos, setPos] = useState(null);
+  const anchorRef = useRef(null);
+  const tooltipRef = useRef(null);
+
+  const updatePosition = useCallback(() => {
+    if (!anchorRef.current || !tooltipRef.current) return;
+    const gap = 8;
+    const pad = 8;
+    const a = anchorRef.current.getBoundingClientRect();
+    const t = tooltipRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // 오른쪽 먼저, 안 맞으면 왼쪽
+    let left = a.right + gap;
+    if (left + t.width > vw - pad) left = a.left - t.width - gap;
+    left = Math.max(pad, Math.min(left, vw - t.width - pad));
+
+    // 아이콘 수직 중앙 정렬
+    let top = a.top + a.height / 2 - t.height / 2;
+    top = Math.max(pad, Math.min(top, vh - t.height - pad));
+
+    setPos({ top, left });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!visible) return;
+
+    updatePosition();
+    const rafId = window.requestAnimationFrame(updatePosition);
+
+    const handleViewportChange = () => updatePosition();
+    window.addEventListener("scroll", handleViewportChange, true);
+    window.addEventListener("resize", handleViewportChange);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("scroll", handleViewportChange, true);
+      window.removeEventListener("resize", handleViewportChange);
+    };
+  }, [visible, updatePosition, hint, width]);
+
+  const onEnter = () => setVisible(true);
+  const onLeave = () => {
+    setVisible(false);
+    setPos(null);
+  };
+
+  const tooltipWidth = Math.max(160, Math.min(width, window.innerWidth - 24));
+  const tooltip = visible && ReactDOM.createPortal(
+    <div
+      ref={tooltipRef}
+      style={{
+        position: "fixed",
+        top: pos?.top ?? -9999,
+        left: pos?.left ?? -9999,
+        background: "#ffffff",
+        borderRadius: 10,
+        padding: "10px 14px",
+        zIndex: 99999,
+        boxShadow: "0 6px 24px rgba(99,102,241,0.16), 0 0 0 1px #E0E7FF",
+        width: tooltipWidth,
+        boxSizing: "border-box",
+        pointerEvents: "none",
+        opacity: pos ? 1 : 0,
+        transition: "opacity 0.12s ease",
+      }}>
+      <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>
+        {hint}
+      </div>
+    </div>,
+    document.body
+  );
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center" }}>
+      <span
+        ref={anchorRef}
+        onMouseEnter={onEnter}
+        onMouseLeave={onLeave}
+        onFocus={onEnter}
+        onBlur={onLeave}
+        tabIndex={0}
+        aria-label={typeof hint === "string" ? hint : "도움말"}
+        style={{
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          width: 14, height: 14, borderRadius: "50%",
+          background: "#22c55e", color: "white",
+          fontSize: 8, fontWeight: 900, cursor: "help", flexShrink: 0,
+          outline: "none",
+        }}>!</span>
+      {tooltip}
+    </span>
+  );
+}
 
 // ──────────────────────────────────────────────
 // 기본 프리미티브
@@ -39,43 +141,11 @@ export function Stat({ label, value, unit = "", theme, positive, negative, hint 
   let color = theme.text;
   if (positive && typeof value === "number" && value > 0) color = theme.success;
   if (negative && typeof value === "number" && value < 0) color = theme.danger;
-  const [show, setShow] = useState(false);
   return (
     <div style={{ padding: 10, background: theme.codeBg, borderRadius: 8 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: theme.textMuted, display: "flex", alignItems: "center", gap: 3, marginBottom: 2 }}>
         {label}
-        {hint && (
-          <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-            <span
-              onMouseEnter={() => setShow(true)}
-              onMouseLeave={() => setShow(false)}
-              style={{
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 14, height: 14, borderRadius: "50%",
-                background: "#22c55e", color: "white",
-                fontSize: 8, fontWeight: 900, cursor: "help", flexShrink: 0,
-              }}>!</span>
-            {show && (
-              <div style={{
-                position: "absolute", bottom: "calc(100% + 8px)", left: 0,
-                background: "#ffffff", borderRadius: 12,
-                padding: "10px 14px", zIndex: 9999,
-                boxShadow: "0 8px 28px rgba(99,102,241,0.18), 0 0 0 1px #E0E7FF",
-                width: 220, pointerEvents: "none",
-              }}>
-                <div style={{
-                  position: "absolute", bottom: -6, left: 10,
-                  width: 12, height: 12, background: "#ffffff",
-                  borderRight: "1px solid #E0E7FF", borderBottom: "1px solid #E0E7FF",
-                  transform: "rotate(45deg)",
-                }} />
-                <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>
-                  {hint}
-                </div>
-              </div>
-            )}
-          </span>
-        )}
+        {hint && <TooltipIcon hint={hint} />}
       </div>
       <div style={{ fontSize: 18, fontWeight: 800, color }}>{v}{unit}</div>
     </div>
@@ -92,7 +162,6 @@ export function Row({ k, v, theme }) {
 }
 
 export function SubScoreBar({ label, value, theme }) {
-  const [show, setShow] = useState(false);
   const KO = {
     generalization: "일반화 (OOS 일관성)",
     regime_robustness: "시장국면 견고성",
@@ -113,38 +182,7 @@ export function SubScoreBar({ label, value, theme }) {
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
         <span style={{ color: theme.text, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 4 }}>
           {KO[label] || label}
-          {hint && (
-            <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-              <span
-                onMouseEnter={() => setShow(true)}
-                onMouseLeave={() => setShow(false)}
-                style={{
-                  display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  width: 14, height: 14, borderRadius: "50%",
-                  background: "#22c55e", color: "white",
-                  fontSize: 8, fontWeight: 900, cursor: "help", flexShrink: 0,
-                }}>!</span>
-              {show && (
-                <div style={{
-                  position: "absolute", bottom: "calc(100% + 8px)", left: 0,
-                  background: "#ffffff", borderRadius: 12,
-                  padding: "10px 14px", zIndex: 9999,
-                  boxShadow: "0 8px 28px rgba(99,102,241,0.18), 0 0 0 1px #E0E7FF",
-                  width: 240, pointerEvents: "none",
-                }}>
-                  <div style={{
-                    position: "absolute", bottom: -6, left: 10,
-                    width: 12, height: 12, background: "#ffffff",
-                    borderRight: "1px solid #E0E7FF", borderBottom: "1px solid #E0E7FF",
-                    transform: "rotate(45deg)",
-                  }} />
-                  <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>
-                    {hint}
-                  </div>
-                </div>
-              )}
-            </span>
-          )}
+          {hint && <TooltipIcon hint={hint} width={240} />}
         </span>
         <b style={{ fontSize: 13, fontWeight: 700, color: theme.accent }}>{value}/100</b>
       </div>
@@ -706,42 +744,10 @@ export function SubIndicatorChart({ kind, values, dates, theme, height = 104 }) 
  * hover 시 설명 툴팁이 뜨는 라벨.
  */
 export function HelpLabel({ children, hint, theme }) {
-  const [show, setShow] = useState(false);
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
       {children}
-      {hint && (
-        <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-          <span
-            onMouseEnter={() => setShow(true)}
-            onMouseLeave={() => setShow(false)}
-            style={{
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              width: 14, height: 14, borderRadius: "50%",
-              background: "#22c55e", color: "white",
-              fontSize: 8, fontWeight: 900, cursor: "help", flexShrink: 0,
-            }}>!</span>
-          {show && (
-            <div style={{
-              position: "absolute", bottom: "calc(100% + 8px)", left: 0,
-              background: "#ffffff", borderRadius: 12,
-              padding: "10px 14px", zIndex: 9999,
-              boxShadow: "0 8px 28px rgba(99,102,241,0.18), 0 0 0 1px #E0E7FF",
-              width: 220, pointerEvents: "none",
-            }}>
-              <div style={{
-                position: "absolute", bottom: -6, left: 10,
-                width: 12, height: 12, background: "#ffffff",
-                borderRight: "1px solid #E0E7FF", borderBottom: "1px solid #E0E7FF",
-                transform: "rotate(45deg)",
-              }} />
-              <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>
-                {hint}
-              </div>
-            </div>
-          )}
-        </span>
-      )}
+      {hint && <TooltipIcon hint={hint} />}
     </span>
   );
 }

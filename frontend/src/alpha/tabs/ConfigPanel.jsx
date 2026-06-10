@@ -8,6 +8,18 @@ import {
 import { Play, RefreshCw } from "lucide-react";
 import { PanelHeader, Card, Empty, primaryBtn, DonutChart } from "./helpers";
 
+const RISK = { 보수적: "🛡️ 보수", 보수: "🛡️ 보수", 중립: "⚖️ 중립", 공격적: "🔥 공격", 공격: "🔥 공격", conservative: "🛡️ 보수", moderate: "⚖️ 중립", aggressive: "🔥 공격" };
+const TONE_STYLE = {
+  "보수적":      { color: "#1E40AF", bg: "#DBEAFE", border: "#93C5FD" },
+  "보수":        { color: "#1E40AF", bg: "#DBEAFE", border: "#93C5FD" },
+  "중립":        { color: "#78350F", bg: "#FEF3C7", border: "#FCD34D" },
+  "공격적":      { color: "#991B1B", bg: "#FEE2E2", border: "#FCA5A5" },
+  "공격":        { color: "#991B1B", bg: "#FEE2E2", border: "#FCA5A5" },
+  "conservative":{ color: "#1E40AF", bg: "#DBEAFE", border: "#93C5FD" },
+  "moderate":    { color: "#78350F", bg: "#FEF3C7", border: "#FCD34D" },
+  "aggressive":  { color: "#991B1B", bg: "#FEE2E2", border: "#FCA5A5" },
+};
+
 // ─── GoalProfileSummary ──────────────────────────────────────────────
 function GoalProfileSummary({ profile, theme, wsId, onChange }) {
   const [currency, setCurrency] = useState("KRW");
@@ -21,7 +33,6 @@ function GoalProfileSummary({ profile, theme, wsId, onChange }) {
     if (currency === "USD") return `$${(n / FX).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
     return `₩${n.toLocaleString("ko-KR")}`;
   };
-  const RISK = { 보수적: "🛡️ 보수적", 중립: "⚖️ 중립", 공격적: "🔥 공격적", conservative: "🛡️ 보수적", moderate: "⚖️ 중립", aggressive: "🔥 공격적" };
   const DIR = {
     infinite_buying: "♾️ 무한매수법",
     "추세추종": "📈 추세추종",
@@ -443,13 +454,30 @@ export default function ConfigPanel({ id, ws, onChange, setTab, topSummary }) {
       {topSummary}
 
       <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr 1fr" }}>
-        <Card title="Goal Profile (사용자 목표 구조화)" theme={theme}>
+        <Card title="Goal Profile (사용자 목표 구조화)" theme={theme} titleSize={19}>
           {ws.goalProfile
             ? <GoalProfileSummary profile={ws.goalProfile} theme={theme} wsId={id} onChange={onChange} />
-            : <Empty msg="오른쪽 Heli 대화창에서 8가지 항목(목표/기간/초기금/적립금/성향/MDD/자산/방향)을 채워주세요" theme={theme} />}
+            : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <Empty msg="오른쪽 Heli 대화창에서 8가지 항목(목표/기간/초기금/적립금/성향/MDD/자산/방향)을 채워주세요" theme={theme} />
+                <button
+                  data-tutorial-id="tutorial-goal-ai-btn"
+                  onClick={() => window.dispatchEvent(new CustomEvent("alpha:open-chat", { detail: { goal: true } }))}
+                  style={{
+                    width: "100%", padding: "11px 16px", borderRadius: 10, border: "none",
+                    background: "linear-gradient(135deg,#60a5fa 0%,#3b82f6 50%,#6366f1 100%)",
+                    color: "white", fontWeight: 700, fontSize: 13,
+                    display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7,
+                    cursor: "pointer", boxShadow: "0 2px 10px rgba(99,102,241,0.3)",
+                  }}
+                >
+                  🤖 AI와 목표 설정하기
+                </button>
+              </div>
+            )}
         </Card>
         <div data-tutorial-id="tutorial-backtest-candidates">
-        <Card title="Strategy 후보 (선택 → 백테스트)" theme={theme}>
+        <Card title="Strategy 후보 (선택 → 백테스트)" theme={theme} titleSize={19}>
           {candidates.length === 0 ? (
             <Empty msg="Goal Profile이 채워지면 상단의 Goal → Strategy 버튼으로 3개 후보를 생성합니다" theme={theme} />
           ) : (
@@ -463,14 +491,15 @@ export default function ConfigPanel({ id, ws, onChange, setTab, topSummary }) {
                     borderRadius: 10, padding: 12,
                   }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                      <div style={{ fontWeight: 700, color: theme.text, fontSize: 14 }}>
-                        {c.strategy_name || c.strategy_type}
-                        {c.risk_tone && (
-                          <span style={{
-                            marginLeft: 8, fontSize: 11, padding: "2px 8px", borderRadius: 999,
-                            background: theme.panelBorder, color: theme.textMuted, fontWeight: 600,
-                          }}>{c.risk_tone}</span>
-                        )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontWeight: 700, color: theme.text, fontSize: 14 }}>
+                          {c.strategy_name || c.strategy_type}
+                        </span>
+                        {c.risk_tone && (() => {
+                          const ts = TONE_STYLE[c.risk_tone];
+                          const label = RISK[c.risk_tone] || c.risk_tone;
+                          return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 6, background: ts?.bg ?? "#F1F5F9", border: `1px solid ${ts?.border ?? "#CBD5E1"}`, color: ts?.color ?? "#475569" }}>{label}</span>;
+                        })()}
                       </div>
                       {isSel && <span style={{ fontSize: 11, color: theme.accent, fontWeight: 700 }}>✓ 선택됨</span>}
                     </div>
@@ -507,7 +536,7 @@ export default function ConfigPanel({ id, ws, onChange, setTab, topSummary }) {
         </Card>
         </div>
 
-        <Card title="🔗 자동주문 BrokerAccount 연결" theme={theme}>
+        <Card title="🔗 자동주문 BrokerAccount 연결" theme={theme} titleSize={19}>
           <p style={{ fontSize: 12, color: theme.textMuted, marginTop: 0, marginBottom: 12, lineHeight: 1.6 }}>
             이 워크스페이스의 시그널이 BUY를 발사하면 선택된 계정 앞으로 <b>PENDING 제안</b>이 만들어집니다.
             승인은 좌측 사이드바 인박스에서 수동으로 해야 KIS로 전송됩니다.

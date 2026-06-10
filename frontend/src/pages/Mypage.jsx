@@ -1418,12 +1418,13 @@ function Mypage() {
           </div>
         </div>
 
-        {/* ── 2열 레이아웃 ── */}
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:24, alignItems:"flex-start" }}>
+        {/* ── 중앙 정렬 레이아웃 ── */}
+        <div style={{ display:"flex", justifyContent:"center" }}>
 
-          {/* ── 왼쪽: 마이페이지 정보 카드 ── */}
+          {/* ── 마이페이지 정보 카드 ── */}
           <div style={{ backgroundColor:"white", borderRadius:24,
-            boxShadow:"0 2px 20px rgba(0,0,0,0.07)", overflow:"hidden" }}>
+            boxShadow:"0 2px 20px rgba(0,0,0,0.07)", overflow:"hidden",
+            width:"100%", maxWidth:560 }}>
 
             {/* 카드 타이틀 */}
             <div style={{ padding:"28px 28px 0" }}>
@@ -1580,12 +1581,6 @@ function Mypage() {
                 )}
               </div>
             </div>
-          </div>
-
-          {/* ── 오른쪽: 계좌 등록 카드 + 카드 결제수단 ── */}
-          <div style={{ display:"flex", flexDirection:"column", gap:24 }}>
-            <BankCard onToast={showToast} />
-            <PaymentMethodsCard onToast={showToast} />
           </div>
 
         </div>
