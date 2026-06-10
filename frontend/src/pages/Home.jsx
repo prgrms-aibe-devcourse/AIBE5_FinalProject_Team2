@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Layers, MessageSquare, FlaskConical,
   ShieldCheck, TrendingUp, ArrowRight,
-  BarChart3, Brain, Zap, Check, Sparkles,
+  BarChart3, Brain, Zap, Check, Sparkles, Code2,
 } from "lucide-react";
 import bannerVideo from "../assets/배너후보.mp4";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -149,6 +149,41 @@ function MiniOrderCard() {
   );
 }
 
+/* ── Quant Developer IDE 미니 코드에디터 ── */
+function MiniIDE() {
+  const lines = [
+    [["# 전략 유형: SMA 크로스오버", "#6b7280"]],
+    [["TICKER", "#9cdcfe"], ["   = ", "#d4d4d4"], ["\"SPY\"", "#ce9178"]],
+    [["SMA_FAST", "#9cdcfe"], [" = ", "#d4d4d4"], ["20", "#b5cea8"]],
+    [["class ", "#569cd6"], ["MyStrategy", "#4ec9b0"], ["(QCAlgorithm):", "#d4d4d4"]],
+    [["  def ", "#569cd6"], ["OnData", "#dcdcaa"], ["(self, data):", "#d4d4d4"]],
+    [["    if ", "#c586c0"], ["fast > slow:", "#d4d4d4"]],
+    [["      self.", "#9cdcfe"], ["SetHoldings", "#dcdcaa"], ["(sym, 1.0)", "#d4d4d4"]],
+  ];
+  return (
+    <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid #1e293b", boxShadow: "0 4px 16px rgba(15,23,42,0.18)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#0f172a", padding: "8px 12px" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, color: "#cbd5e1", fontWeight: 600 }}>
+          <Code2 size={13} color="#a78bfa" /> main.py
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, color: "white", background: "linear-gradient(135deg,#8b5cf6,#6366f1)", padding: "4px 9px", borderRadius: 6 }}>
+          ▶ Run Backtest
+        </span>
+      </div>
+      <div style={{ background: "#0b1120", padding: "10px 0", fontFamily: "'JetBrains Mono','Consolas',monospace", fontSize: 11, lineHeight: 1.7 }}>
+        {lines.map((segs, i) => (
+          <div key={i} style={{ display: "flex", padding: "0 12px" }}>
+            <span style={{ width: 20, color: "#475569", flexShrink: 0, textAlign: "right", marginRight: 12, userSelect: "none" }}>{i + 1}</span>
+            <span style={{ whiteSpace: "pre" }}>
+              {segs.map(([txt, col], j) => <span key={j} style={{ color: col }}>{txt}</span>)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const FLOW_STEPS = [
   { icon: <MessageSquare size={22} color="#818cf8" />, step: "01", title: "자연어로 전략 입력",  desc: '"SPY에 RSI 전략으로 투자하고 싶어" — AI가 전략 파라미터를 자동 구성합니다.' },
   { icon: <FlaskConical   size={22} color="#818cf8" />, step: "02", title: "백테스트 실행",       desc: "vectorbt 엔진으로 7가지 전략을 과거 데이터로 검증. 수수료·슬리피지까지 반영합니다." },
@@ -179,6 +214,18 @@ const FEATURE_TABS = [
       "투자 목표 자동 파악 — 기간·초기자금·월 적립금·리스크 성향을 대화에서 추출",
       "Gemini · OpenAI · Anthropic · Perplexity 4개 AI 자동 폴백 — 한 곳이 느려도 끊김 없음",
       "대화 맥락 유지 — 앞서 나눈 이야기를 기억하고 전략을 단계적으로 다듬음",
+    ],
+  },
+  {
+    key: "ide", Icon: Code2, label: "Quant Developer IDE",
+    emoji: "⌨️", color: "#8b5cf6", soft: "#EDE9FE", Visual: MiniIDE,
+    headline: "내 전략이 '진짜 코드'로 — 보고, 고치고, 돌려보세요",
+    body: "말로 만든 전략이 실제로 어떻게 동작하는지 궁금하셨나요? Quant Developer IDE는 회원님의 전략을 그대로 실행 가능한 파이썬 퀀트 코드로 보여줍니다. 코드를 직접 열어 매수·매도 규칙을 확인하고, 원하는 대로 고치면 백테스트에 즉시 반영됩니다. 가장 중요한 건 — 화면에 보이는 백테스트 결과가 바로 그 코드를 실행한 결과와 같다는 점입니다. '보이는 것'과 '실제 실행'이 어긋나지 않습니다. Claude Code 에이전트가 코드 분석·개선까지 도와주니, 코딩을 몰라도 전문가 수준의 전략 개발이 가능합니다.",
+    points: [
+      "전략 → 실행가능 파이썬 코드 자동 생성 — 매수·매도 로직을 그대로 확인",
+      "백테스트 = 코드 실행 결과 일치 — 보이는 숫자가 곧 진짜 결과",
+      "무한매수법·밸류리밸런싱 등 7+ 전략 — 검증된 엔진을 코드로 투명하게",
+      "Claude Code 에이전트 — 코드 분석·개선·디버깅을 대화로",
     ],
   },
   {
@@ -445,28 +492,26 @@ export default function Home() {
           </Reveal>
 
           {/* 탭 바 */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", borderBottom: "1.5px solid #E2E8F0", marginBottom: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${FEATURE_TABS.length}, 1fr)`, borderBottom: "1.5px solid #E2E8F0", marginBottom: 0 }}>
             {FEATURE_TABS.map(f => {
               const isActive = activeTab === f.key;
               return (
               <button key={f.key} onClick={() => setActiveTab(f.key)} style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                padding: "13px 12px",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                padding: "12px 6px",
                 border: "none",
-                background: isActive
-                  ? "linear-gradient(135deg, #DBEAFE 0%, #E0E7FF 50%, #EDE9FE 100%)"
-                  : "none",
-                fontSize: 16, fontWeight: isActive ? 700 : 500,
-                color: isActive ? "#4f46e5" : "#64748b",
+                background: isActive ? f.soft : "none",
+                fontSize: 13.5, fontWeight: isActive ? 700 : 500,
+                color: isActive ? f.color : "#64748b",
                 cursor: "pointer", fontFamily: BASE_FONT,
-                borderBottom: isActive ? "2px solid #818cf8" : "2px solid transparent",
+                borderBottom: isActive ? `2px solid ${f.color}` : "2px solid transparent",
                 borderTopLeftRadius: 8, borderTopRightRadius: 8,
                 marginBottom: -1.5, transition: "color 0.15s, background 0.2s", whiteSpace: "nowrap",
               }}
                 onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = "#374151"; }}
                 onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = "#64748b"; }}
               >
-                <f.Icon size={17} />
+                <f.Icon size={15} />
                 {f.label}
               </button>
               );
@@ -712,8 +757,8 @@ export default function Home() {
               <Layers size={20} color="white" />
             </div>
             <div>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1e3a8a" }}>새 전략 만들기</h2>
-              <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>전략 이름을 입력하고 AI와 대화를 시작하세요</p>
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1e3a8a" }}>새 워크스페이스 생성하기</h2>
+              <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>워크스페이스 이름을 입력하고 AI와 대화를 시작하세요</p>
             </div>
           </div>
           <div style={{ padding: "24px 28px" }}>
