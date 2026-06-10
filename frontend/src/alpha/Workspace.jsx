@@ -1,21 +1,19 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
-  MessageSquare, Layers, BarChart3, Activity, ShieldCheck,
-  ScrollText, Play, ChevronLeft, RefreshCw,
-  AlertTriangle, FileText, Bot,
+  Layers, BarChart3, Activity, ShieldCheck,
+  ScrollText, Play, RefreshCw,
+  AlertTriangle, FileText, Bot, MessageCircle,
 } from "lucide-react";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import {
-  getWorkspace, runBacktest,
-  listWorkspaces,
+  getWorkspace, runBacktest, runRegime, runTrust, selectStrategyCandidate,
 } from "./alphaApi";
 import ConfigPanel from "./tabs/ConfigPanel";
 import ReportPanel from "./tabs/ReportPanel";
 import RegimePanel from "./tabs/RegimePanel";
 import TrustPanel from "./tabs/TrustPanel";
 import LogPanel from "./tabs/LogPanel";
-import TabHelpCard from "./tabs/TabHelpCard";
 
 // 메인 탭(상단 가운데) — AI 대화 탭은 우측 Heli 패널로 상시 노출되어 제거
 const TABS = [
@@ -60,11 +58,10 @@ export default function Workspace() {
   const setTab = (t) => setSearchParams({ tab: t }, { replace: true });
   const [ws, setWs] = useState(null);
   const [err, setErr] = useState(null);
-  const [siblings, setSiblings] = useState([]); // 좌측 사이드바: 다른 워크스페이스 리스트
-  const [creating, setCreating] = useState(false);
   const [runningBT, setRunningBT] = useState(false);
-  const [newStrategyOpen, setNewStrategyOpen] = useState(false);
-  const [newStrategyName, setNewStrategyName] = useState("");
+  const [runningAll, setRunningAll] = useState(false);
+  const [newStratHint, setNewStratHint] = useState(false);
+  const [runHover, setRunHover] = useState(false);
 
   // 우측 전략 요약 패널 가로 폭 (드래그로 조절)
   const [rightW, setRightW] = useState(() => {
@@ -121,41 +118,6 @@ export default function Workspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // 좌측 사이드바용 전체 워크스페이스 로드 + 각 ws의 trust 머지
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const list = await listWorkspaces();
-        const fulls = await Promise.all(
-          list.map(w => getWorkspace(w.id).catch(() => ({ id: w.id, name: w.name, status: w.status, lastTrust: null })))
-        );
-        if (cancelled) return;
-        setSiblings(fulls.map(w => ({
-          id: w.id,
-          name: w.name,
-          status: w.status,
-          trust: (w.lastTrust && typeof w.lastTrust === "object") ? (w.lastTrust.trust_score ?? null) : null,
-        })));
-      } catch { /* noop */ }
-    })();
-    return () => { cancelled = true; };
-  }, [id]);
-
-  const onNewStrategy = () => {
-    setNewStrategyName("");
-    setNewStrategyOpen(true);
-  };
-
-  const onConfirmNewStrategy = async () => {
-    if (!newStrategyName.trim()) return;
-    setCreating(true);
-    setNewStrategyOpen(false);
-    try {
-      navigate(`/alpha?new=${encodeURIComponent(newStrategyName.trim())}`);
-    } finally { setCreating(false); }
-  };
-
   const onTopBacktest = async () => {
     if (runningBT) return;
     if (!ws?.strategyConfig) {
@@ -174,11 +136,46 @@ export default function Workspace() {
     finally { setRunningBT(false); }
   };
 
+  // 드롭다운에서 전략 후보 선택 = 이 워크스페이스가 다루는 전략 확정
+  const onSelectCandidate = async (candId) => {
+    const cands = Array.isArray(ws?.strategyConfig?.candidates) ? ws.strategyConfig.candidates : [];
+    const cur = ws?.strategyConfig?.selectedId || cands[0]?.id;
+    if (!candId || candId === cur) return;
+    try { await selectStrategyCandidate(id, candId); await reload(); }
+    catch (e) { alert("전략 선택 실패: " + (e?.response?.data?.error || e.message)); }
+  };
+
+  // 전체 분석 = 백테스트 → Regime → Trust 순차 실행
+  const onRunAll = async () => {
+    if (runningAll || runningBT) return;
+    const cands = Array.isArray(ws?.strategyConfig?.candidates) ? ws.strategyConfig.candidates : [];
+    if (!ws?.strategyConfig || cands.length === 0) {
+      alert("먼저 전략 후보를 만들고 선택해야 전체 분석을 실행할 수 있어요. (전략 카드 탭 → Goal → Strategy)");
+      setTab("config");
+      return;
+    }
+    setRunningAll(true);
+    try {
+      await runBacktest(id);
+      await runRegime(id);
+      await runTrust(id);
+      await reload();
+      setTab("report");
+      window.dispatchEvent(new CustomEvent("alphaWorkspaceReload", { detail: { wsId: Number(id) } }));
+    } catch (e) {
+      alert("전체 분석 실패: " + (e?.response?.data?.error || e.message));
+    } finally { setRunningAll(false); }
+  };
+
+  const onNewStrategy = () => { setTab("config"); setNewStratHint(true); setTimeout(() => setNewStratHint(false), 9000); };
+
   if (!ws && !err) return <div style={{ padding: 40, color: theme.textMuted }}>로딩 중…</div>;
   if (err) return <div style={{ padding: 40, color: theme.danger }}>{err}</div>;
 
   const trust = ws.lastTrust;
   const trustScore = trust?.trust_score;
+  const candidates = Array.isArray(ws?.strategyConfig?.candidates) ? ws.strategyConfig.candidates : [];
+  const selectedId = ws?.strategyConfig?.selectedId || candidates[0]?.id || "";
   const subScores = trust?.sub_scores || {};
   const assets = extractAssets(ws.strategyConfig);
   const template = ws.strategyConfig?.template || ws.strategyConfig?.name || ws.name;
@@ -190,94 +187,172 @@ export default function Workspace() {
     ws.goalProfile?.goal ||
     "목표가 아직 설정되지 않았습니다.";
 
-  // 단순 regime 표시 (lastRegime 필드가 백엔드에 없는 경우 placeholder)
-  const regimeText = ws.lastRegime?.current_label || ws.lastRegime?.label || "정상 (Normal)";
-  const isHighVol = /high.*vol|위험|warning|⚡/i.test(regimeText);
+  // 현재 국면 (lastRegime.current_regime 키 기반)
+  const regimeKey = ws.lastRegime?.current_regime;
+  const REGIME_KO_MAP = {
+    bull_quiet:        "상승장(안정)",
+    bull_volatile:     "상승장(불안정)",
+    bear:              "하락장",
+    sideways:          "횡보장",
+    high_vol_unstable: "고변동 불안정장",
+  };
+  const REGIME_COLOR_MAP = {
+    bull_quiet:        "#22c55e",
+    bull_volatile:     "#84cc16",
+    bear:              "#ef4444",
+    sideways:          "#94a3b8",
+    high_vol_unstable: "#f97316",
+  };
+  const regimeText = ws.lastRegime?.current_regime_ko || REGIME_KO_MAP[regimeKey] || null;
+  const regimeColor = REGIME_COLOR_MAP[regimeKey] || "#94a3b8";
+  const isHighVol = regimeKey === "high_vol_unstable" || regimeKey === "bear";
 
-  // Strategy Card 탭 상단 가로 요약 바 (기존 우측 4구역을 컴팩트하게 재구성)
+  const trustColor =
+    trustScore == null ? "#94a3b8" :
+    trustScore >= 75   ? "#22c55e" :
+    trustScore >= 60   ? "#3b82f6" :
+    trustScore >= 45   ? "#f59e0b" : "#ef4444";
+
+  const trustGrade =
+    trustScore == null ? null :
+    trustScore >= 75   ? "High" :
+    trustScore >= 60   ? "Mid"  :
+    trustScore >= 45   ? "Low"  : "Risk";
+
+  const riskLevel =
+    trustScore == null ? null :
+    trustScore >= 75   ? { label: "리스크 낮음",  color: "#16A34A", bg: "#F0FDF4" } :
+    trustScore >= 60   ? { label: "리스크 보통",  color: "#2563EB", bg: "#EFF6FF" } :
+    trustScore >= 45   ? { label: "리스크 주의",  color: "#D97706", bg: "#FFFBEB" } :
+                         { label: "리스크 위험",  color: "#DC2626", bg: "#FEF2F2" };
+
+  const riskItems = (() => {
+    if (!trust?.narrative) return [];
+    const items = [];
+    for (const b of trust.narrative.split(/\n\n+/)) {
+      const t = b.trim();
+      if (t.startsWith("▶ 강점:"))
+        items.push({ type: "strong", label: "강점", text: t.split("\n")[0].replace("▶ 강점:", "").trim() });
+      else if (t.startsWith("▶ 보완 필요:"))
+        items.push({ type: "weak", label: "보완 필요", text: t.split("\n")[0].replace("▶ 보완 필요:", "").trim() });
+      else if (t.startsWith("⚠️"))
+        items.push({ type: "warn", label: "경고", text: t.replace(/^⚠️\s*/, "").split(".")[0].trim() });
+    }
+    return items;
+  })();
+
+  // 백테스트 데이터
+  const bt = ws.lastBacktest;
+  const btStats = bt?.stats;
+  const hasBt = !!btStats;
+  const fmtPct = (v) => v != null ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(1)}%` : "—";
+  const fmtNum = (v) => v != null ? Number(v).toFixed(2) : "—";
+
+  // Strategy Card 탭 상단 요약 3카드 (백테스트 요약 · 현재 레짐 · Trust Score 요약)
   const topSummaryBar = (
-    <div style={{
-      display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10,
-      marginBottom: 18,
-    }}>
-      <div style={topCard(theme)}>
-        <div style={topCardLabel(theme)}>목표</div>
-        {hasGoal ? (
-          <div style={{ fontSize: 13.5, fontWeight: 800, color: theme.text, marginTop: 2, marginBottom: 4, lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-            {goalSummary}
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-            <div style={{ fontSize: 11, color: theme.textMuted, lineHeight: 1.4 }}>
-              목표가 아직 설정되지 않았습니다.
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
+
+      {/* ── 백테스트 요약 ── */}
+      <div style={SC}>
+        <span style={SL}>백테스트 요약</span>
+        {hasBt ? (
+          <>
+            <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#64748B", fontWeight: 700, marginBottom: 4 }}>수익률</div>
+                <div style={{ fontSize: 26, fontWeight: 900, color: btStats.total_return_pct >= 0 ? "#16A34A" : "#DC2626", lineHeight: 1, letterSpacing: -0.5 }}>
+                  {fmtPct(btStats.total_return_pct)}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#64748B", fontWeight: 700, marginBottom: 4 }}>Sharpe</div>
+                <div style={{ fontSize: 26, fontWeight: 900, color: "#3B82F6", lineHeight: 1, letterSpacing: -0.5 }}>
+                  {fmtNum(btStats.sharpe)}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#64748B", fontWeight: 700, marginBottom: 4 }}>MDD</div>
+                <div style={{ fontSize: 26, fontWeight: 900, color: "#F59E0B", lineHeight: 1, letterSpacing: -0.5 }}>
+                  {fmtPct(btStats.max_drawdown_pct)}
+                </div>
+              </div>
             </div>
-            <button
-              data-tutorial-id="tutorial-goal-ai-btn"
-              onClick={() => window.dispatchEvent(new CustomEvent("alpha:open-chat", { detail: { goal: true } }))}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 5,
-                padding: "5px 10px", borderRadius: 8, border: "none",
-                background: "linear-gradient(135deg,#dbeafe,#ede9fe)",
-                color: "#3730a3", fontSize: 11, fontWeight: 700, cursor: "pointer",
-                alignSelf: "flex-start",
-              }}
-            >
-              <Bot size={12} /> AI와 목표 설정하기
+            <span style={{ alignSelf: "flex-start", padding: "3px 9px", borderRadius: 5, fontSize: 11.5, fontWeight: 700,
+              background: btStats.total_return_pct >= 0 ? "#F0FDF4" : "#FEF2F2",
+              color: btStats.total_return_pct >= 0 ? "#16A34A" : "#DC2626" }}>
+              {btStats.total_return_pct >= 0 ? "✓ 수익 전략" : "✗ 손실 전략"}
+            </span>
+          </>
+        ) : (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, color: "#CBD5E1" }}>백테스트를 실행해보세요</span>
+            <button onClick={onTopBacktest} disabled={runningBT} style={{
+              display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 8,
+              border: "none", background: theme.accentGradient || theme.accent, color: "white",
+              fontSize: 12, fontWeight: 700, cursor: runningBT ? "wait" : "pointer", alignSelf: "flex-start",
+            }}>
+              <Play size={12} /> {runningBT ? "실행 중…" : "백테스트 실행"}
             </button>
           </div>
         )}
-        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-          <span style={{ padding: "2px 8px", borderRadius: 999, background: theme.accentSoft, color: theme.accent, fontSize: 10.5, fontWeight: 700 }}>
-            {STATUS_LABEL[ws.status] || ws.status}
-          </span>
-          {assets.length > 0 && (
-            <span style={{ fontSize: 11, color: theme.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {assets.slice(0, 3).join(" / ")}{assets.length > 3 ? ` +${assets.length - 3}` : ""}
+      </div>
+
+      {/* ── 현재 레짐 ── */}
+      <div style={SC}>
+        <span style={SL}>현재 레짐</span>
+        {regimeText ? (
+          <>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 9, flex: 1 }}>
+              <span style={{ width: 11, height: 11, borderRadius: "50%", background: regimeColor, flexShrink: 0, marginTop: 4 }} />
+              <span style={{ fontSize: 22, fontWeight: 900, color: "#0F172A", lineHeight: 1.25, letterSpacing: -0.3 }}>
+                {regimeText}
+              </span>
+            </div>
+            <span style={{ alignSelf: "flex-start", padding: "3px 9px", borderRadius: 5, fontSize: 11.5, fontWeight: 700,
+              background: isHighVol ? "#FEF2F2" : "#F0FDF4", color: isHighVol ? "#DC2626" : "#16A34A" }}>
+              {regimeKey === "high_vol_unstable" ? "⚠ Risk-off 경보" : regimeKey === "bear" ? "⚠ 하락 국면" : "✓ 안정 국면"}
             </span>
-          )}
-        </div>
-      </div>
-
-      <div style={{
-        ...topCard(theme),
-        background: isHighVol ? "#FEF9C3" : topCard(theme).background,
-        borderColor: isHighVol ? "#FDE68A" : topCard(theme).borderColor,
-      }}>
-        <div style={topCardLabel(theme)}>현재 REGIME</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, fontSize: 13, fontWeight: 800, color: isHighVol ? "#92400E" : theme.text }}>
-          <AlertTriangle size={14} /> {regimeText}
-        </div>
-        <div style={{ fontSize: 11, color: isHighVol ? "#92400E" : theme.textMuted, marginTop: 6 }}>
-          {isHighVol ? "Risk-off 조건 모니터링 중" : "Regime 탭에서 분석 실행"}
-        </div>
-      </div>
-
-      <div style={topCard(theme)}>
-        <div style={topCardLabel(theme)}>TRUST SCORE</div>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginTop: 4 }}>
-          <span style={{ fontSize: 26, fontWeight: 900, color: theme.text, lineHeight: 1 }}>
-            {trustScore != null ? trustScore : "—"}
-          </span>
-          <span style={{ fontSize: 11, color: theme.textMuted }}>/ 100</span>
-        </div>
-        {trustScore == null ? (
-          <button onClick={() => setTab("trust")} style={{
-            marginTop: 8, width: "100%", padding: "5px 8px", borderRadius: 6, border: `1px solid ${theme.panelBorder}`,
-            background: "white", color: theme.text, fontSize: 11, fontWeight: 600, cursor: "pointer",
-          }}>측정하기</button>
+          </>
         ) : (
-          <div style={{ marginTop: 6, fontSize: 10.5, color: theme.textMuted }}>
-            세부 점수는 Trust 탭에서 확인
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, color: "#CBD5E1" }}>국면 분석을 실행해보세요</span>
+            <button onClick={() => setTab("regime")} style={{
+              display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 8,
+              border: "1px solid #C7D2FE", background: "#EEF2FF", color: "#4338CA",
+              fontSize: 12, fontWeight: 700, cursor: "pointer", alignSelf: "flex-start",
+            }}>
+              <Activity size={12} /> Regime 분석하기
+            </button>
           </div>
         )}
       </div>
 
-      <div style={topCard(theme)}>
-        <div style={topCardLabel(theme)}>주요 리스크</div>
-        <div style={{ fontSize: 11.5, color: theme.text, marginTop: 4, lineHeight: 1.5, display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-          {trust?.narrative || "Trust Score 측정 후 자동 분석된 리스크 요약이 표시됩니다."}
+      {/* ── Trust Score 요약 ── */}
+      <div style={SC}>
+        <span style={SL}>Trust Score</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+            <span style={{ fontSize: 32, fontWeight: 900, color: trustColor, lineHeight: 1, letterSpacing: -1 }}>
+              {trustScore != null ? trustScore : "—"}
+            </span>
+            <span style={{ fontSize: 13, color: "#CBD5E1", fontWeight: 500 }}>/100</span>
+          </div>
+          <div style={{ height: 3, background: "#F1F5F9", borderRadius: 999, overflow: "hidden", marginTop: 5 }}>
+            <div style={{ height: "100%", width: `${trustScore ?? 0}%`, background: trustColor, borderRadius: 999, transition: "width 0.6s ease" }} />
+          </div>
         </div>
+        {trustGrade
+          ? <span style={{ alignSelf: "flex-start", padding: "3px 9px", borderRadius: 5, fontSize: 11.5, fontWeight: 700,
+              background: `${trustColor}18`, color: trustColor }}>
+              {trustGrade} Confidence
+            </span>
+          : <button onClick={() => setTab("trust")} style={{ padding: "3px 9px", borderRadius: 5, border: "1px solid #E2E8F0",
+              background: "transparent", color: "#64748B", fontSize: 11.5, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start" }}>
+              측정하기 →
+            </button>
+        }
       </div>
+
     </div>
   );
 
@@ -286,75 +361,13 @@ export default function Workspace() {
     <style>{`
       @keyframes wsfade { from { opacity: 0; } to { opacity: 1; } }
     `}</style>
-    <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", height: "calc(100vh - 44px)", background: theme.bg }}>
-      {/* ============================== 왼쪽 사이드바 ============================== */}
-      <aside style={{
-        borderRight: `1px solid ${theme.panelBorder}`, background: theme.panel,
-        padding: "20px 16px", display: "flex", flexDirection: "column", gap: 18, overflow: "auto",
-      }}>
-        <button onClick={() => navigate("/alpha")} style={{
-          background: "transparent", border: "none", color: theme.textMuted, cursor: "pointer",
-          display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 600, padding: 0, alignSelf: "flex-start",
-        }}><ChevronLeft size={14} /> 워크스페이스 목록</button>
-
-
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: theme.textMuted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>전략 목록</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {siblings.map(s => {
-              const active = String(s.id) === String(id);
-              const tier = s.trust == null ? { label: "미측정", color: "#94A3B8", bar: "#CBD5E1" } :
-                           s.trust >= 75    ? { label: "Stable",  color: "#10B981", bar: "#10B981" } :
-                           s.trust >= 60    ? { label: "Normal",  color: "#3B82F6", bar: "#3B82F6" } :
-                                              { label: "Caution", color: "#F59E0B", bar: "#F59E0B" };
-              return (
-                <button key={s.id} onClick={() => navigate(`/alpha/w/${s.id}`)}
-                  style={{
-                    textAlign: "left", padding: "10px 12px", borderRadius: 10,
-                    cursor: "pointer", width: "100%",
-                    background: active ? theme.accentSoft : "white",
-                    border: active ? `1.5px solid ${theme.accent}` : "1.5px solid #E2E8F0",
-                    boxShadow: active ? `0 2px 8px ${theme.accent}30` : "0 1px 3px rgba(0,0,0,0.06)",
-                    transition: "box-shadow 0.15s, border-color 0.15s",
-                  }}
-                  onMouseEnter={e => { if (!active) { e.currentTarget.style.borderColor = "#C7D2FE"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(99,102,241,0.12)"; } }}
-                  onMouseLeave={e => { if (!active) { e.currentTarget.style.borderColor = "#E2E8F0"; e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.06)"; } }}
-                >
-                  <div style={{
-                    fontSize: 12.5, fontWeight: 700, marginBottom: 5,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    color: active ? theme.accent : "#0F172A",
-                  }}>{s.name}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{
-                      display: "inline-block", width: 7, height: 7, borderRadius: "50%",
-                      background: tier.bar, flexShrink: 0,
-                    }} />
-                    <span style={{ fontSize: 10.5, color: tier.color, fontWeight: 700 }}>{tier.label}</span>
-                    {s.trust != null && (
-                      <span style={{ fontSize: 10.5, color: "#94A3B8", marginLeft: 2 }}>
-                        · {s.trust}점
-                      </span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <button onClick={onNewStrategy} disabled={creating} style={{
-            marginTop: 10, width: "100%", padding: "10px 12px", borderRadius: 10,
-            background: "transparent", border: `1px dashed ${theme.panelBorder}`,
-            color: theme.textMuted, cursor: creating ? "wait" : "pointer", fontSize: 12.5, fontWeight: 600,
-          }}>+ New Strategy</button>
-        </div>
-
-        {/* 탭별 도움말 — 이미지의 파란 안내 창을 여기로 이동 */}
-        <TabHelpCard tab={tab} theme={theme} />
-      </aside>
-
-      {/* ============================== 가운데 본문 ============================== */}
-      <main key={id} style={{ display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, animation: "wsfade 0.25s ease" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 44px)", background: theme.bg }}>
+      {/* ============================== 본문 ============================== */}
+      <main
+        key={id}
+        data-tutorial-workspace-main
+        style={{ display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, animation: "wsfade 0.25s ease" }}
+      >
         {/* 상단: 전략 이름 + 액션 */}
         <div style={{
           padding: "18px 28px", borderBottom: `1px solid ${theme.panelBorder}`,
@@ -364,27 +377,83 @@ export default function Workspace() {
             margin: 0, fontSize: 22, fontWeight: 900, flex: 1, letterSpacing: -0.4,
             color: theme.text || "#0f172a",
           }}>{String(template).replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}]/gu, "").trim()}</h2>
-          <button onClick={onTopBacktest} disabled={runningBT} style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            padding: "9px 16px", borderRadius: 10, border: "none",
-            background: theme.accentGradient || theme.accent, color: "white", fontSize: 13, fontWeight: 700,
-            cursor: runningBT ? "wait" : "pointer", opacity: runningBT ? 0.7 : 1,
-            boxShadow: "0 3px 10px rgba(59,130,246,0.25)",
-          }}>
-            <Play size={14} /> {runningBT ? "실행 중…" : "Backtest"}
-          </button>
-          <button onClick={() => setTab("report")} style={{
-            display: "inline-flex", alignItems: "center", gap: 6,
-            padding: "9px 16px", borderRadius: 10, border: `1px solid ${theme.panelBorder}`,
-            background: "white", color: theme.text, fontSize: 13, fontWeight: 600, cursor: "pointer",
-          }}>
-            <FileText size={14} /> Full Report
-          </button>
+          {candidates.length > 0 && (
+            <select value={selectedId} onChange={(e) => onSelectCandidate(e.target.value)}
+              title="이 워크스페이스에서 분석·운용할 전략"
+              style={{
+                padding: "9px 12px", borderRadius: 10, border: `1px solid ${theme.panelBorder}`,
+                background: "white", color: theme.text, fontSize: 13, fontWeight: 700,
+                cursor: "pointer", maxWidth: 260,
+              }}>
+              {candidates.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {(c.strategy_name || c.strategy_type)}{c.risk_tone ? ` · ${c.risk_tone}` : ""}
+                </option>
+              ))}
+            </select>
+          )}
+          <button onClick={onNewStrategy} title="전략 카드 탭에서 Heli로 새 후보 만들기" style={{
+            display: "inline-flex", alignItems: "center", gap: 5,
+            padding: "9px 13px", borderRadius: 10, border: `1px dashed ${theme.accent}`,
+            background: "white", color: theme.accent, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+          }}>＋ 새 전략 생각하기</button>
+          <div onMouseEnter={() => setRunHover(true)} onMouseLeave={() => setRunHover(false)}
+            style={{ position: "relative", display: "inline-flex" }}>
+            <button onClick={onRunAll} disabled={runningAll || runningBT}
+              style={{
+              position: "relative", overflow: "hidden",
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "9px 18px", borderRadius: 10, border: "none",
+              background: theme.accentGradient || theme.accent, color: "white", fontSize: 13, fontWeight: 800,
+              cursor: (runningAll || runningBT) ? "wait" : "pointer", opacity: (runningAll || runningBT) ? 0.7 : 1,
+              boxShadow: "0 3px 10px rgba(59,130,246,0.25)",
+            }}>
+              {/* 끝부분 노란색 코너 호버 */}
+              <span style={{
+                position: "absolute", top: 0, right: 0, width: 38, height: 38, pointerEvents: "none",
+                background: "radial-gradient(circle at top right, rgba(250,204,21,0.95), rgba(250,204,21,0) 72%)",
+                opacity: runHover ? 1 : 0, transition: "opacity 0.2s",
+              }} />
+              <Play size={14} /> {runningAll ? "분석 중…" : "전체 분석 실행"}
+            </button>
+            {/* 호버 설명 툴팁 */}
+            {runHover && !runningAll && (
+              <div style={{
+                position: "absolute", top: "calc(100% + 9px)", right: 0, zIndex: 60,
+                width: 270, padding: "11px 14px", borderRadius: 10,
+                background: "#1e293b", color: "#e2e8f0", fontSize: 12, fontWeight: 500, lineHeight: 1.65,
+                boxShadow: "0 10px 28px rgba(0,0,0,0.24)",
+              }}>
+                위 드롭다운에서 선택한 전략으로 <b style={{ color: "#fcd34d" }}>백테스트 · Regime · Trust Score</b> 분석을 한 번에 모두 실행합니다.
+                <span style={{
+                  position: "absolute", top: -5, right: 26, width: 10, height: 10,
+                  background: "#1e293b", transform: "rotate(45deg)",
+                }} />
+              </div>
+            )}
+          </div>
           <button onClick={reload} title="새로고침" style={{
             background: "transparent", border: `1px solid ${theme.panelBorder}`,
             padding: 8, borderRadius: 8, color: theme.text, cursor: "pointer",
           }}><RefreshCw size={14} /></button>
         </div>
+
+        {newStratHint && (
+          <div style={{
+            padding: "10px 20px", background: "#E0F2FE", borderBottom: "1px solid #BAE6FD",
+            color: "#075985", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8,
+          }}>
+            <span>
+              상단&nbsp;
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 20, height: 20,
+                borderRadius: "50%", background: "linear-gradient(135deg,#60a5fa 0%,#6366f1 100%)", color: "#fff",
+                boxShadow: "0 2px 6px rgba(99,102,241,0.35)", verticalAlign: "middle", margin: "0 1px" }}>
+                <MessageCircle size={11} strokeWidth={2.4} />
+              </span>
+              &nbsp;버튼을 눌러 <b>Heli</b>에게 "다른 전략 후보도 만들어줘"라고 말해보세요 — Goal Profile에 맞춰 새 전략 후보를 생성합니다. 마음에 드는 후보를 위 드롭다운에서 선택하면 이 워크스페이스의 전략이 됩니다.
+            </span>
+          </div>
+        )}
 
         {/* 탭 strip (언더라인 스타일) — 스크롤 없이 wrap */}
         <div style={{
@@ -430,33 +499,20 @@ export default function Workspace() {
         </div>
       </main>
     </div>
-
-    <NewStrategyModal
-      open={newStrategyOpen}
-      name={newStrategyName}
-      onChange={setNewStrategyName}
-      onConfirm={onConfirmNewStrategy}
-      onClose={() => setNewStrategyOpen(false)}
-      theme={theme}
-    />
     </>
   );
 }
 
-// Strategy Card 탭 상단 가로 요약 바 스타일 헬퍼
-function topCard(theme) {
-  return {
-    background: "white", border: `1px solid ${theme.panelBorder}`, borderRadius: 12,
-    padding: "10px 12px", borderColor: theme.panelBorder,
-    minHeight: 92, display: "flex", flexDirection: "column",
-  };
-}
-function topCardLabel(theme) {
-  return {
-    fontSize: 10.5, fontWeight: 800, color: theme.textMuted,
-    letterSpacing: 0.6, textTransform: "uppercase",
-  };
-}
+// 상단 요약 카드 공통 스타일
+const SC = {
+  background: "white", border: "1px solid #E8EDF3", borderRadius: 12,
+  padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10,
+  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+};
+const SL = {
+  fontSize: 11, fontWeight: 800, color: "#475569",
+  textTransform: "uppercase", letterSpacing: "0.07em",
+};
 
 // 우측 사이드 패널 스타일 헬퍼 (현재는 미사용 — 추후 재활용 가능)
 function sideTitle(theme) {
@@ -755,83 +811,6 @@ function renderAssistantMessage(text, opts = {}) {
   return out;
 }
 
-
-function NewStrategyModal({ open, name, onChange, onConfirm, onClose, theme }) {
-  if (!open) return null;
-  return (
-    <div onClick={onClose} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 3000,
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: "white", borderRadius: 20, width: "100%", maxWidth: 440,
-        boxShadow: "0 24px 64px rgba(0,0,0,0.22)", overflow: "hidden",
-      }}>
-        {/* 헤더 */}
-        <div style={{
-          padding: "24px 28px 20px",
-          background: "linear-gradient(135deg,#eff6ff 0%,#e0e7ff 100%)",
-          borderBottom: "1px solid #E2E8F0",
-          display: "flex", alignItems: "center", gap: 14,
-        }}>
-          <div style={{
-            width: 44, height: 44, borderRadius: 14, flexShrink: 0,
-            background: "linear-gradient(135deg,#60a5fa,#6366f1)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 4px 12px rgba(99,102,241,0.3)",
-          }}>
-            <Layers size={20} color="white" />
-          </div>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1e3a8a" }}>새 전략 만들기</h2>
-            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>전략 이름을 입력하고 AI와 대화를 시작하세요</p>
-          </div>
-        </div>
-        {/* 본문 */}
-        <div style={{ padding: "24px 28px" }}>
-          <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 8 }}>
-            전략 이름
-          </label>
-          <input
-            autoFocus
-            value={name}
-            onChange={e => onChange(e.target.value)}
-            onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") onConfirm(); if (e.key === "Escape") onClose(); }}
-            placeholder="예: 미국 배당 성장 전략"
-            style={{
-              width: "100%", padding: "12px 14px", borderRadius: 10,
-              border: "1.5px solid #C7D2FE", fontSize: 14, outline: "none",
-              boxSizing: "border-box", color: "#0F172A",
-              transition: "border-color 0.15s",
-            }}
-            onFocus={e => e.target.style.borderColor = "#6366f1"}
-            onBlur={e => e.target.style.borderColor = "#C7D2FE"}
-          />
-        </div>
-        {/* 푸터 */}
-        <div style={{
-          padding: "0 28px 24px", display: "flex", gap: 8, justifyContent: "flex-end",
-        }}>
-          <button onClick={onClose} style={{
-            padding: "10px 20px", borderRadius: 10,
-            border: "1px solid #E2E8F0", background: "white", color: "#374151",
-            fontSize: 13, fontWeight: 600, cursor: "pointer",
-          }}>취소</button>
-          <button onClick={onConfirm} disabled={!name.trim()} style={{
-            padding: "10px 20px", borderRadius: 10, border: "none",
-            background: name.trim()
-              ? "linear-gradient(135deg,#60a5fa 0%,#3b82f6 50%,#6366f1 100%)"
-              : "#E2E8F0",
-            color: name.trim() ? "white" : "#94A3B8",
-            fontSize: 13, fontWeight: 700,
-            cursor: name.trim() ? "pointer" : "not-allowed",
-            boxShadow: name.trim() ? "0 3px 10px rgba(99,102,241,0.3)" : "none",
-          }}>전략 생성하기</button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function healthLevel(trust) {
   if (trust == null) return { label: "미측정", color: "#94A3B8", Icon: AlertTriangle };

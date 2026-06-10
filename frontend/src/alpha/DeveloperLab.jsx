@@ -19,7 +19,7 @@ import GitPanel from "./GitPanel";
 import TerminalTabs from "./TerminalTabs";
 import { TrendLineChart, SubIndicatorChart, calcSMA, calcEMA, calcBollinger } from "./tabs/helpers";
 import RepoExplorer from "./RepoExplorer";
-import ClaudeKeyConnect from "./ClaudeKeyConnect";
+import { ClaudeKeyBadge } from "./ClaudeKeyConnect";
 
 // ── 언어 감지 ─────────────────────────────────────────────────────────────────
 function detectLang(fileName) {
@@ -328,7 +328,7 @@ const FILE_META = {
   main: { name: "main.py", lang: "python" },
 };
 
-const PLACEHOLDER_CODE = `# ── AlphaHelix Developer Studio ──────────────────────────
+const PLACEHOLDER_CODE = `# ── AlphaHelix Developer IDE ──────────────────────────
 # 워크스페이스가 선택되지 않았습니다.
 #
 # 사용 방법:
@@ -675,11 +675,172 @@ function readEditorOpts(tabSizeDefault = 4) {
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 // ── ClaudeDiffView (Claude 에이전트 변경 before/after · Monaco diff) ──────────────
+// ── Claude Code 식 인라인 diff: before/after → 빨강/초록 라인(+N −M) ──
+// LCS 기반(공통 prefix/suffix 트림으로 큰 파일도 가볍게). 카드용 컴팩트 출력.
+function diffLines(before, after) {
+  const a = String(before == null ? "" : before).split("\n");
+  const b = String(after == null ? "" : after).split("\n");
+  if (!before) return { rows: b.map(s => ({ t: "add", s })), added: b.length, removed: 0 };
+  // 공통 prefix / suffix 트림 → LCS 대상 축소
+  let lo = 0;
+  while (lo < a.length && lo < b.length && a[lo] === b[lo]) lo++;
+  let ai = a.length - 1, bi = b.length - 1;
+  while (ai >= lo && bi >= lo && a[ai] === b[bi]) { ai--; bi--; }
+  const midA = a.slice(lo, ai + 1), midB = b.slice(lo, bi + 1);
+  const rows = [];
+  let added = 0, removed = 0;
+  for (let k = Math.max(0, lo - 2); k < lo; k++) rows.push({ t: "ctx", s: a[k] });
+  const n = midA.length, m = midB.length;
+  if (n * m > 400000) {            // 너무 크면 블록 치환(LCS 생략)
+    for (let k = 0; k < n; k++) { rows.push({ t: "del", s: midA[k] }); removed++; }
+    for (let k = 0; k < m; k++) { rows.push({ t: "add", s: midB[k] }); added++; }
+  } else if (n || m) {
+    const dp = [];
+    for (let i = 0; i <= n; i++) dp.push(new Int32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--)
+      for (let j = m - 1; j >= 0; j--)
+        dp[i][j] = midA[i] === midB[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (midA[i] === midB[j]) { rows.push({ t: "ctx", s: midA[i] }); i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) { rows.push({ t: "del", s: midA[i] }); i++; removed++; }
+      else { rows.push({ t: "add", s: midB[j] }); j++; added++; }
+    }
+    while (i < n) { rows.push({ t: "del", s: midA[i] }); i++; removed++; }
+    while (j < m) { rows.push({ t: "add", s: midB[j] }); j++; added++; }
+  }
+  for (let k = ai + 1; k < Math.min(a.length, ai + 3); k++) rows.push({ t: "ctx", s: a[k] });
+  return { rows, added, removed };
+}
+
+// 긴 ctx 구간을 "⋯ N줄" 로 접고 전체 행 수 상한 적용.
+function collapseDiffRows(rows, cap) {
+  const folded = [];
+  let i = 0;
+  while (i < rows.length) {
+    if (rows[i].t === "ctx") {
+      let j = i; while (j < rows.length && rows[j].t === "ctx") j++;
+      const run = rows.slice(i, j);
+      if (run.length > 5) { folded.push(run[0], run[1], { t: "gap", count: run.length - 4 }, run[run.length - 2], run[run.length - 1]); }
+      else folded.push(...run);
+      i = j;
+    } else { folded.push(rows[i]); i++; }
+  }
+  return folded.length <= cap ? { rows: folded, hidden: 0 } : { rows: folded.slice(0, cap), hidden: folded.length - cap };
+}
+
+// 채팅 안 파일 변경 카드 — Claude Code CLI 의 Edit + 빨강/초록 diff 모양.
+function InlineDiffCard({ change }) {
+  const [open, setOpen] = useState(true);
+  const { rows, added, removed } = useMemo(() => diffLines(change.before, change.after), [change.before, change.after]);
+  const { rows: shown, hidden } = useMemo(() => collapseDiffRows(rows, 120), [rows]);
+  const isNew = !change.before;
+  return (
+    <div style={{ border: "1px solid rgba(255,255,255,0.10)", borderRadius: 8, overflow: "hidden", background: "#0d1017", fontFamily: "ui-monospace,SFMono-Regular,Menlo,monospace" }}>
+      <div onClick={() => setOpen(o => !o)}
+        style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 10px", background: "#161b22", cursor: "pointer", borderBottom: open ? "1px solid rgba(255,255,255,0.08)" : "none" }}>
+        {isNew ? <FilePlus size={12} color="#3fb950" /> : <FileCode size={12} color="#d97757" />}
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: "#e5e7eb", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{change.filename || change.path}</span>
+        {added > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: "#3fb950" }}>+{added}</span>}
+        {removed > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: "#f85149" }}>−{removed}</span>}
+        {open ? <ChevronDown size={13} color="#6B7280" /> : <ChevronRight size={13} color="#6B7280" />}
+      </div>
+      {open && (
+        <div style={{ overflowX: "auto", padding: "4px 0", maxHeight: 320, overflowY: "auto" }}>
+          {shown.map((r, i) => {
+            if (r.t === "gap") return (
+              <div key={i} style={{ padding: "2px 10px", fontSize: 10.5, color: "#4b5563", background: "rgba(255,255,255,0.02)" }}>⋯ {r.count}줄 변경 없음</div>
+            );
+            const bg = r.t === "add" ? "rgba(63,185,80,0.13)" : r.t === "del" ? "rgba(248,81,73,0.13)" : "transparent";
+            const fg = r.t === "add" ? "#aff5b4" : r.t === "del" ? "#ffb4b0" : "#7c8aa0";
+            const sign = r.t === "add" ? "+" : r.t === "del" ? "−" : " ";
+            return (
+              <div key={i} style={{ display: "flex", background: bg, fontSize: 11.5, lineHeight: 1.55, minWidth: "max-content" }}>
+                <span style={{ width: 16, flexShrink: 0, textAlign: "center", color: fg, opacity: 0.8, userSelect: "none" }}>{sign}</span>
+                <span style={{ color: fg, whiteSpace: "pre", paddingRight: 12 }}>{r.s || " "}</span>
+              </div>
+            );
+          })}
+          {hidden > 0 && (
+            <div style={{ padding: "4px 10px", fontSize: 10.5, color: "#6B7280" }}>… +{hidden}줄 — 전체는 <b style={{ color: "#d97757" }}>🔀 Claude diff</b> 탭에서</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 스트리밍 진행 한 줄 → Claude Code 식 활동 표시(도구 호출/말풍선/단계).
+function ActivityLine({ content, type }) {
+  const s = (content || "").trim();
+  if (type === "error") return (
+    <div style={{ fontSize: 11.5, color: "#fca5a5", lineHeight: 1.5, paddingLeft: 2 }}>⚠️ {s.replace(/^(error[:：]?\s*)/i, "")}</div>
+  );
+  if (s.startsWith("💬")) return (
+    <div style={{ fontSize: 12.5, color: "#cbd5e1", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{s.replace(/^💬\s*/, "")}</div>
+  );
+  if (s.startsWith("💭")) return (
+    <div style={{ fontSize: 11.5, color: "#6B7280", fontStyle: "italic", lineHeight: 1.5 }}>{s}</div>
+  );
+  if (s.startsWith("▸") || s.startsWith("🤖")) return (
+    <div style={{ fontSize: 11.5, fontWeight: 700, color: "#d97757", lineHeight: 1.5, paddingTop: 2 }}>{s}</div>
+  );
+  if (s.startsWith("✓")) return (
+    <div style={{ fontSize: 11.5, fontWeight: 600, color: "#34d399", lineHeight: 1.5 }}>{s}</div>
+  );
+  // 도구 호출(✏️/📝/📖/🔍/🔧 …) → 좌측 액센트 칩
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 9px", borderRadius: 7,
+      background: "rgba(217,119,87,0.09)", borderLeft: "2px solid rgba(217,119,87,0.6)",
+      fontSize: 11.5, color: "#c7d0dd", fontFamily: "ui-monospace,monospace", lineHeight: 1.45 }}>{s}</div>
+  );
+}
+
+// Claude 'spark' 마크 — 가는 광선이 방사하는 Claude Code 로고(이모지 ✳ 대체).
+// 4개 주광선(상하좌우) 길게 + 그 사이 보조광선 짧게 → Claude 특유의 스파클.
+function ClaudeSpark({ size = 22, color = "#D97757" }) {
+  const c = size / 2;
+  const sw = Math.max(1, size * 0.052);
+  const N = 16;
+  const inner = c * 0.12;
+  const rays = [];
+  for (let i = 0; i < N; i++) {
+    const a = (Math.PI * 2 / N) * i - Math.PI / 2;
+    const long = i % 4 === 0;
+    const r1 = c * (long ? 0.97 : 0.55);
+    rays.push(
+      <line key={i}
+        x1={c + Math.cos(a) * inner} y1={c + Math.sin(a) * inner}
+        x2={c + Math.cos(a) * r1} y2={c + Math.sin(a) * r1}
+        stroke={color} strokeWidth={sw} strokeLinecap="round" />
+    );
+  }
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true" style={{ display: "block", flexShrink: 0 }}>
+      {rays}
+    </svg>
+  );
+}
+
+// Claude Code CLI 시작화면의 픽셀 마스코트(주황) — 빈 화면 하단에 표시.
+function ClaudePixelMascot() {
+  const c = "#c8795c";
+  return (
+    <svg width="52" height="46" viewBox="0 0 52 46" fill="none" aria-hidden="true" style={{ display: "block" }}>
+      <rect x="9" y="4" width="34" height="30" rx="8" fill={c} />
+      <rect x="18" y="16" width="5" height="8" rx="2" fill="#15101c" />
+      <rect x="29" y="16" width="5" height="8" rx="2" fill="#15101c" />
+      <rect x="15" y="34" width="7" height="8" rx="2.5" fill={c} />
+      <rect x="30" y="34" width="7" height="8" rx="2.5" fill={c} />
+    </svg>
+  );
+}
+
 function ClaudeDiffView({ changes, onMeasure, measuring }) {
   if (!changes || changes.length === 0) {
     return (
       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,color:"#4B5563"}}>
-        <Bot size={30} color="#a78bfa"/>
+        <ClaudeSpark size={30} />
         <div style={{fontSize:13,fontWeight:600}}>Claude 변경 내역 없음</div>
       </div>
     );
@@ -701,9 +862,9 @@ function ClaudeDiffView({ changes, onMeasure, measuring }) {
       {changes.map((c, i) => (
         <div key={c.path || i} style={{borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
           <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 14px",background:"#161b22"}}>
-            <FileCode size={13} color="#a78bfa"/>
+            <FileCode size={13} color="#d97757"/>
             <span style={{fontSize:12,fontWeight:700,color:"#e5e7eb"}}>{c.filename || c.path}</span>
-            <span style={{fontSize:9,padding:"2px 7px",borderRadius:999,background:"rgba(167,139,250,0.15)",color:"#a78bfa",fontWeight:700}}>Claude 편집</span>
+            <span style={{fontSize:9,padding:"2px 7px",borderRadius:999,background:"rgba(217,119,87,0.16)",color:"#d97757",fontWeight:700}}>Claude 편집</span>
           </div>
           <DiffEditor
             height={Math.min(440, Math.max(160, ((c.after || "").split("\n").length + 2) * 19))}
@@ -755,6 +916,7 @@ export default function DeveloperLab() {
   const [claudeDiff, setClaudeDiff] = useState(null);  // { changes:[{path,filename,before,after}] }
   const [claudeDockW, setClaudeDockW] = useState(380); // 우측 Claude 도크 너비
   const [claudeMessages, setClaudeMessages] = useState([]); // 도크 내 대화(VSCode Claude Code 식): {role,content,...}
+  const [claudeInputH, setClaudeInputH] = useState(56);    // 입력창 세로 높이(상단 핸들 드래그로 조절)
   const claudeScrollRef = useRef(null);
   useEffect(() => { if (claudeScrollRef.current) claudeScrollRef.current.scrollTop = claudeScrollRef.current.scrollHeight; }, [claudeMessages, claudeBusy]);
   // P3: 전략 개선 제안서
@@ -1421,7 +1583,7 @@ export default function DeveloperLab() {
         const d = e.response.data || {};
         setClaudeMessages(prev => [...prev, { role:"error", content:`Claude 에이전트 비활성: ${d.error || "꺼져 있음"} ${d.hint ? "("+d.hint+")" : ""}` }]);
       } else if (e?.response?.status === 402) {
-        setClaudeMessages(prev => [...prev, { role:"error", content: e.response.data?.error || "Developer Studio(Claude)는 STANDARD 구독부터입니다." }]);
+        setClaudeMessages(prev => [...prev, { role:"error", content: e.response.data?.error || "Developer IDE(Claude)는 STANDARD 구독부터입니다." }]);
       } else {
         setClaudeMessages(prev => [...prev, { role:"error", content:`Claude 시작 실패: ${e?.response?.data?.error || e?.message}` }]);
       }
@@ -1469,6 +1631,7 @@ export default function DeveloperLab() {
           role:"assistant",
           content: narr || (r.hasChanges ? "" : "코드 변경 없이 답변했어요."),
           summary,
+          changes: r.hasChanges && Array.isArray(r.changes) ? r.changes : [],
         }]);
         // 도크는 닫지 않는다 — 대화 계속.
         return;
@@ -1521,6 +1684,22 @@ export default function DeveloperLab() {
     document.addEventListener("mouseup", onUp);
     document.body.style.cursor = "col-resize";
   }, [claudeDockW]);
+
+  // 입력창 세로 높이 드래그 (위로 끌면 커짐)
+  const handleClaudeInputResizeMouseDown = useCallback((e) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = claudeInputH;
+    const onMove = (ev) => setClaudeInputH(Math.max(40, Math.min(380, startH + (startY - ev.clientY))));
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "ns-resize";
+  }, [claudeInputH]);
 
   // 하단 콘솔/터미널 패널 높이 드래그 리사이즈 (위로 끌면 커짐)
   const handleBottomResizeMouseDown = useCallback((e) => {
@@ -1613,9 +1792,9 @@ export default function DeveloperLab() {
         <span style={{fontSize:9,color:"#2d3748",fontFamily:"monospace"}}>{activeTab?.name||""}</span>
         <button onClick={() => setClaudeOpen(o => !o)} title="Claude Code 에이전트로 코드 편집"
           style={{display:"flex",alignItems:"center",gap:4,padding:"4px 9px",borderRadius:5,
-            background: claudeOpen ? "rgba(167,139,250,0.18)" : "transparent",
-            border:"1px solid rgba(167,139,250,0.35)",color:"#a78bfa",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-          <Bot size={12}/> Claude
+            background: claudeOpen ? "rgba(217,119,87,0.16)" : "transparent",
+            border:"1px solid rgba(217,119,87,0.4)",color:"#d97757",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+          <ClaudeSpark size={13} /> Claude
         </button>
         <button onClick={handleSave}
           style={{display:"flex",alignItems:"center",gap:4,padding:"4px 9px",borderRadius:5,
@@ -2142,52 +2321,67 @@ export default function DeveloperLab() {
           <>
             <div onMouseDown={handleClaudeDockResizeMouseDown}
               style={{width:6, marginRight:-3, flexShrink:0, cursor:"col-resize", background:"transparent", zIndex:6}}
-              onMouseEnter={e=>e.currentTarget.style.background="rgba(167,139,250,0.5)"}
+              onMouseEnter={e=>e.currentTarget.style.background="rgba(217,119,87,0.5)"}
               onMouseLeave={e=>e.currentTarget.style.background="transparent"}/>
             <div style={{width:claudeDockW, flexShrink:0, background:"#12161f",
               borderLeft:"1px solid rgba(255,255,255,0.08)", display:"flex", flexDirection:"column", overflow:"hidden"}}>
               <div style={{display:"flex",alignItems:"center",gap:7,padding:"9px 12px",
                 borderBottom:"1px solid rgba(255,255,255,0.08)",flexShrink:0}}>
-                <Bot size={15} color="#a78bfa"/>
-                <span style={{fontSize:12.5,fontWeight:800,color:"#e5e7eb",flex:1}}>Claude 에이전트</span>
-                {claudeBusy && <Loader size={13} color="#a78bfa" style={{animation:"spin 1s linear infinite"}}/>}
+                <span style={{fontSize:13,fontWeight:800,color:"#e5e7eb",flex:1,display:"inline-flex",alignItems:"center",gap:7}}>
+                  <ClaudeSpark size={16} /> Claude Code
+                </span>
+                {claudeBusy && <Loader size={13} color="#d97757" style={{animation:"spin 1s linear infinite"}}/>}
                 {claudeMessages.length > 0 && !claudeBusy && (
                   <button
                     onClick={async () => { try { if (wsId) await resetClaudeSession(wsId); } catch { /* noop */ } setClaudeMessages([]); }}
                     title="새 대화 (이 워크스페이스의 Claude 세션 맥락 초기화)"
                     style={{display:"flex",alignItems:"center",gap:4,padding:"3px 8px",borderRadius:7,
-                      border:"1px solid rgba(167,139,250,0.3)",background:"transparent",color:"#a78bfa",
+                      border:"1px solid rgba(217,119,87,0.35)",background:"transparent",color:"#d97757",
                       fontSize:11,fontWeight:700,cursor:"pointer"}}
-                    onMouseEnter={e=>e.currentTarget.style.background="rgba(167,139,250,0.12)"}
+                    onMouseEnter={e=>e.currentTarget.style.background="rgba(217,119,87,0.12)"}
                     onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                     <Plus size={12}/>새 대화
                   </button>
                 )}
+                {/* 컴팩트 연동 상태 칩 — 클릭하면 CLI(키) 관리 모달 */}
+                <ClaudeKeyBadge />
                 <X size={15} onClick={()=>setClaudeOpen(false)} style={{color:"#6B7280",cursor:"pointer"}}
                   onMouseEnter={e=>e.currentTarget.style.color="#e5e7eb"} onMouseLeave={e=>e.currentTarget.style.color="#6B7280"}/>
-              </div>
-              {/* BYOK: 본인 Claude 키 연동(연동되면 한 줄) */}
-              <div style={{padding:"8px 12px 6px",flexShrink:0}}>
-                <ClaudeKeyConnect />
               </div>
               {/* 대화 — VSCode Claude Code 식, 도크 안에 누적 */}
               <div ref={claudeScrollRef} style={{flex:1, minHeight:0, overflowY:"auto", padding:"4px 12px 8px",
                 display:"flex", flexDirection:"column", gap:9}}>
                 {claudeMessages.length === 0 && (
-                  <div style={{fontSize:11,color:"#6B7280",lineHeight:1.7,padding:"4px 2px"}}>
-                    현재 에디터 코드를 Claude가 직접 편집합니다. 변경은 <span style={{color:"#a78bfa",fontWeight:700}}>🔀 Claude diff</span> 탭 + 상단 'Heli 변경' 바에서 확인하세요.
-                    <br/><b style={{color:"#94a3b8"}}>Enter</b> 전송 · <b style={{color:"#94a3b8"}}>Shift+Enter</b> 줄바꿈.
+                  <div style={{flex:1, minHeight:300, display:"flex", flexDirection:"column",
+                    alignItems:"center", padding:"16px 18px 20px", textAlign:"center"}}>
+                    {/* 상단 워드마크 (Claude Code CLI 시작화면 동일) */}
+                    <div style={{display:"flex", alignItems:"center", gap:9, marginTop:6}}>
+                      <ClaudeSpark size={24} />
+                      <span style={{fontSize:22, fontWeight:600, color:"#e7e2da", fontFamily:"Georgia,'Times New Roman',serif", letterSpacing:0.2}}>Claude Code</span>
+                    </div>
+                    {/* 가운데 여백 */}
+                    <div style={{flex:1, minHeight:30}}/>
+                    {/* 하단 픽셀 마스코트 + 힌트 */}
+                    <ClaudePixelMascot/>
+                    <div style={{marginTop:14, fontSize:12.5, color:"#8a93a3", lineHeight:1.7, maxWidth:300}}>
+                      요청하면 <span style={{color:"#d97757",fontWeight:700}}>현재 전략 코드를 직접 편집</span>합니다 —<br/>
+                      변경은 <span style={{color:"#d97757",fontWeight:700}}>🔀 Claude diff</span> 탭에서 확인하세요.
+                    </div>
+                    <div style={{marginTop:8, fontSize:11.5, color:"#5b6677"}}>
+                      <b style={{color:"#8a93a3"}}>Enter</b> 전송 · <b style={{color:"#8a93a3"}}>Shift+Enter</b> 줄바꿈
+                    </div>
                   </div>
                 )}
                 {claudeMessages.map((m, i) => {
                   if (m.role === "user") return (
-                    <div key={i} style={{alignSelf:"flex-end", maxWidth:"88%", background:"linear-gradient(135deg,#7c3aed,#6d28d9)",
+                    <div key={i} style={{alignSelf:"flex-end", maxWidth:"88%", background:"linear-gradient(135deg,#d97757,#c2562f)",
                       color:"#fff", padding:"8px 12px", borderRadius:"12px 4px 12px 12px", fontSize:12.5, lineHeight:1.55, whiteSpace:"pre-wrap"}}>{m.content}</div>
                   );
                   if (m.role === "assistant") return (
-                    <div key={i} style={{alignSelf:"flex-start", maxWidth:"92%", display:"flex", flexDirection:"column", gap:6}}>
+                    <div key={i} style={{alignSelf:"flex-start", maxWidth:"94%", width:(m.changes&&m.changes.length)?"94%":undefined, display:"flex", flexDirection:"column", gap:7}}>
                       {m.content && <div style={{background:"#1b2130", color:"#e5e7eb", padding:"9px 12px",
                         borderRadius:"4px 12px 12px 12px", fontSize:12.5, lineHeight:1.6, whiteSpace:"pre-wrap"}}>{m.content}</div>}
+                      {(m.changes || []).map((c, ci) => <InlineDiffCard key={ci} change={c} />)}
                       {m.summary && <div style={{fontSize:11.5, color:"#34d399", fontWeight:600, lineHeight:1.5}}>{m.summary}</div>}
                     </div>
                   );
@@ -2195,29 +2389,33 @@ export default function DeveloperLab() {
                     <div key={i} style={{alignSelf:"flex-start", maxWidth:"92%", background:"rgba(248,113,113,0.12)", color:"#fca5a5",
                       border:"1px solid rgba(248,113,113,0.3)", padding:"8px 11px", borderRadius:8, fontSize:12, lineHeight:1.5}}>⚠️ {m.content}</div>
                   );
-                  return (
-                    <div key={i} style={{fontSize:11, color:"#7c8aa0", fontFamily:"ui-monospace,monospace", paddingLeft:2, lineHeight:1.5}}>{m.content}</div>
-                  );
+                  return <ActivityLine key={i} content={m.content} type={m.type} />;
                 })}
                 {claudeBusy && (
-                  <div style={{fontSize:11.5, color:"#a78bfa", display:"flex", alignItems:"center", gap:6}}>
+                  <div style={{fontSize:11.5, color:"#d97757", display:"flex", alignItems:"center", gap:6}}>
                     <Loader size={12} style={{animation:"spin 1s linear infinite"}}/> 작업 중…
                   </div>
                 )}
               </div>
               {/* 입력 — Enter 전송 / Shift+Enter 줄바꿈 */}
-              <div style={{padding:"8px 12px 12px", flexShrink:0, borderTop:"1px solid rgba(255,255,255,0.06)"}}>
+              <div style={{padding:"0 12px 12px", flexShrink:0, borderTop:"1px solid rgba(255,255,255,0.06)"}}>
+                {/* 드래그 핸들 — 위/아래로 끌어 입력창 높이 조절 */}
+                <div onMouseDown={handleClaudeInputResizeMouseDown} title="드래그해서 입력창 높이 조절"
+                  style={{height:14, margin:"0 -12px 2px", display:"flex", alignItems:"center", justifyContent:"center", cursor:"ns-resize"}}
+                  onMouseEnter={e=>{ const b=e.currentTarget.firstChild; if(b) b.style.background="rgba(217,119,87,0.6)"; }}
+                  onMouseLeave={e=>{ const b=e.currentTarget.firstChild; if(b) b.style.background="rgba(255,255,255,0.18)"; }}>
+                  <div style={{width:36, height:3, borderRadius:2, background:"rgba(255,255,255,0.18)", transition:"background 0.15s ease"}}/>
+                </div>
                 <div style={{display:"flex", gap:7, alignItems:"flex-end"}}>
                   <textarea
                     value={claudeReq}
                     onChange={e=>setClaudeReq(e.target.value)}
                     onKeyDown={e=>{ if(e.nativeEvent.isComposing) return; if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); handleClaudeAgent(); } }}
-                    placeholder="Claude에게 요청…  (Enter 전송 · Shift+Enter 줄바꿈)"
-                    rows={2}
+                    placeholder="Claude에게 요청하세요…  코드를 직접 작성·수정합니다"
                     disabled={claudeBusy}
                     style={{flex:1, boxSizing:"border-box", resize:"none", background:"#0f1117", color:"#e5e7eb",
-                      border:"1px solid rgba(167,139,250,0.3)", borderRadius:10, padding:"9px 11px",
-                      fontSize:12.5, fontFamily:"inherit", lineHeight:1.5, outline:"none", minHeight:40, maxHeight:150}}/>
+                      border:"1px solid rgba(217,119,87,0.3)", borderRadius:10, padding:"9px 11px",
+                      fontSize:12.5, fontFamily:"inherit", lineHeight:1.5, outline:"none", height:claudeInputH, minHeight:40}}/>
                   <button onClick={handleClaudeAgent} disabled={claudeBusy||!claudeReq.trim()}
                     title="전송 (Enter)"
                     style={{width:40, height:40, borderRadius:10, border:"none", flexShrink:0,
@@ -2226,7 +2424,7 @@ export default function DeveloperLab() {
                       display:"inline-flex", alignItems:"center", justifyContent:"center", transition:"background 0.15s ease"}}
                     onMouseEnter={e=>{ if(!claudeBusy&&claudeReq.trim()) e.currentTarget.style.background="#38BDF8"; }}
                     onMouseLeave={e=>{ if(!claudeBusy&&claudeReq.trim()) e.currentTarget.style.background="#7DD3FC"; }}>
-                    {claudeBusy ? <Loader size={15} color="#a78bfa" style={{animation:"spin 1s linear infinite"}}/> : <Send size={16} color="#0C4A6E"/>}
+                    {claudeBusy ? <Loader size={15} color="#d97757" style={{animation:"spin 1s linear infinite"}}/> : <Send size={16} color="#fff"/>}
                   </button>
                 </div>
               </div>

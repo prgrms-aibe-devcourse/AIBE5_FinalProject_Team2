@@ -18,7 +18,7 @@ const CATEGORIES = [
     sub: [{ key: "startup", label: "시작" }, { key: "language", label: "언어" }],
   },
   {
-    key: "editor", label: "편집기 (Developer Studio)", Icon: Code,
+    key: "editor", label: "편집기 (Developer IDE)", Icon: Code,
     sub: [
       { key: "font", label: "글꼴" },
       { key: "format", label: "서식" },
@@ -81,7 +81,7 @@ const SETTINGS = [
   {
     cat: "editor", group: "글꼴",
     key: "ah.editor.fontSize", label: "글꼴 크기 (px)",
-    desc: "Developer Studio 편집 영역의 기본 글꼴 크기입니다.",
+    desc: "Developer IDE 편집 영역의 기본 글꼴 크기입니다.",
     type: "number", def: 13, min: 10, max: 28,
   },
   {
@@ -171,7 +171,7 @@ const SETTINGS = [
   {
     cat: "workbench", group: "Alpha 워크스페이스",
     key: "ah.workbench.sidePanelWidth", label: "사이드 패널 기본 너비 (px)",
-    desc: "Developer Studio 좌측 파일 탐색기·Git 패널의 초기 너비입니다.",
+    desc: "Developer IDE 좌측 파일 탐색기·Git 패널의 초기 너비입니다.",
     type: "number", def: 220, min: 160, max: 400,
   },
 
@@ -358,8 +358,8 @@ const SETTINGS = [
       "Ctrl+/        AI 채팅(Heli) 토글\n" +
       "Ctrl+,        설정 열기\n" +
       "Ctrl+Enter    백테스트 실행 (전략 워크스페이스)\n" +
-      "Ctrl+S        코드 저장 (Developer Studio)\n" +
-      "Ctrl+`        터미널 열기 (Developer Studio)\n" +
+      "Ctrl+S        코드 저장 (Developer IDE)\n" +
+      "Ctrl+`        터미널 열기 (Developer IDE)\n" +
       "Esc           모달 닫기",
   },
 

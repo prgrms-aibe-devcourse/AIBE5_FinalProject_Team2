@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Award, Wrench, AlertTriangle } from "lucide-react";
+import { TooltipIcon } from "./helpers";
 
 const METRIC_HINTS = {
   generalization:         "Walk-Forward 검증에서 과거 구간(In-Sample) 성과가 미래 구간(Out-of-Sample)에서도 유지되는지 측정합니다.\n\n과거에만 잘 맞춰진 과적합 전략일수록 점수가 낮아집니다. OOS Sharpe가 IS Sharpe와 가까울수록 높은 점수입니다.",
@@ -48,7 +49,6 @@ function CircleGauge({ score }) {
 
 // ─── 세부 메트릭 카드 (Regime 범례 스타일 + 툴팁) ────────────────
 function MetricCard({ item }) {
-  const [show, setShow] = useState(false);
   const color = getScoreColor(item.score);
   const hint = METRIC_HINTS[item.key] || "";
   return (
@@ -56,25 +56,7 @@ function MetricCard({ item }) {
       <div className="flex items-center gap-1.5 mb-1.5">
         <span style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0, display: "inline-block" }} />
         <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 600 }}>{item.label}</span>
-        {hint && (
-          <span style={{ position: "relative", display: "inline-flex", alignItems: "center", marginLeft: 2 }}>
-            <span
-              onMouseEnter={() => setShow(true)}
-              onMouseLeave={() => setShow(false)}
-              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
-                width: 14, height: 14, borderRadius: "50%", background: "#22c55e", color: "white",
-                fontSize: 8, fontWeight: 900, cursor: "help", flexShrink: 0 }}>!</span>
-            {show && (
-              <div style={{ position: "absolute", bottom: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
-                background: "#fff", borderRadius: 12, padding: "10px 14px", zIndex: 9999, width: 240,
-                pointerEvents: "none", boxShadow: "0 8px 28px rgba(99,102,241,0.18), 0 0 0 1px #E0E7FF" }}>
-                <div style={{ position: "absolute", bottom: -6, left: "50%", transform: "translateX(-50%) rotate(45deg)",
-                  width: 12, height: 12, background: "#fff", borderRight: "1px solid #E0E7FF", borderBottom: "1px solid #E0E7FF" }} />
-                <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>{hint}</div>
-              </div>
-            )}
-          </span>
-        )}
+        {hint && <TooltipIcon hint={hint} width={240} />}
       </div>
       <div className="flex items-baseline gap-2 mb-2">
         <span style={{ fontSize: 28, fontWeight: 700, lineHeight: 1, color, fontVariantNumeric: "tabular-nums" }}>{item.score}</span>

@@ -26,7 +26,7 @@ const SECTIONS = [
  * - LeftSidebar 의 ⋯ 버튼이 토글
  * - 항목 클릭 시 새 탭에서 가이드 페이지 열림 (vscode 도움말 패널 패턴)
  */
-export default function GuideDock({ open, onClose, width = 320 }) {
+export default function GuideDock({ open, onClose, width = 320, sidebarWidth = 52 }) {
   const nav = useNavigate();
 
   const goItem = (to) => {
@@ -35,7 +35,7 @@ export default function GuideDock({ open, onClose, width = 320 }) {
 
   return (
     <aside style={{
-      position: "fixed", left: open ? 52 : 0, top: 0, bottom: 0,
+      position: "fixed", left: open ? sidebarWidth : 0, top: 0, bottom: 0,
       width: open ? width : 0,
       background: "white",
       borderRight: open ? "1px solid #E2E8F0" : "none",

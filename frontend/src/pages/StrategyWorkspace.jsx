@@ -8,7 +8,7 @@ import {
 import {
   listWorkspaces, getWorkspace, createWorkspace,
   fetchChat, sendChat, runBacktest, runRegime, runTrust,
-  fetchDecisionLog, formalize,
+  fetchDecisionTimeline, recordDecisionLog, formalize,
   listBrokerAccounts, getBrokerBalance, getBrokerQuote,
   previewBrokerOrder, placeBrokerOrder,
 } from "../alpha/alphaApi";
@@ -74,7 +74,7 @@ export default function StrategyWorkspace() {
   };
   useEffect(() => { reloadDetail(); /* eslint-disable-next-line */ }, [activeId]);
 
-  // Heli 도크/Developer Studio 가 "지금 보고 있는 워크스페이스"를 인지하도록 lastWsId 동기화
+  // Heli 도크/Developer IDE 가 "지금 보고 있는 워크스페이스"를 인지하도록 lastWsId 동기화
   // (이게 없으면 /strategy/:id 화면에서 Heli 가 전략을 못 찾아 "전략 코드가 없다"고 답함)
   useEffect(() => {
     if (activeId != null) {
@@ -566,37 +566,263 @@ function TrustPanel({ data, onRun, busy }) {
 }
 
 function DecisionLogPanel({ id }) {
-  const [logs, setLogs] = useState(null);
+  const [timeline, setTimeline] = useState(null);
+  const [filter, setFilter] = useState("all");
+  const [busyId, setBusyId] = useState(null);
   const [err, setErr] = useState(null);
+
+  const STATUS = {
+    ACCEPTED: { bg: "#D1FAE5", fg: "#065F46", label: "수락" },
+    HOLD: { bg: "#FEF3C7", fg: "#92400E", label: "보류" },
+    REJECTED: { bg: "#FEE2E2", fg: "#991B1B", label: "거절" },
+    PENDING: { bg: "#E2E8F0", fg: "#334155", label: "대기" },
+    NONE: { bg: "#E2E8F0", fg: "#64748B", label: "-" },
+  };
+
+  const DOT = { USER: "#10B981", AI: "#6366F1", SYSTEM: "#F59E0B" };
+
+  const metricText = (k) => {
+    if (k === "return_pct") return "수익률";
+    if (k === "mdd_pct") return "MDD";
+    if (k === "vol_pct") return "변동성";
+    return k;
+  };
+
+  const metricValue = (k, v) => {
+    if (v == null || Number.isNaN(Number(v))) return "-";
+    if (["return_pct", "mdd_pct", "vol_pct"].includes(k)) return `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(1)}%`;
+    return String(v);
+  };
+
+  const metricColor = (k, v) => {
+    const n = Number(v);
+    if (Number.isNaN(n)) return "#475569";
+    if (k === "mdd_pct") { const a = Math.abs(n); return a <= 15 ? "#059669" : a <= 25 ? "#D97706" : "#DC2626"; }
+    if (k === "vol_pct") return n <= 0 ? "#059669" : "#DC2626";
+    return n >= 0 ? "#059669" : "#DC2626";
+  };
+
+  const load = async (f) => {
+    try {
+      setErr(null);
+      const data = await fetchDecisionTimeline(id, f);
+      setTimeline(data || { counts: {}, items: [] });
+    } catch (e) {
+      setErr(e?.response?.data?.error || e.message);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      try { setLogs(await fetchDecisionLog(id)); }
-      catch (e) { setErr(e?.response?.data?.error || e.message); }
-    })();
-  }, [id]);
+    load(filter);
+    // eslint-disable-next-line
+  }, [id, filter]);
+
+  const onDecision = async (row, decision) => {
+    try {
+      setBusyId(row.id);
+      await recordDecisionLog(id, {
+        decision,
+        title: row.title,
+        aiReason: row.aiReason,
+        userChoice: decision === "ACCEPTED" ? "수락" : "보류",
+        userNote: decision === "ACCEPTED" ? "추천안 수락" : "추가 검토 후 결정",
+        sourceLogId: row.id,
+        options: row.options,
+      });
+      await load(filter);
+    } catch (e) {
+      setErr(e?.response?.data?.error || e.message || "결정 저장 실패");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   if (err) return <PlaceholderPanel icon={<ScrollText size={26} />} title="Decision Log" desc={"불러오기 실패: " + err} />;
-  if (logs == null) return <PlaceholderPanel icon={<ScrollText size={26} />} title="Decision Log" desc="불러오는 중…" />;
-  const arr = Array.isArray(logs) ? logs : (logs.items || []);
-  if (arr.length === 0) {
-    return <PlaceholderPanel icon={<ScrollText size={26} />} title="Decision Log" desc="이 전략의 의사결정 이력(시그널 발생, 진입/청산, 사용자 승인)이 여기에 표시됩니다." />;
-  }
+  if (timeline == null) return <PlaceholderPanel icon={<ScrollText size={26} />} title="Decision Log" desc="불러오는 중…" />;
+
+  const arr = timeline?.items || [];
+  const counts = timeline?.counts || {};
+  if (arr.length === 0) return <PlaceholderPanel icon={<ScrollText size={26} />} title="Decision Log" desc="조건에 맞는 기록이 없습니다." />;
+
   return (
-    <div>
-      <h3 style={{ margin: "0 0 12px", fontSize: 16, fontWeight: 700 }}>Decision Log</h3>
-      {arr.map((row, i) => (
-        <div key={i} style={{
-          padding: "12px 14px", background: "white", border: "1px solid #E5E7EB",
-          borderRadius: 10, marginBottom: 8,
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-            <span style={{ fontSize: 13, fontWeight: 700 }}>{row.action || row.event || row.type || "—"}</span>
-            <span style={{ fontSize: 11, color: "#94A3B8" }}>{row.createdAt || row.timestamp || ""}</span>
-          </div>
-          <div style={{ fontSize: 12, color: "#475569", whiteSpace: "pre-wrap" }}>
-            {row.summary || row.message || row.detail || JSON.stringify(row).slice(0, 200)}
-          </div>
+    <div style={{ maxWidth: 900 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+        <div>
+          <div style={{ fontSize: 38, fontWeight: 900, color: "#0F172A", letterSpacing: -0.5 }}>디시전 로그</div>
+          <div style={{ marginTop: 2, fontSize: 14, color: "#6B7280", fontWeight: 600 }}>전략 변경 이력 · 총 {counts.all ?? arr.length}건</div>
         </div>
-      ))}
+        <div style={{ display: "flex", gap: 8 }}>
+          {[
+            { key: "all", label: "전체" },
+            { key: "accepted", label: "수락" },
+            { key: "hold", label: "보류" },
+          ].map((f) => {
+            const active = filter === f.key;
+            return (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                style={{
+                  border: "1px solid #D1D5DB",
+                  background: active ? "#0F172A" : "#FFFFFF",
+                  color: active ? "#FFFFFF" : "#334155",
+                  borderRadius: 999,
+                  padding: "8px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={{ position: "relative", paddingLeft: 28 }}>
+        <div style={{ position: "absolute", left: 9, top: 6, bottom: 6, width: 2, background: "#E5E7EB" }} />
+
+        {arr.map((row) => {
+          const st = STATUS[row.status] || STATUS.NONE;
+          const options = Array.isArray(row.options) ? row.options : [];
+          const basicMetrics = row.payload?.metrics && typeof row.payload.metrics === "object" ? row.payload.metrics : null;
+          const selectedChoice = String(row.userChoice || "").toLowerCase();
+
+          return (
+            <div key={row.id} style={{ position: "relative", marginBottom: 14 }}>
+              <div style={{
+                position: "absolute", left: -27, top: 9,
+                width: 12, height: 12, borderRadius: 999, background: DOT[row.actor] || "#94A3B8",
+              }} />
+
+              <div style={{
+                background: "#FFFFFF",
+                border: "1px solid #E5E7EB",
+                borderRadius: 16,
+                padding: "16px 18px",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 36, fontWeight: 900, color: "#0F172A", lineHeight: 1.2 }}>
+                      {row.title || row.summary || "기록"}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 12, color: "#94A3B8", fontWeight: 700 }}>
+                      {new Date(row.createdAt).toLocaleDateString("ko-KR")} · {row.category || row.eventType}
+                    </div>
+                  </div>
+
+                  <span style={{
+                    background: st.bg,
+                    color: st.fg,
+                    borderRadius: 999,
+                    padding: "6px 12px",
+                    fontSize: 13,
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                  }}>
+                    {row.statusLabel || st.label}
+                  </span>
+                </div>
+
+                {row.aiReason && (
+                  <div style={{
+                    marginTop: 12,
+                    background: "#F9FAFB",
+                    border: "1px solid #E5E7EB",
+                    borderLeft: "3px solid #A5B4FC",
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                  }}>
+                    <div style={{ fontSize: 14, color: "#4F46E5", fontWeight: 900, marginBottom: 4 }}>AI추천근거</div>
+                    <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.7 }}>{row.aiReason}</div>
+                  </div>
+                )}
+
+                {options.length > 0 && (
+                  <div style={{ marginTop: 12, display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                    {options.map((opt, idx) => {
+                      const metrics = opt?.metrics && typeof opt.metrics === "object" ? opt.metrics : {};
+                      const picked = selectedChoice && (String(opt.label || opt.key || "").toLowerCase().includes(selectedChoice) || selectedChoice.includes(String(opt.label || opt.key || "").toLowerCase()));
+                      return (
+                        <div key={`${row.id}-${idx}`} style={{
+                          border: picked ? "1px solid #34D399" : "1px solid #E5E7EB",
+                          background: picked ? "#F0FDF4" : "#FFFFFF",
+                          borderRadius: 10,
+                          padding: "10px 12px",
+                        }}>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: picked ? "#047857" : "#334155", marginBottom: 6 }}>
+                            {opt.label || opt.key || `옵션 ${idx + 1}`}{picked ? " ✓" : ""}
+                          </div>
+                          {Object.keys(metrics)
+                            .filter((k) => ["return_pct", "mdd_pct", "vol_pct"].includes(k))
+                            .map((k) => (
+                              <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}>
+                                <span style={{ color: "#64748B", fontWeight: 700 }}>{metricText(k)}</span>
+                                <span style={{ color: metricColor(k, metrics[k]), fontWeight: 800 }}>{metricValue(k, metrics[k])}</span>
+                              </div>
+                            ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {!options.length && basicMetrics && (
+                  <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {Object.keys(basicMetrics)
+                      .filter((k) => ["return_pct", "mdd_pct", "vol_pct"].includes(k))
+                      .map((k) => (
+                        <div key={k} style={{
+                          background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10,
+                          padding: "8px 12px", minWidth: 90,
+                        }}>
+                          <div style={{ fontSize: 11, color: "#94A3B8", fontWeight: 700 }}>{metricText(k)}</div>
+                          <div style={{ fontSize: 14, color: metricColor(k, basicMetrics[k]), fontWeight: 900 }}>{metricValue(k, basicMetrics[k])}</div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+
+                {(row.userChoice || row.userNote) && (
+                  <div style={{ marginTop: 12, borderTop: "1px solid #E5E7EB", paddingTop: 8, fontSize: 13, color: "#64748B" }}>
+                    <b style={{ color: "#334155" }}>사용자 선택</b>{" "}
+                    <span style={{ color: row.status === "ACCEPTED" ? "#047857" : row.status === "HOLD" ? "#B45309" : "#334155", fontWeight: 800 }}>
+                      {row.userChoice || "-"}
+                    </span>
+                    {row.userNote ? ` · "${row.userNote}"` : ""}
+                  </div>
+                )}
+
+                {row.status === "PENDING" && (
+                  <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => onDecision(row, "ACCEPTED")}
+                      disabled={busyId === row.id}
+                      style={{
+                        border: "1px solid #86EFAC", background: "#ECFDF5", color: "#065F46",
+                        borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer",
+                      }}
+                    >
+                      {busyId === row.id ? "처리중..." : "수락"}
+                    </button>
+                    <button
+                      onClick={() => onDecision(row, "HOLD")}
+                      disabled={busyId === row.id}
+                      style={{
+                        border: "1px solid #FCD34D", background: "#FFFBEB", color: "#92400E",
+                        borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer",
+                      }}
+                    >
+                      {busyId === row.id ? "처리중..." : "보류"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

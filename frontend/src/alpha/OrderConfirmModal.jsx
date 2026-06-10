@@ -146,7 +146,8 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
     background: theme.panel,
     color: theme.text,
     boxShadow: "0 -8px 30px rgba(0,0,0,0.25)",
-    padding: 24,
+    // shorthand padding 과 조건부 paddingBottom 혼용 시 React 리렌더 경고 → 개별 속성으로 분리.
+    paddingTop: 24, paddingRight: 24, paddingBottom: 24, paddingLeft: 24,
     width: "100%",
     boxSizing: "border-box",
     ...(isMobile

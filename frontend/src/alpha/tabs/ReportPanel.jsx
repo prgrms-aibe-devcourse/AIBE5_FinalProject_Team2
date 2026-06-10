@@ -2,30 +2,9 @@ import React, { useMemo, useState } from "react";
 import { useTheme } from "../ThemeContext";
 import { runBacktest, infiniteBuyingSizing } from "../alphaApi";
 import { Play, Calculator } from "lucide-react";
-import { PanelHeader, Card, TrendLineChart, SubIndicatorChart, calcSMA, calcEMA, calcBollinger, Empty, Json, primaryBtn } from "./helpers";
+import { PanelHeader, Card, TrendLineChart, SubIndicatorChart, calcSMA, calcEMA, calcBollinger, Empty, Json, primaryBtn, TooltipIcon } from "./helpers";
 
-// ─── 공통: 초록 느낌표 + 호버 설명 툴팁 ───────────────────────────────
-function InfoDot({ hint }) {
-  const [show, setShow] = useState(false);
-  if (!hint) return null;
-  return (
-    <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-      <span onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}
-        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center",
-          width: 16, height: 16, borderRadius: "50%", background: "#22c55e", color: "white",
-          fontSize: 9, fontWeight: 900, cursor: "help", flexShrink: 0 }}>!</span>
-      {show && (
-        <div style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 0, background: "#fff",
-          borderRadius: 12, padding: "10px 14px", zIndex: 9999, width: 230, pointerEvents: "none",
-          boxShadow: "0 8px 28px rgba(99,102,241,0.18), 0 0 0 1px #E0E7FF" }}>
-          <div style={{ position: "absolute", bottom: -6, left: 10, width: 12, height: 12, background: "#fff",
-            borderRight: "1px solid #E0E7FF", borderBottom: "1px solid #E0E7FF", transform: "rotate(45deg)" }} />
-          <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>{hint}</div>
-        </div>
-      )}
-    </span>
-  );
-}
+const InfoDot = ({ hint }) => hint ? <TooltipIcon hint={hint} width={230} /> : null;
 
 // ─── 큰 지표 카드: [라벨 / 느낌표] 왼쪽, 큰 숫자 오른쪽 ────────────────
 function BigStat({ label, value, unit = "", theme, positive, negative, hint }) {

@@ -43,7 +43,7 @@ const SEARCH_INDEX = [
          "체결", "오더"],
   },
   {
-    label: "Developer Studio", desc: "코드 편집기·터미널·Git 연동",
+    label: "Developer IDE", desc: "코드 편집기·터미널·Git 연동",
     path: "/alpha/developer", icon: Code2,
     kw: ["개발자", "developer", "studio", "코드", "code", "터미널", "terminal",
          "git", "편집기", "editor", "ide", "파이썬", "python", "리포지토리", "repo"],

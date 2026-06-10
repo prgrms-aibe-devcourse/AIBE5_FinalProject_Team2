@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getDeveloperAccess, listApiKeys, saveApiKey, deleteApiKey } from "./alphaApi";
 
 /**
- * Claude BYOK(본인 키 연동) + Developer Studio 접근 게이팅 카드.
+ * Claude BYOK(본인 키 연동) + Developer IDE 접근 게이팅 카드.
  * - 비구독(locked): 업그레이드(구독 제안) 배너.
  * - 구독/allowlist: Claude API 키 연동(암호화 저장) / 마스킹 상태 / 연동 해제.
  *
@@ -52,6 +52,7 @@ export default function ClaudeKeyConnect({ onConnected }) {
       setInput("");
       setMsg("Claude 키가 안전하게 연동되었습니다 (AES-256 암호화 저장).");
       await reload();
+      window.dispatchEvent(new CustomEvent("ah:claudeKeyChanged"));
       onConnected && onConnected();
     } catch (e) {
       setErr(e?.response?.data?.error || e.message);
@@ -61,7 +62,7 @@ export default function ClaudeKeyConnect({ onConnected }) {
   const disconnect = async () => {
     if (!window.confirm("Claude 키 연동을 해제할까요?")) return;
     setBusy(true); setErr(null); setMsg(null);
-    try { await deleteApiKey("ANTHROPIC"); await reload(); }
+    try { await deleteApiKey("ANTHROPIC"); await reload(); window.dispatchEvent(new CustomEvent("ah:claudeKeyChanged")); }
     catch (e) { setErr(e?.response?.data?.error || e.message); }
     finally { setBusy(false); }
   };
@@ -108,7 +109,7 @@ export default function ClaudeKeyConnect({ onConnected }) {
       {locked ? (
         <div>
           <div style={{ fontSize: 12.5, color: LILAC.textMuted, lineHeight: 1.6, marginBottom: 10 }}>
-            <b style={{ color: LILAC.text }}>Developer Studio</b> 와 본인 Claude 키 연동은
+            <b style={{ color: LILAC.text }}>Developer IDE</b> 와 본인 Claude 키 연동은
             <b> STANDARD 구독</b>부터 사용할 수 있어요. 구독하면 VSCode 수준으로 Claude가
             전략 코드를 직접 다듬어 줍니다.
           </div>
@@ -122,7 +123,7 @@ export default function ClaudeKeyConnect({ onConnected }) {
         <div>
           <div style={{ fontSize: 12, color: LILAC.textMuted, lineHeight: 1.6, marginBottom: 10 }}>
             본인 <b style={{ color: LILAC.text }}>Anthropic(Claude) API 키</b>를 연동하면, 그 키의 권한·모델 그대로
-            Developer Studio에서 Claude가 코드를 직접 편집합니다.
+            Developer IDE에서 Claude가 코드를 직접 편집합니다.
             <br/>🔒 키는 <b>AES-256으로 암호화</b>되어 DB에만 저장되고, 로그·응답·배포물에 절대 노출되지 않습니다.
           </div>
 
@@ -145,7 +146,7 @@ export default function ClaudeKeyConnect({ onConnected }) {
           ) : (
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: 12.5, color: LILAC.text }}>
-                Claude 키 연동됨 — Developer Studio에서 Claude 코드 편집이 가능합니다.
+                Claude 키 연동됨 — Developer IDE에서 Claude 코드 편집이 가능합니다.
               </span>
               <button onClick={disconnect} disabled={busy} style={{
                 marginLeft: "auto", padding: "7px 12px", borderRadius: 9, fontSize: 12, fontWeight: 700,
@@ -163,5 +164,63 @@ export default function ClaudeKeyConnect({ onConnected }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * 헤더용 컴팩트 연동 상태 칩 + 관리 모달.
+ * 큰 배너 대신 ✳ Claude Code 헤더 한쪽에 작게 표시 → 클릭하면 CLI(키) 관리 팝업.
+ */
+export function ClaudeKeyBadge() {
+  const [keys, setKeys] = useState([]);
+  const [access, setAccess] = useState(null);
+  const [open, setOpen] = useState(false);
+
+  const reload = useCallback(async () => {
+    try { setKeys(await listApiKeys()); } catch { /* noop */ }
+    try { setAccess(await getDeveloperAccess()); } catch { /* noop */ }
+  }, []);
+  useEffect(() => {
+    reload();
+    const h = () => reload();
+    window.addEventListener("ah:claudeKeyChanged", h);
+    return () => window.removeEventListener("ah:claudeKeyChanged", h);
+  }, [reload]);
+
+  const connected = (keys || []).find((k) => k.provider === "ANTHROPIC");
+  const locked = access && access.developer === false;
+  const dot = connected ? "#22c55e" : locked ? "#f59e0b" : "#94a3b8";
+  const label = connected ? connected.hint : locked ? "구독 필요" : "연동";
+
+  return (
+    <>
+      <button onClick={() => setOpen(true)} title="Claude CLI 연동 관리 (본인 키)"
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999,
+          border: "1px solid rgba(217,119,87,0.4)", background: "rgba(217,119,87,0.12)",
+          color: "#e2a282", fontSize: 11, fontWeight: 700, cursor: "pointer", lineHeight: 1, whiteSpace: "nowrap",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(217,119,87,0.22)")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(217,119,87,0.12)")}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: dot, boxShadow: `0 0 6px ${dot}`, flexShrink: 0 }} />
+        {label}
+      </button>
+      {open && (
+        <div onClick={() => setOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(8,10,16,0.62)", zIndex: 1000,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ width: 460, maxWidth: "94vw", background: "#fff", borderRadius: 16, padding: 18,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.45)" }}>
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+              <b style={{ fontSize: 15, color: "#1e293b", flex: 1 }}>Claude CLI 연동 관리</b>
+              <button onClick={() => setOpen(false)}
+                style={{ border: "none", background: "transparent", fontSize: 22, color: "#94a3b8", cursor: "pointer", lineHeight: 1 }}>×</button>
+            </div>
+            <ClaudeKeyConnect />
+          </div>
+        </div>
+      )}
+    </>
   );
 }
