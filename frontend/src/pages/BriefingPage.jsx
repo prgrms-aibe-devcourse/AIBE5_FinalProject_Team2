@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Sparkles, RefreshCw, ShieldCheck, Activity, ArrowRight,
+  BookOpenText, RefreshCw, ShieldCheck, Activity, ArrowRight,
   AlertCircle, Clock, Globe, ChevronDown, ChevronUp,
   TrendingUp, TrendingDown, Minus, Radio, Square, Newspaper, Layers, Briefcase,
 } from "lucide-react";
@@ -597,7 +597,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
       {/* 생성 전 빈 상태 */}
       {!briefingData && !busy && (
         <div style={{ padding: "28px 22px", textAlign: "center", color: "#94A3B8", fontSize: 13 }}>
-          <Sparkles size={22} style={{ marginBottom: 8, opacity: 0.35, display: "block", margin: "0 auto 8px" }} />
+          <BookOpenText size={22} style={{ marginBottom: 8, opacity: 0.35, display: "block", margin: "0 auto 8px" }} />
           버튼을 눌러 AI가 실시간 시황을 분석하도록 하세요
         </div>
       )}
@@ -988,7 +988,7 @@ export default function BriefingPage() {
           display: "flex", alignItems: "center", justifyContent: "center",
           boxShadow: "0 6px 20px rgba(99,102,241,0.3)",
         }}>
-          <Sparkles size={24} color="white" strokeWidth={2.2} />
+          <BookOpenText size={24} color="white" strokeWidth={2.2} />
         </div>
         <div style={{ flex: 1 }}>
           <h1 style={{

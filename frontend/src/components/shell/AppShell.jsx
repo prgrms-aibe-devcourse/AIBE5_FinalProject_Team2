@@ -50,7 +50,7 @@ export default function AppShell({ children, hideChat = false }) {
   const rightOffset = !hideChat && chatOpen ? chatWidth : 0;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F8FAFC" }}>
+    <div style={{ minHeight: "100vh", background: "#F8FAFC", ...(isDeveloper || isWorkspace ? { height: "100vh", overflow: "hidden" } : {}) }}>
       <LeftSidebar
         expanded={sidebarExpanded}
         onToggleExpanded={() => setSidebarExpanded(o => {
@@ -72,7 +72,7 @@ export default function AppShell({ children, hideChat = false }) {
         marginLeft: leftOffset,
         paddingTop: 44,
         marginRight: rightOffset,
-        ...(isWorkspace ? { height: "100vh", overflow: "hidden" } : { minHeight: "100vh" }),
+        ...(isWorkspace || isDeveloper ? { height: "100vh", overflow: "hidden" } : { minHeight: "100vh" }),
         transition: "margin-left 0.18s ease, margin-right 0.18s ease",
       }}>
         {children}
