@@ -722,7 +722,7 @@ export default function Home() {
             onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; e.currentTarget.style.transform = "translateY(-1px)"; }}
             onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "none"; }}
           >
-            전략 만들기 시작 →
+            워크스페이스 생성하기 →
           </button>
           </Reveal>
         </div>

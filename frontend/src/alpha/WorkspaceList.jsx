@@ -144,7 +144,7 @@ export default function WorkspaceList() {
               background: "linear-gradient(90deg,#3b82f6 0%,#6366f1 100%)",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
             }}>
-              Alpha-Helix
+              워크스페이스 목록
             </h1>
             <p style={{ margin: "5px 0 0", fontSize: 13, color: "#64748B", fontWeight: 500 }}>
               삶의 목표를 투자 전략으로 — 퍼스널 퀀트 매니저
