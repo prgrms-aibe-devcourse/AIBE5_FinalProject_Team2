@@ -5,8 +5,9 @@ import {
   Play, Rocket, Terminal, BarChart3, Code2, Loader, Boxes, Save, Bot,
   FolderOpen, Database, FileCode, ChevronDown, ChevronRight, X,
   ShoppingCart, AlertCircle, CheckCircle2, GitBranch, FilePlus, FolderPlus,
-  ExternalLink, Send, Plus, Lightbulb,
+  ExternalLink, Send, Plus, Lightbulb, Settings,
 } from "lucide-react";
+import SettingsModal from "../components/shell/SettingsModal";
 import { useTheme } from "./ThemeContext";
 import {
   getWorkspace, listWorkspaces, runBacktest, runRegime, runTrust, saveCode, queueOrders,
@@ -884,6 +885,19 @@ export default function DeveloperLab() {
   useTheme();
   const [searchParams] = useSearchParams();
 
+  // index.css html{zoom:1.1} 보정 — IDE 마운트 시 zoom:1 로 고정, 언마운트 시 원복
+  useEffect(() => {
+    const html = document.documentElement;
+    html.style.zoom = "1";
+    html.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    return () => {
+      html.style.zoom = "";        // index.css zoom:1.1 복원
+      html.style.overflow = "";
+      document.body.style.overflow = "";
+    };
+  }, []);
+
   // 에디터 설정 — 설정 모달 변경 시 즉시 반영
   const [editorOpts, setEditorOpts] = useState(() => readEditorOpts());
   useEffect(() => {
@@ -895,6 +909,9 @@ export default function DeveloperLab() {
   }, []);
   const sidePanelScrollRef = useRef(null);
   const logScrollRef = useRef(null);
+
+  // ── IDE 설정 모달 ──
+  const [ideSettingsOpen, setIdeSettingsOpen] = useState(false);
 
   // ── 워크스페이스 ──
   const [wsId, setWsId] = useState(null);
@@ -1721,7 +1738,7 @@ export default function DeveloperLab() {
 
   return (
     <div style={{
-      height:"calc(100vh - 52px)", display:"flex", flexDirection:"column",
+      height: "calc(100vh - 44px)", display:"flex", flexDirection:"column",
       background:"#0f1117", fontFamily:"'Inter',-apple-system,sans-serif", overflow:"hidden",
     }}>
 
@@ -1941,6 +1958,24 @@ export default function DeveloperLab() {
             onMouseLeave={e=>{e.currentTarget.style.color=b.act?"#60a5fa":"#9CA3AF"; e.currentTarget.style.background=b.act?"rgba(96,165,250,0.16)":"transparent";}}
             >{b.icon}</button>
           ))}
+          <div style={{flex:1}}/>
+          <div style={{width:28, height:1, background:"rgba(0,122,204,0.4)", margin:"4px auto"}}/>
+          <button
+            title="IDE AI 어시스턴트 CLI 설정"
+            onClick={() => setIdeSettingsOpen(true)}
+            style={{
+              width:36, height:36, borderRadius:6, border:"none",
+              background: ideSettingsOpen ? "rgba(0,122,204,0.22)" : "transparent",
+              color: ideSettingsOpen ? "#60AAFF" : "#4B7FC4",
+              cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+              transition:"color 0.12s, background 0.12s",
+              marginBottom:6,
+            }}
+            onMouseEnter={e=>{e.currentTarget.style.color="#93C5FD"; e.currentTarget.style.background="rgba(0,122,204,0.20)";}}
+            onMouseLeave={e=>{e.currentTarget.style.color=ideSettingsOpen?"#60AAFF":"#4B7FC4"; e.currentTarget.style.background=ideSettingsOpen?"rgba(0,122,204,0.22)":"transparent";}}
+          >
+            <Settings size={18}/>
+          </button>
         </div>
 
         {/* ── Side Panel ───────────────────────────────────────────────────── */}
@@ -2442,6 +2477,11 @@ export default function DeveloperLab() {
         <PatchCompareModal
           busy={compareBusy} data={compareData} err={compareErr} onClose={()=>setCompareOpen(false)} />
       )}
+      <SettingsModal
+        open={ideSettingsOpen}
+        onClose={() => setIdeSettingsOpen(false)}
+        initialCat="ide"
+      />
 
       <style>{`
         @keyframes spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
