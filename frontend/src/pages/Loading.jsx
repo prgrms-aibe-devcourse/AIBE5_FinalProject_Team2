@@ -1,6 +1,5 @@
 ﻿import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import loadingVideo from '../assets/loading.mp4';
 
 function Loading() {
   const navigate = useNavigate();
@@ -22,28 +21,15 @@ function Loading() {
       zIndex: 9999,
       overflow: 'hidden',
     }}>
-      {/* 배경 영상 */}
-      <video
-        src={loadingVideo}
-        autoPlay
-        muted
-        loop
-        playsInline
-        style={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-        }}
-      />
-
-      {/* 어두운 오버레이 */}
+      {/* 배경 — 애니메이션 그라데이션 (영상 에셋 제거: 번들 경량화) */}
       <div style={{
         position: 'absolute',
         inset: 0,
-        background: 'rgba(0, 0, 0, 0.01)',
+        background: 'linear-gradient(135deg, #0b1220 0%, #111a35 40%, #1e1b4b 70%, #0b1220 100%)',
+        backgroundSize: '200% 200%',
+        animation: 'loading-bg 12s ease infinite',
       }} />
+      <style>{`@keyframes loading-bg { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }`}</style>
 
       {/* 중앙 텍스트 */}
       <div style={{
