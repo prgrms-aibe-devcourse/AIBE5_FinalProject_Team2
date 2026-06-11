@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Layers, BarChart3, Activity, ShieldCheck,
@@ -97,16 +97,17 @@ export default function Workspace() {
     localStorage.setItem("alpha.activeTab", tab);
     window.dispatchEvent(new CustomEvent("alpha:tabChanged", { detail: { tab } }));
   }, [tab]);
-  const reload = () => getWorkspace(id).then(setWs).catch(e => setErr(e.message));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { reload(); }, [id]);
+  const reload = useCallback(
+    () => getWorkspace(id).then(setWs).catch(e => setErr(e.message)),
+    [id]
+  );
+  useEffect(() => { reload(); }, [reload]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, []);
-
 
   // Alpha Ezer 라이브 패치 후 자동 리로드
   useEffect(() => {
@@ -115,8 +116,7 @@ export default function Workspace() {
     };
     window.addEventListener("alphaWorkspaceReload", onReload);
     return () => window.removeEventListener("alphaWorkspaceReload", onReload);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, reload]);
 
   const onTopBacktest = async () => {
     if (runningBT) return;

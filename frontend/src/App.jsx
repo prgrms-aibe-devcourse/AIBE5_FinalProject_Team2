@@ -28,7 +28,6 @@ function ShelledLayout() {
 }
 
 // 페이지 컴포넌트를 lazy load → 라우트별 청크 분리, 초기 번들 최소화
-const LandingPage           = lazy(() => import("./pages/LandingPage"));
 const Home                  = lazy(() => import("./pages/Home"));
 const Login                 = lazy(() => import("./pages/Login"));
 const Pricing               = lazy(() => import("./pages/Pricing"));
@@ -66,7 +65,7 @@ function App() {
   return (
     <Suspense fallback={<div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontSize:14, color:"#6B7280" }}>Loading...</div>}>
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="/partner_home" element={<RedirectKeepQuery to="/home" />} />
 
         {/* ShelledLayout: 네비게이션해도 LeftSidebar/TopBar 상태 유지 */}

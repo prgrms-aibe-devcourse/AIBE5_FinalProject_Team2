@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import {
   X, Search, Settings as SettingsIcon, Layout, Bell,
   Keyboard, Code, Sparkles, ShieldCheck, User, Maximize2,
-  BarChart2, TrendingUp,
+  BarChart2, TrendingUp, Terminal, MessageSquare,
 } from "lucide-react";
 import { useLanguage } from "../../i18n/LanguageContext";
 
@@ -33,9 +33,10 @@ const CATEGORIES = [
       { key: "workspace", label: "Alpha 워크스페이스" },
     ],
   },
-  { key: "window",   label: "창",          Icon: Maximize2 },
-  { key: "chat",     label: "채팅 / AI",   Icon: Sparkles  },
-  { key: "backtest", label: "백테스트",    Icon: BarChart2 },
+  { key: "window",   label: "창",                      Icon: Maximize2     },
+  { key: "chat",     label: "Heli 채팅 설정",          Icon: MessageSquare },
+  { key: "ide",      label: "IDE AI 어시스턴트 CLI",   Icon: Terminal, blue: true },
+  { key: "backtest", label: "백테스트",                Icon: BarChart2     },
   { key: "trading",  label: "트레이딩",    Icon: TrendingUp },
   { key: "notify",   label: "알림",        Icon: Bell      },
   { key: "shortcut", label: "바로 가기 키",Icon: Keyboard  },
@@ -189,9 +190,46 @@ const SETTINGS = [
     type: "boolean", def: true,
   },
 
-  // ── 채팅 / AI ──────────────────────────────────────────────────────────────
+  // ── Heli 채팅 설정 / 대화 스타일 ───────────────────────────────────────────
   {
-    cat: "chat", group: null,
+    cat: "chat", group: "대화 스타일",
+    key: "ah.chat.personality", label: "Heli 응답 스타일",
+    desc: "AI 어시스턴트 Heli의 응답 톤과 스타일을 선택합니다.",
+    type: "select", def: "analytical",
+    options: [
+      { value: "analytical", label: "분석적 (기본 · 퀀트 중심)" },
+      { value: "friendly",   label: "친근한 (캐주얼 톤)" },
+      { value: "concise",    label: "간결한 (핵심만)" },
+      { value: "detailed",   label: "상세한 (설명 중심)" },
+    ],
+  },
+  {
+    cat: "chat", group: "대화 스타일",
+    key: "ah.chat.responseLang", label: "응답 언어",
+    desc: "Heli의 응답 언어를 설정합니다.",
+    type: "select", def: "auto",
+    options: [
+      { value: "auto", label: "자동 감지 (입력 언어 따름)" },
+      { value: "ko",   label: "한국어" },
+      { value: "en",   label: "English" },
+    ],
+  },
+  {
+    cat: "chat", group: "대화 스타일",
+    key: "ah.chat.memoryEnabled", label: "대화 메모리 (개인화)",
+    desc: "이전 대화를 기반으로 Heli가 사용자의 투자 선호도·전략을 기억하고 개인화된 응답을 제공합니다.",
+    type: "boolean", def: true,
+  },
+  {
+    cat: "chat", group: "대화 스타일",
+    key: "ah.chat.maxHistory", label: "컨텍스트 대화 수",
+    desc: "AI에게 전달할 최근 대화 기록의 수입니다. 높을수록 정확하지만 속도에 영향을 줄 수 있습니다.",
+    type: "number", def: 20, min: 5, max: 100,
+  },
+
+  // ── Heli 채팅 설정 / AI 모델 ─────────────────────────────────────────────
+  {
+    cat: "chat", group: "AI 모델",
     key: "ah.chat.model", label: "기본 AI 모델",
     desc: "AI 채팅(Heli)에서 기본으로 사용할 모델입니다. 채팅 창에서도 변경 가능합니다.",
     type: "select", def: "gemini-2.5-flash",
@@ -205,28 +243,138 @@ const SETTINGS = [
     ],
   },
   {
-    cat: "chat", group: null,
-    key: "ah.chat.sendOnEnter", label: "Enter 로 전송",
-    desc: "켜면 Enter = 전송, Shift+Enter = 줄바꿈. 끄면 Ctrl+Enter = 전송.",
-    type: "boolean", def: true,
+    cat: "chat", group: "AI 모델",
+    key: "ah.chat.temperature", label: "창의성 온도 (Temperature)",
+    desc: "낮을수록 일관된 분석적 답변, 높을수록 다양한 아이디어를 제시합니다. (0 = 결정론적, 20 = 최대 창의성, 내부 0.1배 적용)",
+    type: "number", def: 7, min: 0, max: 20,
   },
+
+  // ── Heli 채팅 설정 / 응답 설정 ───────────────────────────────────────────
   {
-    cat: "chat", group: null,
+    cat: "chat", group: "응답 설정",
     key: "ah.chat.streaming", label: "AI 응답 스트리밍",
     desc: "AI 답변을 토큰 단위로 실시간 표시합니다.",
     type: "boolean", def: true,
   },
   {
-    cat: "chat", group: null,
+    cat: "chat", group: "응답 설정",
+    key: "ah.chat.markdownRender", label: "마크다운 렌더링",
+    desc: "AI 응답의 **굵은글씨**, `코드`, 테이블 등을 서식 있게 표시합니다.",
+    type: "boolean", def: true,
+  },
+  {
+    cat: "chat", group: "응답 설정",
+    key: "ah.chat.codeHighlight", label: "코드 블록 하이라이팅",
+    desc: "AI 응답 내 코드 블록에 구문 하이라이팅을 적용합니다.",
+    type: "boolean", def: true,
+  },
+  {
+    cat: "chat", group: "응답 설정",
     key: "ah.chat.autoAnalysis", label: "백테스트 완료 후 AI 자동 분석",
     desc: "백테스트가 완료되면 AI가 결과를 자동으로 요약·분석합니다.",
     type: "boolean", def: true,
   },
+
+  // ── Heli 채팅 설정 / 인터페이스 ─────────────────────────────────────────
   {
-    cat: "chat", group: null,
+    cat: "chat", group: "인터페이스",
+    key: "ah.chat.sendOnEnter", label: "Enter 로 전송",
+    desc: "켜면 Enter = 전송, Shift+Enter = 줄바꿈. 끄면 Ctrl+Enter = 전송.",
+    type: "boolean", def: true,
+  },
+  {
+    cat: "chat", group: "인터페이스",
     key: "ah.chat.quotaWarning", label: "AI 쿼터 경고 표시",
     desc: "시간당 20회 사용 한도에 근접하면 UI 경고를 표시합니다.",
     type: "boolean", def: true,
+  },
+  {
+    cat: "chat", group: "인터페이스",
+    key: "ah.chat.showTimestamp", label: "메시지 타임스탬프 표시",
+    desc: "각 메시지 옆에 전송 시각을 표시합니다.",
+    type: "boolean", def: false,
+  },
+  {
+    cat: "chat", group: "인터페이스",
+    key: "ah.chat.compactMode", label: "컴팩트 채팅 모드",
+    desc: "메시지 간격을 좁혀 더 많은 대화를 한 화면에 표시합니다.",
+    type: "boolean", def: false,
+  },
+
+  // ── IDE AI 어시스턴트 CLI / Claude Code CLI ──────────────────────────────
+  {
+    cat: "ide", group: "Claude Code CLI",
+    key: "ah.ide.cliPath", label: "Claude Code CLI 경로",
+    desc: "claude 실행 파일의 절대 경로입니다. 비워두면 시스템 PATH에서 자동 탐지합니다.",
+    type: "string", def: "",
+  },
+  {
+    cat: "ide", group: "Claude Code CLI",
+    key: "ah.ide.autoDetect", label: "CLI 자동 감지",
+    desc: "시스템 PATH에서 claude CLI를 자동으로 찾습니다. 경로를 직접 지정하면 이 설정보다 우선합니다.",
+    type: "boolean", def: true,
+  },
+  {
+    cat: "ide", group: "Claude Code CLI",
+    key: "ah.ide.claudeVersion", label: "Claude Code 버전 고정",
+    desc: "특정 버전을 지정하려면 입력하세요. (예: 1.0.18) 비워두면 설치된 최신 버전을 사용합니다.",
+    type: "string", def: "",
+  },
+
+  // ── IDE AI 어시스턴트 CLI / 에디터 연동 ─────────────────────────────────
+  {
+    cat: "ide", group: "에디터 연동",
+    key: "ah.ide.autoContext", label: "현재 파일 컨텍스트 자동 공유",
+    desc: "Developer Studio에서 열린 파일 내용을 AI 에이전트에게 자동으로 전달합니다.",
+    type: "boolean", def: true,
+  },
+  {
+    cat: "ide", group: "에디터 연동",
+    key: "ah.ide.wsSharing", label: "워크스페이스 코드 실시간 공유",
+    desc: "Heli 채팅 시 현재 전략 코드를 AI가 참조할 수 있도록 실시간 공유합니다. (현재 동작 중)",
+    type: "boolean", def: true,
+  },
+  {
+    cat: "ide", group: "에디터 연동",
+    key: "ah.ide.inlineCompletion", label: "인라인 코드 완성 (실험적)",
+    desc: "에디터에서 코드 입력 중 AI 인라인 제안을 표시합니다.",
+    type: "boolean", def: false,
+  },
+  {
+    cat: "ide", group: "에디터 연동",
+    key: "ah.ide.onSaveAnalysis", label: "저장 시 자동 코드 분석",
+    desc: "파일 저장 시 Claude가 코드 품질·버그를 자동 검토합니다.",
+    type: "boolean", def: false,
+  },
+
+  // ── IDE AI 어시스턴트 CLI / IDE AI 모델 ────────────────────────────────
+  {
+    cat: "ide", group: "IDE AI 모델",
+    key: "ah.ide.model", label: "IDE 기본 AI 모델",
+    desc: "Developer Studio의 Claude 에이전트가 코드 편집 시 사용할 기본 모델입니다.",
+    type: "select", def: "claude-sonnet-4",
+    options: [
+      { value: "claude-sonnet-4",  label: "Claude Sonnet 4 (균형 · 추천)" },
+      { value: "claude-opus-4",    label: "Claude Opus 4 (최고품질 · 느림)" },
+      { value: "claude-haiku-4",   label: "Claude Haiku 4.5 (빠름 · 경량)" },
+    ],
+  },
+  {
+    cat: "ide", group: "IDE AI 모델",
+    key: "ah.ide.maxTokens", label: "최대 응답 토큰",
+    desc: "IDE AI 에이전트가 한 번에 생성할 최대 토큰 수입니다.",
+    type: "number", def: 4096, min: 1024, max: 32000,
+  },
+
+  // ── IDE AI 어시스턴트 CLI / BYOK ─────────────────────────────────────────
+  {
+    cat: "ide", group: "BYOK (자체 API 키)",
+    key: "__readonly__ide_byok", label: "Anthropic API 키 등록", type: "info",
+    desc:
+      "Claude Code CLI에 자체 Anthropic API 키를 연결하려면\n" +
+      "Alpha 워크스페이스 › Developer Studio › ClaudeKeyConnect 패널을 이용하세요.\n\n" +
+      "등록된 API 키는 AES-256-GCM으로 암호화되어 저장됩니다.\n" +
+      "CLI 환경에서는 ANTHROPIC_API_KEY 환경 변수로도 설정 가능합니다.",
   },
 
   // ── 백테스트 / 기본값 ─────────────────────────────────────────────────────
@@ -410,16 +558,21 @@ function readVal(s) {
   } catch { return s.def; }
 }
 
-export default function SettingsModal({ open, onClose }) {
-  const [activeCat, setActiveCat] = useState("general");
+export default function SettingsModal({ open, onClose, initialCat }) {
+  const [activeCat, setActiveCat] = useState(initialCat || "general");
   const [query, setQuery]         = useState("");
   const [scope, setScope]         = useState("user");
   // 아직 적용하지 않은 변경분 { [key]: rawValue }
   const [pending, setPending]     = useState({});
   const lang = (() => { try { return useLanguage(); } catch { return null; } })();
 
-  // 모달 열릴 때 pending 초기화
-  useEffect(() => { if (open) setPending({}); }, [open]);
+  // 모달 열릴 때 pending 초기화 + initialCat 적용
+  useEffect(() => {
+    if (open) {
+      setPending({});
+      if (initialCat) { setActiveCat(initialCat); setQuery(""); }
+    }
+  }, [open, initialCat]);
 
   useEffect(() => {
     if (!open) return;
@@ -584,23 +737,38 @@ export default function SettingsModal({ open, onClose }) {
             width: 240, background: "#252526", borderRight: "1px solid #3C3C3C",
             overflowY: "auto", padding: "8px 0", flex: "0 0 auto",
           }}>
-            {CATEGORIES.map(c => {
+            {CATEGORIES.map((c, idx) => {
               const active = activeCat === c.key && !query;
+              const isBlue = !!c.blue;
+              const prevIsBlue = idx > 0 && !!CATEGORIES[idx - 1].blue;
+              const nextIsBlue = idx < CATEGORIES.length - 1 && !!CATEGORIES[idx + 1].blue;
+              const showTopSep = isBlue && !prevIsBlue;
+              const showBottomSep = isBlue && !nextIsBlue;
               return (
                 <div key={c.key}>
+                  {showTopSep && (
+                    <div style={{ margin: "6px 0 2px", borderTop: "1px solid rgba(0,122,204,0.3)" }} />
+                  )}
                   <button onClick={() => { setActiveCat(c.key); setQuery(""); }}
                     style={{
                       width: "100%", textAlign: "left", border: "none",
-                      background: active ? "#37373D" : "transparent",
-                      color: active ? "#FFFFFF" : "#CCCCCC",
+                      background: active
+                        ? (isBlue ? "rgba(0,122,204,0.28)" : "#37373D")
+                        : (isBlue ? "rgba(0,122,204,0.10)" : "transparent"),
+                      color: active ? "#FFFFFF" : (isBlue ? "#60AAFF" : "#CCCCCC"),
                       padding: "6px 12px", cursor: "pointer",
                       display: "flex", alignItems: "center", gap: 8,
                       fontSize: 13, fontWeight: active ? 600 : 400,
+                      borderLeft: isBlue ? `2px solid ${active ? "#007ACC" : "rgba(0,122,204,0.5)"}` : "2px solid transparent",
                     }}
-                    onMouseEnter={e => { if (!active) e.currentTarget.style.background = "#2A2D2E"; }}
-                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; }}
+                    onMouseEnter={e => {
+                      if (!active) e.currentTarget.style.background = isBlue ? "rgba(0,122,204,0.20)" : "#2A2D2E";
+                    }}
+                    onMouseLeave={e => {
+                      if (!active) e.currentTarget.style.background = isBlue ? "rgba(0,122,204,0.10)" : "transparent";
+                    }}
                   >
-                    <c.Icon size={14} />
+                    <c.Icon size={14} color={isBlue ? (active ? "#93C5FD" : "#60AAFF") : undefined} />
                     <span>{c.label}</span>
                   </button>
                   {active && c.sub && c.sub.map(sb => (
@@ -608,6 +776,9 @@ export default function SettingsModal({ open, onClose }) {
                       {sb.label}
                     </div>
                   ))}
+                  {showBottomSep && (
+                    <div style={{ margin: "2px 0 6px", borderBottom: "1px solid rgba(0,122,204,0.3)" }} />
+                  )}
                 </div>
               );
             })}

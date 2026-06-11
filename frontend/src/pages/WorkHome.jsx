@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, TrendingUp, Sparkles, ArrowRight, Pencil, Check, X, CircleUser, BarChart3, Award, Layers, Target } from "lucide-react";
+import { Plus, TrendingUp, ArrowRight, Pencil, Check, X, CircleUser, BarChart3, Award, Layers, Target, BookOpenText } from "lucide-react";
 import { listWorkspaces, getWorkspace, runBriefing, createWorkspace } from "../alpha/alphaApi";
 import CreateWorkspaceModal from "../alpha/CreateWorkspaceModal";
 import { useTheme } from "../alpha/ThemeContext";
@@ -122,7 +122,7 @@ function KpiCard({ label, value, sub, positive, icon: Icon }) {
       border: "1px solid #E2E8F0", boxShadow: "0 1px 4px rgba(15,23,42,0.05)",
       position: "relative", overflow: "hidden",
     }}>
-      {Icon && <Icon size={64} style={{ position: "absolute", right: -8, bottom: -8, color: "#6366F1", opacity: 0.07, pointerEvents: "none" }} />}
+      {Icon && <Icon size={88} style={{ position: "absolute", right: -10, bottom: -10, color: "#6366F1", opacity: 0.1, pointerEvents: "none" }} />}
       <div style={{ fontSize: 11, fontWeight: 600, color: "#64748B", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
       <div style={{
         fontSize: 36, fontWeight: 900, lineHeight: 1, marginBottom: 8,
@@ -142,22 +142,26 @@ function BtBarChart({ items }) {
   );
 
   const vals = items.map(s => s.bt?.cagr ?? s.bt?.totalReturn ?? 0);
-  const maxAbs = Math.max(...vals.map(v => Math.abs(v)), 5);
   const CH = 180;
+  const PAD_V = 26;
+  // 0을 항상 포함해 maxVal >= 0, minVal <= 0 보장
+  const maxVal = Math.max(...vals, 0);
+  const minVal = Math.min(...vals, 0);
+  const totalSpan = (maxVal - minVal) || 1;
+  // 제로선 위치: 양수 영역 비율에 따라 비례 배치
+  const zeroY = PAD_V + (maxVal / totalSpan) * (CH - 2 * PAD_V);
+  const posScale = maxVal > 0 ? (zeroY - PAD_V) / maxVal : 1;
+  const negScale = minVal < 0 ? (CH - PAD_V - zeroY) / Math.abs(minVal) : 1;
   const barW = Math.max(20, Math.min(56, Math.floor(280 / items.length) - 16));
   const gap = Math.max(16, Math.floor(80 / items.length));
   const PADL = 24;
   const svgW = Math.max(320, items.length * (barW + gap) + gap + PADL);
-  const zeroFrac = maxAbs === 0 ? 0.8 : Math.max(...vals) <= 0 ? 0.1 : Math.min(...vals) >= 0 ? 0.88 : 0.88 - (Math.min(...vals) / maxAbs) * 0.35;
-  const zeroY = CH * zeroFrac;
-  const posScale = (zeroY - 14) / maxAbs;
-  const negScale = (CH - zeroY - 14) / maxAbs;
 
   return (
     <div style={{ overflowX: "auto", marginTop: 8 }}>
       <svg width={svgW} height={CH + 36} style={{ display: "block", fontFamily: F }}>
         <line x1={0} y1={zeroY} x2={svgW} y2={zeroY} stroke="#E2E8F0" strokeWidth={1} strokeDasharray="4 3" />
-        <text x={PADL} y={zeroY - 4} fontSize={9} fill="#94A3B8">0%</text>
+        <text x={4} y={zeroY - 5} fontSize={9} fill="#94A3B8">0%</text>
         {items.map((s, i) => {
           const v = vals[i];
           const x = PADL + gap / 2 + i * (barW + gap);
@@ -182,13 +186,17 @@ function BtBarChart({ items }) {
 }
 
 // ── 전략 목록 ──────────────────────────────────────────────────────────────
-function StrategyListPanel({ items, onNav }) {
+function StrategyListPanel({ items, onNav, featuredId }) {
   if (!items.length) return (
     <div style={{ color: "#CBD5E1", fontSize: 13, padding: "20px 0" }}>전략이 없습니다</div>
   );
+  const sorted = featuredId
+    ? [...items].sort((a, b) => (a.id === featuredId ? -1 : b.id === featuredId ? 1 : 0))
+    : items;
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
-      {items.map((s, i) => {
+      {sorted.map((s, i) => {
+        const isFeatured = s.id === featuredId;
         const v = s.bt?.cagr ?? s.bt?.totalReturn;
         const vStr = v != null ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(1)}%` : "—";
         const vColor = v != null ? (Number(v) >= 0 ? "#16A34A" : "#DC2626") : "#94A3B8";
@@ -199,17 +207,24 @@ function StrategyListPanel({ items, onNav }) {
         return (
           <div key={s.id} onClick={() => onNav(s.id)} style={{
             display: "flex", alignItems: "center", gap: 8,
-            padding: "11px 0", cursor: "pointer",
-            borderBottom: i < items.length - 1 ? "1px solid #F1F5F9" : "none",
+            padding: "11px 8px", cursor: "pointer",
+            borderBottom: i < sorted.length - 1 ? "1px solid #F1F5F9" : "none",
+            borderRadius: 8,
+            background: isFeatured ? "#F5F3FF" : "transparent",
             transition: "background 0.1s",
           }}
-          onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
-          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          onMouseEnter={e => e.currentTarget.style.background = isFeatured ? "#EDE9FE" : "#F8FAFC"}
+          onMouseLeave={e => e.currentTarget.style.background = isFeatured ? "#F5F3FF" : "transparent"}
           >
+            <span style={{ fontSize: 13, color: isFeatured ? "#A5B4FC" : "#CBD5E1", flexShrink: 0 }}>—</span>
             <span style={{
-              flex: 1, fontSize: 14, fontWeight: 600, color: "#0F172A",
+              flex: 1, fontSize: 14, fontWeight: isFeatured ? 700 : 600,
+              color: isFeatured ? "#4F46E5" : "#0F172A",
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
             }}>{s.name}</span>
+            {isFeatured && (
+              <span style={{ fontSize: 10, fontWeight: 800, color: "#6366F1", background: "#EDE9FE", border: "1px solid #C4B5FD", padding: "1px 7px", borderRadius: 6, flexShrink: 0 }}>대표</span>
+            )}
             {s.riskTone && <ToneBadge tone={s.riskTone} size="sm" />}
             <span style={{ fontSize: 14, fontWeight: 700, color: vColor, flexShrink: 0 }}>{vStr}</span>
             <span style={{
@@ -237,8 +252,10 @@ function BestStrategyMetrics({ s }) {
   ];
   return (
     <div>
-      {s.riskTone && <ToneBadge tone={s.riskTone} />}
-      <div style={{ fontSize: 13, color: "#64748B", marginBottom: 12 }}>{s.name}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <span style={{ fontSize: 13, color: "#64748B" }}>{s.name}</span>
+        {s.riskTone && <ToneBadge tone={s.riskTone} />}
+      </div>
       {rows.map(r => (
         <div key={r.label} style={{
           display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -401,8 +418,8 @@ export default function WorkHome() {
   // ── 대시보드 집계 ──────────────────────────────────────────────────────
   const testedItems = strategies.filter(s => s.bt);
   const testedCount = testedItems.length;
-  const activeCount = strategies.filter(s => ["LIVE", "TESTED"].includes(s.status)).length;
-  const untestedCount = strategies.filter(s => !s.bt).length;
+  const activeCount = strategies.filter(s => s.status === "LIVE").length;
+  const untestedCount = strategies.filter(s => !s.bt && s.status !== "LIVE").length;
   const bestStrategy = testedItems.reduce((best, s) => {
     const v = s.bt.cagr ?? s.bt.totalReturn ?? -Infinity;
     const bv = best ? (best.bt.cagr ?? best.bt.totalReturn ?? -Infinity) : -Infinity;
@@ -416,6 +433,7 @@ export default function WorkHome() {
   const avgSharpe = validSharpes.length > 0
     ? validSharpes.reduce((a, b) => a + b, 0) / validSharpes.length : null;
   const avgSharpeStr = avgSharpe != null ? Number(avgSharpe).toFixed(2) : "—";
+  const featuredStrategy = strategies[0] || null;
 
   return (
     <div style={{ padding: "36px 40px 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)", fontFamily: F, color: "#0F172A" }}>
@@ -456,7 +474,7 @@ export default function WorkHome() {
       {/* 상단: Freedom Goal · Living Briefing(높이 맞춤) + 오늘의 말씀 포스트잇(붙여준 느낌) */}
       <div style={{ display: "grid", gridTemplateColumns: "2.05fr 1fr", gap: 22, marginBottom: 36, alignItems: "start" }}>
         {/* 왼쪽 2칸 — 세로 높이 맞춤 */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.12fr 1fr", gap: 20, alignItems: "stretch" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 20, alignItems: "stretch" }}>
         {/* Freedom Goal Card */}
         <section style={{
           background: "white", border: "1px solid #E2E8F0",
@@ -464,13 +482,17 @@ export default function WorkHome() {
           display: "flex", flexDirection: "column", position: "relative", overflow: "hidden",
           height: "100%", boxSizing: "border-box",
         }}>
+          <Target size={96} style={{ position: "absolute", right: -12, bottom: -12, color: "#6366F1", opacity: 0.1, pointerEvents: "none" }} />
           {/* 헤더 */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#10B981,#059669)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 10px rgba(16,185,129,0.25)", flexShrink: 0 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: theme.accentGradient, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 10px rgba(99,102,241,0.25)", flexShrink: 0 }}>
                 <Target size={17} color="white" />
               </div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#059669", letterSpacing: 1.5, textTransform: "uppercase" }}>Freedom Goal</div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#6366F1", letterSpacing: 1.5, textTransform: "uppercase" }}>Freedom Goal</div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 2, background: theme.accentGradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>내 자유 목표</div>
+              </div>
             </div>
             {!editGoal && (
               <button onClick={startEdit} title={t("common.edit")} style={{ width: 28, height: 28, borderRadius: 7, border: "1px solid #E2E8F0", background: "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", color: "#94A3B8", cursor: "pointer" }}>
@@ -483,11 +505,11 @@ export default function WorkHome() {
             <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
               <input value={draft} onChange={e => setDraft(e.target.value)}
                 onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditGoal(false); }}
-                style={{ padding: "10px 12px", borderRadius: 9, border: "1.5px solid #6EE7B7", fontSize: 14, color: "#0F172A", outline: "none", background: "white" }}
+                style={{ padding: "10px 12px", borderRadius: 9, border: "1.5px solid #C7D2FE", fontSize: 14, color: "#0F172A", outline: "none", background: "white" }}
                 autoFocus />
               <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={saveEdit} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "none", background: "#10B981", color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t("common.save")}</button>
-                <button onClick={() => setEditGoal(false)} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #D1FAE5", background: "white", color: "#64748B", fontSize: 12, cursor: "pointer" }}>{t("common.cancel")}</button>
+                <button onClick={saveEdit} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "none", background: "#6366F1", color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t("common.save")}</button>
+                <button onClick={() => setEditGoal(false)} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #E0E7FF", background: "white", color: "#64748B", fontSize: 12, cursor: "pointer" }}>{t("common.cancel")}</button>
               </div>
             </div>
           ) : (
@@ -495,7 +517,7 @@ export default function WorkHome() {
               {slogan || firstGoal || (loading ? t("workhome.loading") : t("workhome.sloganEmpty"))}
             </p>
           )}
-          <button onClick={() => nav("/vision_board")} style={{ background: "transparent", border: "none", color: "#059669", fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <button onClick={() => nav("/vision_board")} style={{ background: "transparent", border: "none", color: "#6366F1", fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: 0, display: "inline-flex", alignItems: "center", gap: 4 }}>
             {t("workhome.visionBoard")} <ArrowRight size={13} />
           </button>
         </section>
@@ -505,34 +527,61 @@ export default function WorkHome() {
           onClick={() => nav("/briefing")}
           style={{
             background: "linear-gradient(145deg,#EEF2FF 0%,#F5F3FF 100%)",
-            border: "1.5px solid #C7D2FE", borderRadius: 14, padding: "22px 22px 20px",
+            border: `1.5px solid ${briefing ? "#818CF8" : "#C7D2FE"}`,
+            borderRadius: 14, padding: "20px 20px 18px",
             display: "flex", flexDirection: "column", cursor: "pointer",
             transition: "border-color 0.18s, box-shadow 0.18s",
             height: "100%", boxSizing: "border-box",
+            boxShadow: briefing ? "0 4px 18px rgba(99,102,241,0.13)" : "none",
           }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = "#818CF8"; e.currentTarget.style.boxShadow = "0 6px 24px rgba(99,102,241,0.14)"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = "#C7D2FE"; e.currentTarget.style.boxShadow = "none"; }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "#818CF8"; e.currentTarget.style.boxShadow = "0 6px 24px rgba(99,102,241,0.2)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = briefing ? "#818CF8" : "#C7D2FE"; e.currentTarget.style.boxShadow = briefing ? "0 4px 18px rgba(99,102,241,0.13)" : "none"; }}
         >
-          {/* 아이콘 + 타이틀 + LIVE */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: "linear-gradient(135deg,#6366F1,#4F46E5)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 10px rgba(99,102,241,0.3)", flexShrink: 0 }}>
-              <Sparkles size={17} color="white" />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#6366F1", letterSpacing: 1.5, textTransform: "uppercase" }}>Today's Briefing</span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(99,102,241,0.1)", borderRadius: 20, padding: "2px 7px" }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#6366F1", display: "inline-block", boxShadow: "0 0 0 2.5px rgba(99,102,241,0.25)" }} />
-                  <span style={{ fontSize: 9, fontWeight: 800, color: "#6366F1", letterSpacing: 0.6 }}>LIVE</span>
-                </span>
+          {/* 헤더 */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: theme.accentGradient, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 10px rgba(99,102,241,0.3)", flexShrink: 0 }}>
+                <BookOpenText size={17} color="white" />
               </div>
-              <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0F172A", marginTop: 1 }}>라이브 시장 브리핑</div>
+              <div>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "#6366F1", letterSpacing: 1.5, textTransform: "uppercase" }}>Today's Briefing</span>
+                <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 2, background: theme.accentGradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>라이브 시장 브리핑</div>
+              </div>
             </div>
-            <ArrowRight size={15} color="#A5B4FC" />
+            {briefing ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, background: "#EF4444", borderRadius: 20, padding: "3px 9px" }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", background: "white", display: "inline-block" }} />
+                <span style={{ fontSize: 10, fontWeight: 800, color: "white", letterSpacing: 0.6 }}>NEW</span>
+              </span>
+            ) : (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(99,102,241,0.1)", borderRadius: 20, padding: "3px 9px" }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#6366F1", display: "inline-block", boxShadow: "0 0 0 2.5px rgba(99,102,241,0.25)" }} />
+                <span style={{ fontSize: 10, fontWeight: 800, color: "#6366F1", letterSpacing: 0.6 }}>LIVE</span>
+              </span>
+            )}
           </div>
-          <p style={{ fontSize: 13, color: "#64748B", lineHeight: 1.65, margin: 0, flex: 1 }}>
-            미국 시장 개장·마감에 맞춘 새 브리핑이 도착했습니다.
+
+          {/* 도착 메시지 */}
+          <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.7, margin: "0 0 14px", flex: 1, whiteSpace: "pre-line" }}>
+            {briefing
+              ? "오늘의 브리핑이 도착했습니다.\n지금 바로 확인해보세요."
+              : loading
+              ? "브리핑 생성 중…"
+              : "미국 시장 개장·마감에 맞춘 오늘의 브리핑이 도착합니다."}
           </p>
+
+          {/* 하단: 도착 시간 + 읽기 CTA */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 11, color: "#94A3B8" }}>
+              {briefing?.generatedAt ? (() => {
+                const d = new Date(typeof briefing.generatedAt === "number" ? briefing.generatedAt : Date.parse(briefing.generatedAt));
+                return `오늘 ${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")} 도착`;
+              })() : "오늘 도착 예정"}
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#6366F1", display: "inline-flex", alignItems: "center", gap: 3 }}>
+              브리핑 읽기 <ArrowRight size={12} />
+            </span>
+          </div>
         </section>
         </div>
 
@@ -542,7 +591,7 @@ export default function WorkHome() {
             position: "relative",
             background: "linear-gradient(165deg,#FCF6CC 0%,#F7EEB2 100%)",
             borderRadius: 14,
-            padding: "26px 24px 28px",
+            padding: "20px 18px 22px",
             boxShadow: "0 14px 30px rgba(168,146,46,0.3), inset 0 1px 0 rgba(255,255,255,0.55)",
             marginTop: -58,
             alignSelf: "start",
@@ -555,12 +604,12 @@ export default function WorkHome() {
               clipPath: "polygon(4% 0, 96% 7%, 100% 95%, 2% 100%)",
               boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }} />
             {/* 선물 ① 투자 그루의 명언 */}
-            <p style={{ margin: "4px 0 0", fontSize: 18, lineHeight: 1.36, color: "#3f3a14" }}>"{g.text}"</p>
-            <p style={{ margin: "3px 0 0", fontSize: 14, color: "#9b8a2a", textAlign: "right" }}>— {g.ref}</p>
-            <div style={{ height: 1, background: "rgba(155,138,42,0.32)", margin: "11px 2px" }} />
+            <p style={{ margin: "4px 0 0", fontSize: 15, lineHeight: 1.36, color: "#3f3a14" }}>"{g.text}"</p>
+            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9b8a2a", textAlign: "right" }}>— {g.ref}</p>
+            <div style={{ height: 1, background: "rgba(155,138,42,0.32)", margin: "9px 2px" }} />
             {/* 선물 ② 성경 한 절 (잠언·시편) */}
-            <p style={{ margin: "0", fontSize: 18, lineHeight: 1.36, color: "#3f3a14" }}>"{v.text}"</p>
-            <p style={{ margin: "3px 0 0", fontSize: 14, color: "#9b8a2a", textAlign: "right" }}>— {v.ref}</p>
+            <p style={{ margin: "0", fontSize: 15, lineHeight: 1.36, color: "#3f3a14" }}>"{v.text}"</p>
+            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9b8a2a", textAlign: "right" }}>— {v.ref}</p>
             {/* 받는 사람 */}
             <p style={{ margin: "12px 0 0", fontSize: 17, color: "#1d4ed8", textAlign: "right", lineHeight: 1.1 }}>{username}에게</p>
           </section>
@@ -577,7 +626,7 @@ export default function WorkHome() {
             padding: "9px 16px", borderRadius: 10, fontSize: 13, fontWeight: 700,
             cursor: "pointer", boxShadow: "0 4px 12px rgba(59,130,246,0.22)",
           }}>
-            <Plus size={15} /> 새 전략
+            <Plus size={15} /> 새 워크스페이스
           </button>
         </div>
         {err && (
@@ -590,9 +639,9 @@ export default function WorkHome() {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14 }}>
             <KpiCard
-              label="보유 전략 수"
+              label="보유 워크스페이스 수"
               value={String(strategies.length)}
-              sub={`활성 ${activeCount} / 미시작 ${untestedCount}`}
+              sub={`실행 중 ${activeCount} / 미시작 ${untestedCount}`}
               icon={Layers}
             />
             <KpiCard
@@ -631,21 +680,21 @@ export default function WorkHome() {
               아직 전략이 없습니다. 새 전략을 만들어보세요.
             </div>
           ) : (
-            <StrategyListPanel items={strategies} onNav={(id) => nav(`/alpha/w/${id}`)} />
+            <StrategyListPanel items={strategies} onNav={(id) => nav(`/alpha/w/${id}`)} featuredId={featuredStrategy?.id} />
           )}
         </div>
       </div>
 
-      {/* ── ④ 최고 전략 상세 지표 + 수익 곡선 ── */}
-      {bestStrategy && (
+      {/* ── ④ 대표 워크스페이스 지표 + 수익 곡선 ── */}
+      {featuredStrategy && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
           <div style={panelCard}>
-            <h3 style={panelTitle}>최고 전략 주요 지표</h3>
-            <BestStrategyMetrics s={bestStrategy} />
+            <h3 style={panelTitle}>대표 워크스페이스 주요 지표 <span style={{ fontWeight: 500, color: "#6366F1", fontSize: 13 }}>· {featuredStrategy.name}</span></h3>
+            <BestStrategyMetrics s={featuredStrategy} />
           </div>
           <div style={panelCard}>
-            <h3 style={panelTitle}>{bestStrategy.name} 백테스트 수익 곡선</h3>
-            <EquityCurveChart data={bestStrategy.equityCurve} />
+            <h3 style={panelTitle}>대표 전략 백테스트 수익 곡선 <span style={{ fontWeight: 500, color: "#6366F1", fontSize: 13 }}>· {featuredStrategy.name}</span></h3>
+            <EquityCurveChart data={featuredStrategy.equityCurve} />
           </div>
         </div>
       )}

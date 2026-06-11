@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Home, Layers, BarChart3, Activity, ShieldCheck,
-  ScrollText, Sparkles, Wallet, Inbox, Image as ImageIcon, Bell,
+  ScrollText, Sparkles, BookOpenText, Wallet, Inbox, Image as ImageIcon, Bell,
   Globe, Settings, MoreHorizontal, Palette, UserCircle, ChevronRight, Check, LogOut, BookOpen,
   Laptop, FileCode, Database, TerminalSquare, FolderOpen, CreditCard,
   PenLine, ChevronLeft, PanelLeftOpen,
@@ -66,6 +66,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
   // 접힘 상태에서 aside 바깥 fixed 플라이아웃의 하단 앵커(버튼 위치 기준)
   const [langFlyBottom, setLangFlyBottom] = useState(12);
   const [gearFlyBottom, setGearFlyBottom] = useState(12);
+  const [gearFlyTop,    setGearFlyTop]    = useState(null);
   const [gearFlyLeft,   setGearFlyLeft]   = useState(58);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [subOpen, setSubOpen]         = useState(false);
@@ -463,7 +464,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
           {/* Briefing */}
           <NavItem
             expanded={expanded}
-            icon={<Sparkles size={20} strokeWidth={loc.pathname === "/briefing" ? 2.4 : 1.9} />}
+            icon={<BookOpenText size={20} strokeWidth={loc.pathname === "/briefing" ? 2.4 : 1.9} />}
             label="브리핑"
             active={loc.pathname === "/briefing"}
             onClick={() => go("/briefing")}
@@ -586,8 +587,17 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
             <SideIconBtn title="설정" active={gearOpen} onClick={() => {
               if (gearRef.current) {
                 const r = gearRef.current.getBoundingClientRect();
-                setGearFlyBottom(window.innerHeight - r.top + 6);
-                setGearFlyLeft(r.right + 6);
+                if (expanded) {
+                  // 펼침: 버튼 바로 위에, 왼쪽 정렬
+                  setGearFlyBottom(window.innerHeight - r.top + 6);
+                  setGearFlyTop(null);
+                  setGearFlyLeft(r.left);
+                } else {
+                  // 접힘: 버튼 바로 오른쪽에, 상단 정렬
+                  setGearFlyTop(r.top);
+                  setGearFlyBottom(null);
+                  setGearFlyLeft(r.right + 6);
+                }
               }
               setGearOpen(o => !o); setThemeSubOpen(false);
             }}>
@@ -659,7 +669,9 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
       {gearOpen && (
         <div ref={gearFlyoutRef} onMouseDown={e => e.stopPropagation()}
           style={{
-            position: "fixed", left: gearFlyLeft, bottom: gearFlyBottom,
+            position: "fixed",
+            left: gearFlyLeft,
+            ...(gearFlyTop != null ? { top: gearFlyTop } : { bottom: gearFlyBottom }),
             background: "white", border: "1px solid #E2E8F0", borderRadius: 10,
             boxShadow: "0 12px 30px rgba(0,0,0,0.18)", padding: 6, zIndex: 1200, minWidth: 200,
           }}>
