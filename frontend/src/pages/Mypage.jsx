@@ -4,6 +4,7 @@ import { Camera, ChevronDown, CheckCircle2, Info, UserCircle } from "lucide-reac
 import useStore from "../store/useStore";
 import partnerDefault from "../assets/hero_default.png";
 import clientDefault from "../assets/heli_face.png";
+import { getCurrentHeroSrc } from "../alpha/heroAssets";
 import { bankApi } from "../api/bank.api";
 import { profileApi } from "../api/profile.api";
 import { paymentMethodsApi } from "../api/paymentMethods.api";
@@ -1177,7 +1178,25 @@ function Mypage() {
   const [toast, setToast]           = useState(null);
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [loading, setLoading]       = useState(true);
+  const [heroFallback, setHeroFallback] = useState(() => getCurrentHeroSrc());
+  const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
   const heroInputRef = useRef(null);
+  const photoMenuRef = useRef(null);
+
+  useEffect(() => {
+    const onHeroChange = () => setHeroFallback(getCurrentHeroSrc());
+    window.addEventListener("alpha:hero-change", onHeroChange);
+    return () => window.removeEventListener("alpha:hero-change", onHeroChange);
+  }, []);
+
+  useEffect(() => {
+    if (!photoMenuOpen) return;
+    const onDoc = (e) => {
+      if (!photoMenuRef.current?.contains(e.target)) setPhotoMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [photoMenuOpen]);
 
   const handleWithdraw = () => {
     clearAll();
@@ -1275,7 +1294,7 @@ function Mypage() {
     birthdate:   user?.birthDate   || user?.birthdate   || "",  // birthDate 우선
     contact:     user?.phone       || user?.contact || "",  // phone 우선 매핑
     githubNickname: user?.githubNickname || user?.githubUsername || "",
-    heroImage:   user?.heroImage   || defaultHero,
+    heroImage:   user?.heroImage   || "",
   };
 
   const [form, setForm]           = useState({ ...userInfo });
@@ -1303,7 +1322,7 @@ function Mypage() {
           username: cleanValue(form.nickname),
           phone: cleanValue(form.contact),
           birthDate: cleanValue(form.birthdate),
-          profileImageUrl: heroPreview || cleanValue(form.heroImage),
+          profileImageUrl: heroPreview != null ? heroPreview : (form.heroImage === "" ? "" : cleanValue(form.heroImage)),
           githubNickname: cleanValue(form.githubNickname),
         };
 
@@ -1321,7 +1340,7 @@ function Mypage() {
           username: form.nickname || user?.username,
           phone: form.contact,
           birthDate: form.birthdate,
-          heroImage: heroPreview || form.heroImage,
+          heroImage: heroPreview != null ? heroPreview : (form.heroImage || null),
           githubNickname: form.githubNickname,
           githubUsername: form.githubNickname,
         };
@@ -1371,13 +1390,18 @@ function Mypage() {
     reader.readAsDataURL(file);
   };
 
+  const handleDeleteHeroImage = () => {
+    setHeroPreview(null);
+    setForm(prev => ({ ...prev, heroImage: "" }));
+  };
+
   const heroRaw = heroPreview || form.heroImage;
   const isValidHeroSrc = (s) => {
     if (!s || typeof s !== 'string') return false;
     if (/cdn\.devbridge\.com/i.test(s)) return false;
     return /^(data:|blob:|https?:\/\/|\/)/i.test(s);
   };
-  const heroSrc = isValidHeroSrc(heroRaw) ? heroRaw : defaultHero;
+  const heroSrc = isValidHeroSrc(heroRaw) ? heroRaw : heroFallback;
   // PARTNER_TYPES는 회원가입에서 확정된 고정 정보 — 편집 불가
   const registeredPartnerType = partnerProfile?.partnerType || form.partnerType;
 
@@ -1435,21 +1459,58 @@ function Mypage() {
 
             {/* 히어로 이미지 */}
             <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"0 28px 20px" }}>
-              <div style={{ position:"relative", cursor: isEditing?"pointer":"default" }}
-                onClick={() => isEditing && heroInputRef.current?.click()}>
-                <div style={{ width:160, height:160, borderRadius:28,
+              <div ref={photoMenuRef} style={{ position:"relative" }}>
+                <div style={{ width:160, height:160, borderRadius:"50%",
                   overflow:"hidden", backgroundColor:"#EFF6FF", border:"3px solid #DBEAFE",
                   display:"flex", alignItems:"center", justifyContent:"center" }}>
                   <img src={heroSrc} alt="hero"
                     style={{ width:"100%", height:"100%", objectFit:"cover" }}
-                    onError={(e) => { e.currentTarget.src = defaultHero; }} />
+                    onError={(e) => { e.currentTarget.src = heroFallback; }} />
                 </div>
                 {isEditing && (
-                  <div style={{ position:"absolute", bottom:-4, right:-4,
-                    width:36, height:36, borderRadius:"50%",
-                    background:"#3B82F6", border:"2.5px solid white",
-                    display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <div
+                    onClick={(e) => { e.stopPropagation(); setPhotoMenuOpen(v => !v); }}
+                    style={{ position:"absolute", bottom:-4, right:-4,
+                      width:36, height:36, borderRadius:"50%",
+                      background:"#3B82F6", border:"2.5px solid white",
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      cursor:"pointer" }}>
                     <Camera size={17} color="white" />
+                  </div>
+                )}
+                {isEditing && photoMenuOpen && (
+                  <div style={{
+                    position:"absolute", bottom:36, right:-8,
+                    background:"white", borderRadius:10,
+                    boxShadow:"0 8px 24px rgba(0,0,0,0.14)", border:"1px solid #E2E8F0",
+                    overflow:"hidden", zIndex:10, minWidth:110,
+                  }}>
+                    <button
+                      onClick={() => { setPhotoMenuOpen(false); heroInputRef.current?.click(); }}
+                      style={{ display:"flex", alignItems:"center", gap:8, width:"100%",
+                        padding:"10px 14px", border:"none", background:"transparent",
+                        fontSize:13, fontWeight:500, color:"#1E293B", cursor:"pointer",
+                        textAlign:"left" }}
+                      onMouseEnter={e => e.currentTarget.style.background="#F8FAFC"}
+                      onMouseLeave={e => e.currentTarget.style.background="transparent"}
+                    >
+                      <Camera size={14} color="#3B82F6" /> 변경
+                    </button>
+                    {isValidHeroSrc(heroRaw) && (
+                      <button
+                        onClick={() => { setPhotoMenuOpen(false); handleDeleteHeroImage(); }}
+                        style={{ display:"flex", alignItems:"center", gap:8, width:"100%",
+                          padding:"10px 14px", border:"none", background:"transparent",
+                          fontSize:13, fontWeight:500, color:"#EF4444", cursor:"pointer",
+                          textAlign:"left" }}
+                        onMouseEnter={e => e.currentTarget.style.background="#FFF5F5"}
+                        onMouseLeave={e => e.currentTarget.style.background="transparent"}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 10 10" fill="none">
+                          <path d="M1 1l8 8M9 1L1 9" stroke="#EF4444" strokeWidth="2" strokeLinecap="round"/>
+                        </svg> 삭제
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
