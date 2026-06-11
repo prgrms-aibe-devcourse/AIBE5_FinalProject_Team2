@@ -159,7 +159,7 @@ export default function NotificationsPage() {
         })}
       </div>
 
-      <div style={{ maxWidth: 780 }}>
+      <div>
         {groups.length === 0 ? (
           <EmptyState filter={filter} />
         ) : (

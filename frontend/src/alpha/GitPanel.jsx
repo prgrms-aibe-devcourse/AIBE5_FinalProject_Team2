@@ -11,7 +11,7 @@ import {
 } from "./alphaApi";
 
 /**
- * Developer IDE Git Panel
+ * Quant Developer IDE Git Panel
  *
  * 흐름:
  *  1. PAT 미연결 → 연결 폼
@@ -569,7 +569,7 @@ function CommitList({
     }
     setPushing(true);
     try {
-      const msg = commitMsg.trim() || "Update from AlphaHelix Developer IDE";
+      const msg = commitMsg.trim() || "Update from AlphaHelix Quant Developer IDE";
 
       // 1. 삭제된 파일 먼저 처리
       const failedDeletes = [];

@@ -43,7 +43,7 @@ const SEARCH_INDEX = [
          "체결", "오더"],
   },
   {
-    label: "Developer IDE", desc: "코드 편집기·터미널·Git 연동",
+    label: "Quant Developer IDE", desc: "코드 편집기·터미널·Git 연동",
     path: "/alpha/developer", icon: Code2,
     kw: ["개발자", "developer", "studio", "코드", "code", "터미널", "terminal",
          "git", "편집기", "editor", "ide", "파이썬", "python", "리포지토리", "repo"],
@@ -304,36 +304,42 @@ export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOf
         )}
       </div>
 
-      {/* ── AI 말풍선 ── */}
+      {/* ── AI 채팅 버튼 ── */}
       <button
         onClick={onToggleChat}
         title={chatOpen ? "AI 채팅 닫기" : "AI 채팅 열기"}
         style={{
-          width: 32, height: 32, borderRadius: "50%",
+          height: 32, padding: "0 13px", borderRadius: 20,
           border: "none",
-          background: "linear-gradient(135deg, #60a5fa 0%, #6366f1 100%)",
+          background: chatOpen
+            ? "linear-gradient(135deg, #3b82f6 0%, #4f46e5 100%)"
+            : "linear-gradient(135deg, #60a5fa 0%, #6366f1 100%)",
           color: "white",
           cursor: "pointer",
-          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
           boxShadow: chatOpen
-            ? "0 4px 14px rgba(99,102,241,0.55), inset 0 0 0 2px rgba(255,255,255,0.4)"
+            ? "0 4px 14px rgba(99,102,241,0.55), inset 0 0 0 2px rgba(255,255,255,0.3)"
             : "0 3px 10px rgba(99,102,241,0.35)",
           transition: "background 0.15s, box-shadow 0.15s, transform 0.05s",
+          flexShrink: 0,
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = "linear-gradient(135deg, #3b82f6 0%, #4f46e5 100%)";
           e.currentTarget.style.boxShadow = "0 6px 16px rgba(99,102,241,0.5)";
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.background = "linear-gradient(135deg, #60a5fa 0%, #6366f1 100%)";
+          e.currentTarget.style.background = chatOpen
+            ? "linear-gradient(135deg, #3b82f6 0%, #4f46e5 100%)"
+            : "linear-gradient(135deg, #60a5fa 0%, #6366f1 100%)";
           e.currentTarget.style.boxShadow = chatOpen
-            ? "0 4px 14px rgba(99,102,241,0.55), inset 0 0 0 2px rgba(255,255,255,0.4)"
+            ? "0 4px 14px rgba(99,102,241,0.55), inset 0 0 0 2px rgba(255,255,255,0.3)"
             : "0 3px 10px rgba(99,102,241,0.35)";
         }}
-        onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.94)"; }}
+        onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.96)"; }}
         onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
       >
-        <MessageCircle size={15} strokeWidth={2.2} />
+        <MessageCircle size={14} strokeWidth={2.2} />
+        <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: 0.2 }}>AI</span>
       </button>
 
       {/* ── 비로그인 시 로그인 버튼 ── */}

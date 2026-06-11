@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { getDeveloperAccess, listApiKeys, saveApiKey, deleteApiKey } from "./alphaApi";
 
 /**
- * Claude BYOK(본인 키 연동) + Developer IDE 접근 게이팅 카드.
+ * Claude BYOK(본인 키 연동) + Quant Developer IDE 접근 게이팅 카드.
  * - 비구독(locked): 업그레이드(구독 제안) 배너.
  * - 구독/allowlist: Claude API 키 연동(암호화 저장) / 마스킹 상태 / 연동 해제.
  *
@@ -109,7 +109,7 @@ export default function ClaudeKeyConnect({ onConnected }) {
       {locked ? (
         <div>
           <div style={{ fontSize: 12.5, color: LILAC.textMuted, lineHeight: 1.6, marginBottom: 10 }}>
-            <b style={{ color: LILAC.text }}>Developer IDE</b> 와 본인 Claude 키 연동은
+            <b style={{ color: LILAC.text }}>Quant Developer IDE</b> 와 본인 Claude 키 연동은
             <b> STANDARD 구독</b>부터 사용할 수 있어요. 구독하면 VSCode 수준으로 Claude가
             전략 코드를 직접 다듬어 줍니다.
           </div>
@@ -123,7 +123,7 @@ export default function ClaudeKeyConnect({ onConnected }) {
         <div>
           <div style={{ fontSize: 12, color: LILAC.textMuted, lineHeight: 1.6, marginBottom: 10 }}>
             본인 <b style={{ color: LILAC.text }}>Anthropic(Claude) API 키</b>를 연동하면, 그 키의 권한·모델 그대로
-            Developer IDE에서 Claude가 코드를 직접 편집합니다.
+            Quant Developer IDE에서 Claude가 코드를 직접 편집합니다.
             <br/>🔒 키는 <b>AES-256으로 암호화</b>되어 DB에만 저장되고, 로그·응답·배포물에 절대 노출되지 않습니다.
           </div>
 
@@ -146,7 +146,7 @@ export default function ClaudeKeyConnect({ onConnected }) {
           ) : (
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: 12.5, color: LILAC.text }}>
-                Claude 키 연동됨 — Developer IDE에서 Claude 코드 편집이 가능합니다.
+                Claude 키 연동됨 — Quant Developer IDE에서 Claude 코드 편집이 가능합니다.
               </span>
               <button onClick={disconnect} disabled={busy} style={{
                 marginLeft: "auto", padding: "7px 12px", borderRadius: 9, fontSize: 12, fontWeight: 700,

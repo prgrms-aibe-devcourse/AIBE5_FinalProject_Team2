@@ -142,8 +142,8 @@ export const TUTORIAL_STEPS = [
   },
   {
     targetId: "tutorial-sidebar-developer",
-    title: "Developer IDE — 전문가 모드",
-    desc: "Developer IDE에서 전략 Python 코드를 직접 편집하고, vectorbt/Lean 엔진으로 정밀 백테스트하며, Claude AI가 코드를 자동으로 수정해드립니다!",
+    title: "Quant Developer IDE — 전문가 모드",
+    desc: "Quant Developer IDE에서 전략 Python 코드를 직접 편집하고, vectorbt/Lean 엔진으로 정밀 백테스트하며, Claude AI가 코드를 자동으로 수정해드립니다!",
     side: "right",
     raiseSidebar: true,
     checkAdvance: (path) => path.startsWith("/alpha/developer"),

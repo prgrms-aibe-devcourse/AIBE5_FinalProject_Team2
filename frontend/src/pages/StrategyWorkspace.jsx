@@ -74,7 +74,7 @@ export default function StrategyWorkspace() {
   };
   useEffect(() => { reloadDetail(); /* eslint-disable-next-line */ }, [activeId]);
 
-  // Heli 도크/Developer IDE 가 "지금 보고 있는 워크스페이스"를 인지하도록 lastWsId 동기화
+  // Heli 도크/Quant Developer IDE 가 "지금 보고 있는 워크스페이스"를 인지하도록 lastWsId 동기화
   // (이게 없으면 /strategy/:id 화면에서 Heli 가 전략을 못 찾아 "전략 코드가 없다"고 답함)
   useEffect(() => {
     if (activeId != null) {

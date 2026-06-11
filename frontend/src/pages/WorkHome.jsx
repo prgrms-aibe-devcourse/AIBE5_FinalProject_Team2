@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, TrendingUp, ArrowRight, Pencil, Check, X, CircleUser, BarChart3, Award, Layers, Target, BookOpenText } from "lucide-react";
 import { listWorkspaces, getWorkspace, runBriefing, createWorkspace } from "../alpha/alphaApi";
@@ -8,6 +8,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import useStore from "../store/useStore";
 import { profileApi } from "../api/profile.api";
 import heliFace from "../assets/heli_face.png";
+import { getCurrentHeroSrc } from "../alpha/heroAssets";
 
 const F = "'Pretendard', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
@@ -336,14 +337,28 @@ export default function WorkHome() {
     return /^(data:|blob:|https?:\/\/|\/)/i.test(s);
   };
 
+  const hasApiImage = useRef(false);
   const [profileImage, setProfileImage] = useState(
-    isValidProfileSrc(clientProfileDetail?.heroImage) ? clientProfileDetail.heroImage : null
+    isValidProfileSrc(clientProfileDetail?.heroImage) ? clientProfileDetail.heroImage : getCurrentHeroSrc()
   );
 
   useEffect(() => {
     profileApi.getMyDetail()
-      .then(d => { if (isValidProfileSrc(d?.profileImageUrl)) setProfileImage(d.profileImageUrl); })
+      .then(d => {
+        if (isValidProfileSrc(d?.profileImageUrl)) {
+          setProfileImage(d.profileImageUrl);
+          hasApiImage.current = true;
+        }
+      })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const onHeroChange = () => {
+      if (!hasApiImage.current) setProfileImage(getCurrentHeroSrc());
+    };
+    window.addEventListener("alpha:hero-change", onHeroChange);
+    return () => window.removeEventListener("alpha:hero-change", onHeroChange);
   }, []);
   const [strategies, setStrategies] = useState([]);
   const [briefing, setBriefing] = useState(null);
@@ -447,8 +462,8 @@ export default function WorkHome() {
             boxShadow: "0 6px 20px rgba(99,102,241,0.32)",
             border: "2.5px solid white",
           }}>
-            <img src={profileImage || heliFace} alt="profile"
-              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = heliFace; }}
+            <img src={profileImage} alt="profile"
+              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = getCurrentHeroSrc(); }}
               style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
           </div>
           <div>
@@ -509,7 +524,7 @@ export default function WorkHome() {
                 autoFocus />
               <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={saveEdit} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "none", background: "#6366F1", color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{t("common.save")}</button>
-                <button onClick={() => setEditGoal(false)} style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #E0E7FF", background: "white", color: "#64748B", fontSize: 12, cursor: "pointer" }}>{t("common.cancel")}</button>
+                <button onClick={() => setEditGoal(false)} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "1px solid #CBD5E1", background: "#F1F5F9", color: "#64748B", fontSize: 12, cursor: "pointer" }}>{t("common.cancel")}</button>
               </div>
             </div>
           ) : (

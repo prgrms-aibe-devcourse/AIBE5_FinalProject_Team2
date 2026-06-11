@@ -5,9 +5,9 @@ import {
   ScrollText, Sparkles, BookOpenText, Wallet, Inbox, Image as ImageIcon, Bell,
   Globe, Settings, MoreHorizontal, Palette, UserCircle, ChevronRight, Check, LogOut, BookOpen,
   Laptop, FileCode, Database, TerminalSquare, FolderOpen, CreditCard,
-  PenLine, ChevronLeft, PanelLeftOpen,
+  PenLine, ChevronLeft, PanelLeftOpen, CircleDollarSign, CircleHelp,
 } from "lucide-react";
-import logoIcon from "../../assets/main_logo.png";
+import logoIcon from "../../assets/로고.png";
 import { HEROES, getCurrentHeroKey, getCurrentHeroSrc, setCurrentHeroKey } from "../../alpha/heroAssets";
 import { listWorkspaces, createWorkspace } from "../../alpha/alphaApi";
 import LoginRequiredModal from "./LoginRequiredModal";
@@ -52,12 +52,13 @@ const DEV_SUBMENUS = [
 
 const EASE = "cubic-bezier(0.4,0,0.2,1)";
 
-export default function LeftSidebar({ expanded = true, onToggleExpanded, width = 52, onToggleGuide, guideOpen }) {
+export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggleGuide, guideOpen }) {
   const nav = useNavigate();
   const loc = useLocation();
   const { theme, themeKey, setThemeKey } = useTheme();
   const { lang, setLang, t } = useLanguage();
-  const unreadCount = useNotificationStore((s) => s.notifications.filter((n) => !n.read).length);
+  const unreadCount        = useNotificationStore((s) => s.notifications.filter((n) => !n.read).length);
+  const fetchNotifications = useNotificationStore((s) => s.fetch);
 
   const [showLogin, setShowLogin]     = useState(false);
   const [langOpen, setLangOpen]       = useState(false);
@@ -106,6 +107,14 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
   const isAuthed = !!localStorage.getItem("dbId");
   const inAlpha    = loc.pathname === "/alpha" || loc.pathname.startsWith("/alpha/w/");
   const inDeveloper = loc.pathname === "/alpha/developer" || loc.pathname.startsWith("/alpha/developer/");
+
+  /* ── 미읽은 알림 배지: 앱 시작 시 즉시 fetch + 60초 폴링 ── */
+  useEffect(() => {
+    if (!isAuthed) return;
+    fetchNotifications();
+    const id = setInterval(fetchNotifications, 60_000);
+    return () => clearInterval(id);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── load workspaces ── */
   const loadWorkspaces = () =>
@@ -275,6 +284,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
 
   const HeroFlyoutContent = ({ onClose, flyLeft = false }) => (
     <>
+      <MenuItem icon={<Wallet size={15} />} label="계좌 관리" onClick={() => { onClose(); nav("/alpha/account"); }} />
       <MenuItem icon={<UserCircle size={15} />} label="마이페이지 이동" onClick={() => { onClose(); nav("/mypage"); }} />
       <div style={{ padding: "6px 10px 4px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 4, borderTop: "1px solid #F1F5F9" }}>
         Hero 이미지 변경
@@ -390,7 +400,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
           <button
             onClick={(e) => { e.stopPropagation(); nav("/home"); }}
             style={{
-              fontSize: 15, fontWeight: 700, color: "white", letterSpacing: -0.3,
+              fontSize: 15, fontWeight: 500, fontFamily: "'Inter Tight', sans-serif", color: "white", letterSpacing: -0.3,
               whiteSpace: "nowrap", overflow: "hidden",
               maxWidth: expanded ? 140 : 0,
               opacity: expanded ? 1 : 0,
@@ -398,7 +408,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
               background: "transparent", border: "none", cursor: "pointer", padding: 0,
             }}
           >
-            Alpha-Helix
+            ALPHA-HELIX
           </button>
 
           {/* Collapse button — fades in when expanded */}
@@ -440,7 +450,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
           {/* Home */}
           <NavItem
             expanded={expanded}
-            icon={<Home size={20} strokeWidth={loc.pathname === "/workhome" ? 2.4 : 1.9} />}
+            icon={<Home size={24} strokeWidth={loc.pathname === "/workhome" ? 2.4 : 1.9} />}
             label="홈"
             active={loc.pathname === "/workhome"}
             onClick={() => go("/workhome")}
@@ -453,7 +463,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
           >
             <NavItem
               expanded={expanded}
-              icon={<Layers size={20} strokeWidth={inAlpha ? 2.4 : 1.9} />}
+              icon={<Layers size={24} strokeWidth={inAlpha ? 2.4 : 1.9} />}
               label="워크스페이스"
               active={inAlpha}
               tutorialId="tutorial-sidebar-ws"
@@ -464,7 +474,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
           {/* Briefing */}
           <NavItem
             expanded={expanded}
-            icon={<BookOpenText size={20} strokeWidth={loc.pathname === "/briefing" ? 2.4 : 1.9} />}
+            icon={<BookOpenText size={24} strokeWidth={loc.pathname === "/briefing" ? 2.4 : 1.9} />}
             label="브리핑"
             active={loc.pathname === "/briefing"}
             onClick={() => go("/briefing")}
@@ -473,27 +483,27 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
           {/* Vision Board */}
           <NavItem
             expanded={expanded}
-            icon={<ImageIcon size={20} strokeWidth={loc.pathname.startsWith("/vision_board") ? 2.4 : 1.9} />}
+            icon={<ImageIcon size={24} strokeWidth={loc.pathname.startsWith("/vision_board") ? 2.4 : 1.9} />}
             label="비전 보드"
             active={loc.pathname.startsWith("/vision_board")}
             tutorialId="tutorial-sidebar-vision"
             onClick={() => go("/vision_board")}
           />
 
-          {/* 계좌 */}
+          {/* 종합 계좌 잔고 */}
           <NavItem
             expanded={expanded}
-            icon={<Wallet size={20} strokeWidth={loc.pathname === "/alpha/account" ? 2.4 : 1.9} />}
-            label="계좌 관리"
-            active={loc.pathname === "/alpha/account"}
+            icon={<CircleDollarSign size={24} strokeWidth={loc.pathname === "/alpha/balance_account" ? 2.4 : 1.9} />}
+            label="종합 계좌 잔고"
+            active={loc.pathname === "/alpha/balance_account"}
             tutorialId="tutorial-sidebar-account"
-            onClick={() => go("/alpha/account")}
+            onClick={() => go("/alpha/balance_account")}
           />
 
           {/* 제안서 */}
           <NavItem
             expanded={expanded}
-            icon={<Inbox size={20} strokeWidth={loc.pathname === "/alpha/proposals" ? 2.4 : 1.9} />}
+            icon={<Inbox size={24} strokeWidth={loc.pathname === "/alpha/proposals" ? 2.4 : 1.9} />}
             label="주문 제안"
             active={loc.pathname === "/alpha/proposals"}
             tutorialId="tutorial-sidebar-proposals"
@@ -507,8 +517,8 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
           >
             <NavItem
               expanded={expanded}
-              icon={<Laptop size={20} strokeWidth={inDeveloper ? 2.4 : 1.9} />}
-              label="Developer IDE"
+              icon={<Laptop size={24} strokeWidth={inDeveloper ? 2.4 : 1.9} />}
+              label="Quant Developer IDE"
               active={inDeveloper}
               tutorialId="tutorial-sidebar-developer"
               onClick={() => go("/alpha/developer")}
@@ -523,15 +533,16 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
           opacity: expanded ? 1 : 0,
           transition: `opacity 0.2s 0.08s`,
           pointerEvents: expanded ? "auto" : "none",
+          borderTop: "1px solid rgba(255,255,255,0.12)",
         }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: "rgba(255,255,255,0.5)", padding: "8px 8px 4px", letterSpacing: 0.2 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.75)", padding: "10px 8px 5px", letterSpacing: 0.8, textTransform: "uppercase" }}>
             최근 워크스페이스
           </div>
           {workspaces.length === 0 ? (
             <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", padding: "4px 8px" }}>전략 없음</div>
           ) : (
             workspaces.slice(0, 10).map(ws => (
-              <WideBtn key={ws.id} label={ws.name || `전략 #${ws.id}`} small
+              <WideBtn key={ws.id} label={ws.name || `전략 #${ws.id}`} small bullet
                 active={loc.pathname === `/alpha/w/${ws.id}`}
                 onClick={() => nav(`/alpha/w/${ws.id}`)} />
             ))
@@ -543,7 +554,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
 
         {/* ── 7. Bottom row ─────────────────────────────── */}
         <div style={{
-          padding: expanded ? "8px 10px 12px" : "0 7px 10px",
+          padding: expanded ? "8px 10px 12px" : "8px 9px 10px",
           borderTop: "1px solid rgba(255,255,255,0.12)",
           display: "flex",
           flexDirection: expanded ? "row" : "column",
@@ -553,7 +564,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
         }}>
           {/* Guide toggle */}
           <SideIconBtn title="이용 가이드" active={!!guideOpen} onClick={onToggleGuide}>
-            <BookOpen size={expanded ? 18 : 22} />
+            <CircleHelp size={expanded ? 18 : 22} />
           </SideIconBtn>
 
           {/* Bell */}
@@ -568,7 +579,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
           </SideIconBtn>
 
           {/* Lang */}
-          <div ref={langRef} style={{ position: "relative" }}>
+          <div ref={langRef} style={{ position: "relative", width: 34, height: 34, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <SideIconBtn title="언어 변경" active={langOpen} onClick={() => {
               if (!expanded && langRef.current) {
                 const r = langRef.current.getBoundingClientRect();
@@ -583,7 +594,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
           </div>
 
           {/* Settings */}
-          <div ref={gearRef} style={{ position: "relative" }}>
+          <div ref={gearRef} style={{ position: "relative", width: 34, height: 34, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <SideIconBtn title="설정" active={gearOpen} onClick={() => {
               if (gearRef.current) {
                 const r = gearRef.current.getBoundingClientRect();
@@ -593,10 +604,10 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
                   setGearFlyTop(null);
                   setGearFlyLeft(r.left);
                 } else {
-                  // 접힘: 버튼 바로 오른쪽에, 상단 정렬
-                  setGearFlyTop(r.top);
-                  setGearFlyBottom(null);
-                  setGearFlyLeft(r.right + 6);
+                  // 접힘: 버튼 바로 오른쪽에, 버튼 하단 기준 위로 펼침
+                  setGearFlyBottom(window.innerHeight - r.bottom);
+                  setGearFlyTop(null);
+                  setGearFlyLeft(58);
                 }
               }
               setGearOpen(o => !o); setThemeSubOpen(false);
@@ -609,17 +620,17 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
 
           {/* Hero */}
           {isAuthed && (
-            <div ref={heroRef} style={{ position: "relative" }}>
+            <div ref={heroRef} style={{ position: "relative", width: 34, height: 34, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <button onClick={(e) => { e.stopPropagation(); setHeroOpen(o => !o); }} title="내 Hero / 마이페이지"
                 style={{
-                  width: expanded ? 30 : 34, height: expanded ? 30 : 34, borderRadius: "50%",
+                  width: 34, height: 34, borderRadius: "50%",
                   background: "white",
                   border: heroOpen ? "2px solid white" : "1.5px solid rgba(255,255,255,0.4)",
-                  cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  boxShadow: "0 2px 6px rgba(0,0,0,0.25)", overflow: "hidden", padding: 0,
+                  cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.25)", overflow: "hidden", padding: 0, flexShrink: 0,
                 }}>
                 <img src={getCurrentHeroSrc()} alt="me"
-                  style={{ width: expanded ? 26 : 30, height: expanded ? 26 : 30, objectFit: "contain" }} />
+                  style={{ width: 30, height: 30, objectFit: "contain" }} />
               </button>
             </div>
           )}
@@ -760,7 +771,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, width =
             boxShadow: "0 12px 32px rgba(0,0,0,0.18)", padding: 6, minWidth: 200,
           }}>
             <div style={{ padding: "4px 10px 8px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>
-              Developer IDE
+              Quant Developer IDE
             </div>
             {DEV_SUBMENUS.map(item => {
               const params = new URLSearchParams(loc.search);
@@ -845,7 +856,7 @@ function NavItem({ icon, label, active = false, expanded, onClick, tutorialId })
 }
 
 /* ─── WideBtn: expanded-only wide button ─────────────── */
-function WideBtn({ icon, label, active = false, small = false, onClick }) {
+function WideBtn({ icon, label, active = false, small = false, bullet = false, onClick }) {
   const [hover, setHover] = useState(false);
   return (
     <button onClick={(e) => { e.stopPropagation(); onClick?.(); }}
@@ -862,6 +873,9 @@ function WideBtn({ icon, label, active = false, small = false, onClick }) {
         whiteSpace: "nowrap", overflow: "hidden",
       }}
     >
+      {bullet && !icon && (
+        <span style={{ width: 5, height: 5, borderRadius: "50%", background: active ? "white" : "rgba(255,255,255,0.45)", flexShrink: 0 }} />
+      )}
       {icon && (
         <span style={{ color: active ? "white" : "rgba(255,255,255,0.65)", flexShrink: 0, display: "inline-flex", alignItems: "center" }}>
           {icon}

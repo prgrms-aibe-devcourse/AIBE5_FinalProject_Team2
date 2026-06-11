@@ -20,7 +20,7 @@ import {
  *  3. 미등록이면 등록 폼, 등록되어 있으면 상태 + 잔고 + 주문 UI
  *  4. 모든 broker API 호출은 ?env=MOCK|REAL 파라미터 동반
  */
-export default function AccountPage() {
+export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
   const { theme: rawTheme } = useTheme();
   const { t } = useLanguage();
   const theme = useMemo(() => ({
@@ -84,7 +84,7 @@ export default function AccountPage() {
               margin: 0, fontSize: 26, fontWeight: 800, lineHeight: 1.15,
               background: "linear-gradient(90deg,#3b82f6 0%,#6366f1 100%)",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-            }}>{t("account.title")}</h1>
+            }}>{pageTitle || t("account.title")}</h1>
             <p style={{ margin: "5px 0 0", fontSize: 13, color: "#64748B", fontWeight: 500 }}>
               {t("account.subtitle")}
             </p>
@@ -97,6 +97,7 @@ export default function AccountPage() {
         {[
           { id: "KIS",     label: t("account.brokers.KIS.label"),     sub: t("account.brokers.KIS.sub"),     icon: <div style={{ width: 32, height: 32, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src="https://www.google.com/s2/favicons?domain=truefriend.com&sz=64" alt="KIS" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>,  accent: "linear-gradient(135deg,#60a5fa,#6366f1)" },
           { id: "BINANCE", label: t("account.brokers.BINANCE.label"), sub: t("account.brokers.BINANCE.sub"), icon: <img src={binanceLogo} alt="Binance.US" style={{ width: 32, height: 32, objectFit: "contain" }} />, accent: "linear-gradient(135deg,#fbbf24,#f59e0b)" },
+          ...extraTabs,
         ].map(({ id, label, sub, icon, accent }) => {
           const active = brokerType === id;
           const hasAny = accounts.some(a => a.brokerType === id);
@@ -155,6 +156,9 @@ export default function AccountPage() {
         position: "relative", zIndex: 1,
       }}>
 
+      {extraTabs.find(tb => tb.id === brokerType) ? (
+        extraTabs.find(tb => tb.id === brokerType).node
+      ) : (<>
       {/* 환경 탭 */}
       <div className="env-tabs" style={{ display: "flex", gap: 8, marginBottom: 18 }}>
         {["MOCK", "REAL"].map(e => {
@@ -192,6 +196,7 @@ export default function AccountPage() {
           : (brokerType === "BINANCE"
               ? <BinanceRegister theme={theme} env={env} reload={reload} setMsg={setMsg} />
               : <AccountRegister theme={theme} env={env} accounts={accounts} reload={reload} setMsg={setMsg} />)}
+      </>)}
       </div>
     </div>
   );
@@ -525,12 +530,19 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
                 <tbody>
                   {balance.positions.map((p, i) => {
                     const pnl = Number(p.unrealized_pnl || 0);
+                    const avg = Number(p.avg_price);
+                    const qty = Number(p.qty);
+                    // 평가금액: 백엔드 market_value 우선, 없으면 수량×평단으로 추정(0원/NaN 표시 방지)
+                    let mv = Number(p.market_value);
+                    if (!Number.isFinite(mv) || mv === 0) {
+                      mv = (Number.isFinite(qty) && Number.isFinite(avg)) ? qty * avg + pnl : NaN;
+                    }
                     return (
                       <tr key={i} style={{ borderTop: `1px solid ${theme.border}` }}>
                         <td style={td}>{p.ticker}</td>
                         <td style={td}>{p.qty}</td>
-                        <td style={td}>${Number(p.avg_price).toFixed(2)}</td>
-                        <td style={td}>${Number(p.market_value).toFixed(2)}</td>
+                        <td style={td}>{Number.isFinite(avg) ? `$${avg.toFixed(2)}` : "—"}</td>
+                        <td style={td}>{Number.isFinite(mv) ? `$${mv.toFixed(2)}` : "—"}</td>
                         <td style={{ ...td, color: pnl >= 0 ? "#16a34a" : "#dc2626", fontWeight: 700 }}>
                           {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
                         </td>
