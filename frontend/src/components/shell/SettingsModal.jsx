@@ -18,7 +18,7 @@ const CATEGORIES = [
     sub: [{ key: "startup", label: "시작" }, { key: "language", label: "언어" }],
   },
   {
-    key: "editor", label: "편집기 (Developer IDE)", Icon: Code,
+    key: "editor", label: "편집기 (Quant Developer IDE)", Icon: Code,
     sub: [
       { key: "font", label: "글꼴" },
       { key: "format", label: "서식" },
@@ -82,7 +82,7 @@ const SETTINGS = [
   {
     cat: "editor", group: "글꼴",
     key: "ah.editor.fontSize", label: "글꼴 크기 (px)",
-    desc: "Developer IDE 편집 영역의 기본 글꼴 크기입니다.",
+    desc: "Quant Developer IDE 편집 영역의 기본 글꼴 크기입니다.",
     type: "number", def: 13, min: 10, max: 28,
   },
   {
@@ -172,7 +172,7 @@ const SETTINGS = [
   {
     cat: "workbench", group: "Alpha 워크스페이스",
     key: "ah.workbench.sidePanelWidth", label: "사이드 패널 기본 너비 (px)",
-    desc: "Developer IDE 좌측 파일 탐색기·Git 패널의 초기 너비입니다.",
+    desc: "Quant Developer IDE 좌측 파일 탐색기·Git 패널의 초기 너비입니다.",
     type: "number", def: 220, min: 160, max: 400,
   },
 
@@ -325,7 +325,7 @@ const SETTINGS = [
   {
     cat: "ide", group: "에디터 연동",
     key: "ah.ide.autoContext", label: "현재 파일 컨텍스트 자동 공유",
-    desc: "Developer Studio에서 열린 파일 내용을 AI 에이전트에게 자동으로 전달합니다.",
+    desc: "Quant Developer IDE에서 열린 파일 내용을 AI 에이전트에게 자동으로 전달합니다.",
     type: "boolean", def: true,
   },
   {
@@ -351,7 +351,7 @@ const SETTINGS = [
   {
     cat: "ide", group: "IDE AI 모델",
     key: "ah.ide.model", label: "IDE 기본 AI 모델",
-    desc: "Developer Studio의 Claude 에이전트가 코드 편집 시 사용할 기본 모델입니다.",
+    desc: "Quant Developer IDE의 Claude 에이전트가 코드 편집 시 사용할 기본 모델입니다.",
     type: "select", def: "claude-sonnet-4",
     options: [
       { value: "claude-sonnet-4",  label: "Claude Sonnet 4 (균형 · 추천)" },
@@ -372,7 +372,7 @@ const SETTINGS = [
     key: "__readonly__ide_byok", label: "Anthropic API 키 등록", type: "info",
     desc:
       "Claude Code CLI에 자체 Anthropic API 키를 연결하려면\n" +
-      "Alpha 워크스페이스 › Developer Studio › ClaudeKeyConnect 패널을 이용하세요.\n\n" +
+      "Alpha 워크스페이스 › Quant Developer IDE › ClaudeKeyConnect 패널을 이용하세요.\n\n" +
       "등록된 API 키는 AES-256-GCM으로 암호화되어 저장됩니다.\n" +
       "CLI 환경에서는 ANTHROPIC_API_KEY 환경 변수로도 설정 가능합니다.",
   },
@@ -506,8 +506,8 @@ const SETTINGS = [
       "Ctrl+/        AI 채팅(Heli) 토글\n" +
       "Ctrl+,        설정 열기\n" +
       "Ctrl+Enter    백테스트 실행 (전략 워크스페이스)\n" +
-      "Ctrl+S        코드 저장 (Developer IDE)\n" +
-      "Ctrl+`        터미널 열기 (Developer IDE)\n" +
+      "Ctrl+S        코드 저장 (Quant Developer IDE)\n" +
+      "Ctrl+`        터미널 열기 (Quant Developer IDE)\n" +
       "Esc           모달 닫기",
   },
 

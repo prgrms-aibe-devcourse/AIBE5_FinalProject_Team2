@@ -76,7 +76,7 @@ const SYS = `너는 Alpha-Helix의 AI 동료 "Heli(헬리)"야. 차분하고 따
 불확실하면 patch를 만들지 말고 질문으로 답해.
 패치는 즉시 적용되고 화면 상단 바에서 [유지] / [실행 취소] 가능. VS Code Copilot처럼 사용자 승인이 보장돼.`;
 
-// Developer IDE 에디터가 공유한 현재 코드를 Heli 컨텍스트로 만든다.
+// Quant Developer IDE 에디터가 공유한 현재 코드를 Heli 컨텍스트로 만든다.
 // (window.__alphaLiveCode 는 DeveloperLab 이 wsId/fileContents 변경 시 갱신)
 function buildLiveCodeContext() {
   try {
@@ -94,7 +94,7 @@ function buildLiveCodeContext() {
         return `### code.${k}\n\`\`\`python\n${code}\n\`\`\``;
       });
     if (!blocks.length) return "";
-    return `\n\n[현재 워크스페이스 코드 — Developer IDE 에디터 기준]\n` +
+    return `\n\n[현재 워크스페이스 코드 — Quant Developer IDE 에디터 기준]\n` +
       `사용자가 코드 수정을 요청하면 반드시 아래 "현재 코드"를 베이스로 필요한 부분만 바꿔 ` +
       `파일 전체를 재작성한 결과를 code.<파일명> 패치(value=새 전체 코드)로 반환해. ` +
       `절대 처음부터 새로 쓰거나 기존 로직을 임의로 지우지 마.\n` +
