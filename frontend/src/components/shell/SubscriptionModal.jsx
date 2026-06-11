@@ -70,13 +70,12 @@ const PLANS = [
   {
     id: "EXPERT",
     name: "Expert",
-    badge: "출시 예정",
+    badge: "신규",
     price: 39900,
     desc: "퀀트 개발자를 위한 코딩 전용 탭과 최상위 모델",
     color: "#7C3AED",
     grad: "linear-gradient(135deg,#F5F3FF,#EDE9FE)",
     border: "#C4B5FD",
-    comingSoon: true,
     features: [
       { icon: <Code2 size={14}/>,  text: "개발자 전용 퀀트 코딩 탭 (Python)", highlight: true },
       { icon: <Wallet size={14}/>, text: "증권 계좌 연동 무제한", highlight: true },
