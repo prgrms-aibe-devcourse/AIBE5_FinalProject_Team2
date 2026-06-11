@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import beachVideo from '../assets/beach.mp4';
+import beachVideo from '../assets/hero_banner.mp4';
 
 function LandingPage() {
   const navigate = useNavigate();
