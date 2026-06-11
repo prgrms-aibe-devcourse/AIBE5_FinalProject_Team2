@@ -53,6 +53,7 @@ import { ThemeProvider } from "./alpha/ThemeContext";
 const AlphaShell         = lazy(() => import("./alpha/AlphaShell"));
 const AlphaWorkspaceList = lazy(() => import("./alpha/WorkspaceList"));
 const AlphaAccountPage   = lazy(() => import("./alpha/AccountPage"));
+const AlphaBalanceAccountPage = lazy(() => import("./alpha/BalanceAccountPage"));
 const AlphaProposalsPage = lazy(() => import("./alpha/ProposalsPage"));
 const AlphaWorkspace     = lazy(() => import("./alpha/Workspace"));
 const AlphaDeveloperLab  = lazy(() => import("./alpha/DeveloperLab"));
@@ -88,6 +89,7 @@ function App() {
             <Route index                       element={<AlphaWorkspaceList />} />
             <Route path="w/:id"                element={<AlphaWorkspace />} />
             <Route path="account"              element={<AlphaAccountPage />} />
+            <Route path="balance_account"      element={<AlphaBalanceAccountPage />} />
             <Route path="proposals"            element={<AlphaProposalsPage />} />
             <Route path="developer"            element={<AlphaDeveloperLab />} />
           </Route>
