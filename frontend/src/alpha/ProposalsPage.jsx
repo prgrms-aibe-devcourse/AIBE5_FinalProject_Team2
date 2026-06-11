@@ -354,7 +354,7 @@ export default function ProposalsPage() {
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                   <select
                     required value={form.brokerAccountId}
-                    onChange={e => setForm(f => ({ ...f, brokerAccountId: e.target.value }))}
+                    onChange={e => setForm(f => ({ ...f, brokerAccountId: e.target.value, ticker: "" }))}
                     style={{
                       padding: "8px 12px", borderRadius: 9,
                       border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.07)",
@@ -416,7 +416,9 @@ export default function ProposalsPage() {
                     <label style={mLabelStyle}>종목 <span style={{ color: "#EF4444" }}>*</span></label>
                     <select required value={form.ticker} onChange={e => setForm(f => ({ ...f, ticker: e.target.value }))} style={mInputStyle}>
                       <option value="">종목 선택</option>
-                      {TICKER_LIST.map(tk => <option key={tk.value} value={tk.value}>{tk.value} — {tk.name}</option>)}
+                      {(brokerAccounts.find(a => String(a.id) === String(form.brokerAccountId))?.brokerType === "BINANCE"
+                        ? CRYPTO_LIST : TICKER_LIST
+                      ).map(tk => <option key={tk.value} value={tk.value}>{tk.value} — {tk.name}</option>)}
                     </select>
                   </div>
 
@@ -554,6 +556,17 @@ const TICKER_LIST = [
   { value: "WMT",   name: "월마트 🇺🇸" },
   { value: "COIN",  name: "코인베이스 🇺🇸" },
   { value: "PLTR",  name: "팔란티어 🇺🇸" },
+];
+
+// Binance(크립토) 계좌용 심볼 — KIS 주식과 달리 USDT 페어(예: BTCUSDT)로 주문.
+const CRYPTO_LIST = [
+  { value: "BTCUSDT",  name: "비트코인" },
+  { value: "ETHUSDT",  name: "이더리움" },
+  { value: "SOLUSDT",  name: "솔라나" },
+  { value: "XRPUSDT",  name: "리플" },
+  { value: "BNBUSDT",  name: "BNB" },
+  { value: "DOGEUSDT", name: "도지코인" },
+  { value: "ADAUSDT",  name: "에이다" },
 ];
 
 const ORDER_TYPES = [
