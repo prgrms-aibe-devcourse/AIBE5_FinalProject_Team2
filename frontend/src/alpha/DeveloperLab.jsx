@@ -5,16 +5,18 @@ import {
   Play, Rocket, Terminal, BarChart3, Code2, Loader, Boxes, Save, Bot,
   FolderOpen, Database, FileCode, ChevronDown, ChevronRight, X,
   ShoppingCart, AlertCircle, CheckCircle2, GitBranch, FilePlus, FolderPlus,
-  ExternalLink, Send, Plus, Lightbulb, Settings,
+  ExternalLink, Send, Plus, Lightbulb, Settings, BookOpen,
 } from "lucide-react";
 import SettingsModal from "../components/shell/SettingsModal";
 import { useTheme } from "./ThemeContext";
 import {
-  getWorkspace, listWorkspaces, runBacktest, runRegime, runTrust, saveCode, queueOrders,
-  getDataStatus, getDataPreview, leanBacktestStart, leanBacktestStatus, leanListStrategies, getLeanHealth,
+  getWorkspace, listWorkspaces, createWorkspace, selectStrategyCandidate, runBacktest, runRegime, runTrust, saveCode, queueOrders,
+  getDataStatus, getDataPreview, getDatasetsCatalog, getDatasetPreview, leanBacktestStart, leanBacktestStatus, leanListStrategies, getLeanHealth,
   runClaudeAgentStart, runClaudeAgentStatus, resetClaudeSession, runImproveProposal, runCompareBacktest,
   getWorkspaceGitStatus, getWorkspaceFileTree, pullWorkspaceFile, deleteWorkspaceFile,
   listBrokerAccounts, getBinanceBalance, getWorkspaceCommit,
+  linkWorkspaceBroker, updateWorkspaceStatus, setBrokerTrading, setBrokerAutoExecute,
+  getDeveloperAccess, getBrokerBalance,
 } from "./alphaApi";
 import GitPanel from "./GitPanel";
 import TerminalTabs from "./TerminalTabs";
@@ -137,6 +139,17 @@ function generateCodeFromConfig(cfg) {
   const rLow    = params.rsi_low || 30;
   const rHigh   = params.rsi_high || 70;
   const vix     = params.vix_threshold || 25;
+  // 무한매수(IB) / 밸류리밸런싱(VR) 파라미터 — 최적화 스윕 대상
+  const ibSplit = params.split || 40;
+  const ibTp    = params.take_profit_pct ?? 10.0;
+  const ibLoc   = params.loc_offset_pct ?? 12.0;
+  const vrRd    = params.rebalance_days || 10;
+  const vrEr    = params.expected_return ?? 0.02;
+  const vrBand  = params.band_pct ?? 0.20;
+  const vrPool  = params.pool_target_pct ?? 0.50;
+  const vrIpool = params.initial_pool_pct ?? 0.50;
+  const initCap = params.initial_capital ?? 10000;
+  const tickersList = assets.map(a => `"${a}"`).join(", ");
   const clsName = name.replace(/[^a-zA-Z0-9]/g, "").replace(/^[0-9]/, "S") || "Strategy";
 
   if (stype === "momentum_rotation") {
@@ -240,6 +253,52 @@ class ${clsName}(QCAlgorithm):
 `;
   }
 
+  if (stype === "infinite_buying") {
+    return `# AlphaHelix Strategy: ${name}
+# ════════════════════════════════════════════════════════
+# 전략 유형: 무한매수법 (Infinite Buying · LOC 분할매수)
+TICKERS         = [${tickersList}]
+SPLIT           = ${ibSplit}        # 분할 횟수 — 시드를 N등분해 매 거래일 1/N 매수
+TAKE_PROFIT_PCT = ${ibTp}        # 평단 대비 익절 목표 수익률(%)
+LOC_OFFSET_PCT  = ${ibLoc}        # 종가 대비 추가매수 지정가 오프셋(%)
+INITIAL_CAPITAL = ${initCap}
+
+# 핵심 로직 (실행 엔진: AlphaHelix analytics · vectorbt 기반)
+#   1) 매 거래일 시드의 1/SPLIT 만큼 분할 매수 (LOC 지정가 = 종가×(1-LOC_OFFSET_PCT/100))
+#   2) 평단가 대비 +TAKE_PROFIT_PCT 도달 시 전량 익절 → 사이클 리셋
+#   3) 시드 소진 시 추가매수 중단, 익절 신호 대기
+def run(prices):
+    for ticker in TICKERS:
+        seed_per_buy = INITIAL_CAPITAL / SPLIT
+        # ... 분할매수 / 평단 추적 / 익절 사이클 (엔진 내부 구현) ...
+        pass
+`;
+  }
+
+  if (stype === "value_rebalancing") {
+    return `# AlphaHelix Strategy: ${name}
+# ════════════════════════════════════════════════════════
+# 전략 유형: 밸류 리밸런싱 (Value Rebalancing)
+TICKERS          = [${tickersList}]
+REBALANCE_DAYS   = ${vrRd}        # 리밸런싱 주기(거래일)
+EXPECTED_RETURN  = ${vrEr}      # 주기당 목표 수익률(밸류 밴드 중심)
+BAND_PCT         = ${vrBand}      # 허용 밴드 폭(±, 비율)
+POOL_TARGET_PCT  = ${vrPool}      # 목표 풀(주식) 비중
+INITIAL_POOL_PCT = ${vrIpool}      # 초기 풀 비중
+INITIAL_CAPITAL  = ${initCap}
+
+# 핵심 로직 (실행 엔진: AlphaHelix analytics · vectorbt 기반)
+#   1) REBALANCE_DAYS 마다 목표가치 = 직전가치×(1+EXPECTED_RETURN) 산정
+#   2) 평가액이 목표가치×(1±BAND_PCT) 밴드를 벗어나면 풀 비중을 POOL_TARGET_PCT 로 복원
+#   3) 하락 시 저가매수(풀 확대), 상승 시 차익실현(풀 축소)
+def run(prices):
+    for ticker in TICKERS:
+        target = INITIAL_CAPITAL * INITIAL_POOL_PCT
+        # ... 주기적 밴드 이탈 점검 / 비중 복원 (엔진 내부 구현) ...
+        pass
+`;
+  }
+
   return `# AlphaHelix Strategy: ${name}
 # ════════════════════════════════════════════════════════
 # 전략 유형: SMA 크로스오버
@@ -295,6 +354,15 @@ function parseParamsFromCode(code) {
   extract(/^\s*MACD_SLOW\s*=\s*([\d.]+)/m,   "macd_slow");
   extract(/^\s*MACD_SIGNAL\s*=\s*([\d.]+)/m, "macd_signal");
   extract(/^\s*VIX_THRESHOLD\s*=\s*([\d.]+)/m,"vix_threshold");
+  // 무한매수(IB) / 밸류리밸런싱(VR) — 최적화 스윕 대상
+  extract(/^\s*SPLIT\s*=\s*([\d.]+)/m,            "split");
+  extract(/^\s*TAKE_PROFIT_PCT\s*=\s*([\d.]+)/m,  "take_profit_pct");
+  extract(/^\s*LOC_OFFSET_PCT\s*=\s*([\d.]+)/m,   "loc_offset_pct");
+  extract(/^\s*REBALANCE_DAYS\s*=\s*([\d.]+)/m,   "rebalance_days");
+  extract(/^\s*EXPECTED_RETURN\s*=\s*([\d.]+)/m,  "expected_return");
+  extract(/^\s*BAND_PCT\s*=\s*([\d.]+)/m,         "band_pct");
+  extract(/^\s*POOL_TARGET_PCT\s*=\s*([\d.]+)/m,  "pool_target_pct");
+  extract(/^\s*INITIAL_POOL_PCT\s*=\s*([\d.]+)/m, "initial_pool_pct");
   extract(/^\s*TICKER\s*=\s*"([^"]+)"/m,     "ticker", false);
   return result;
 }
@@ -312,6 +380,9 @@ function applyParamsToCode(code, params) {
   repl("RSI_PERIOD", params.rsi_period); repl("RSI_LOW", params.rsi_low); repl("RSI_HIGH", params.rsi_high);
   repl("MACD_FAST", params.macd_fast); repl("MACD_SLOW", params.macd_slow); repl("MACD_SIGNAL", params.macd_signal);
   repl("VIX_THRESHOLD", params.vix_threshold);
+  repl("SPLIT", params.split); repl("TAKE_PROFIT_PCT", params.take_profit_pct); repl("LOC_OFFSET_PCT", params.loc_offset_pct);
+  repl("REBALANCE_DAYS", params.rebalance_days); repl("EXPECTED_RETURN", params.expected_return); repl("BAND_PCT", params.band_pct);
+  repl("POOL_TARGET_PCT", params.pool_target_pct); repl("INITIAL_POOL_PCT", params.initial_pool_pct);
   return out;
 }
 
@@ -329,7 +400,7 @@ const FILE_META = {
   main: { name: "main.py", lang: "python" },
 };
 
-const PLACEHOLDER_CODE = `# ── AlphaHelix Developer IDE ──────────────────────────
+const PLACEHOLDER_CODE = `# ── AlphaHelix Quant Developer IDE ──────────────────────────
 # 워크스페이스가 선택되지 않았습니다.
 #
 # 사용 방법:
@@ -468,15 +539,30 @@ function MetricCard({label,value,color="#60a5fa"}) {
 }
 
 // ── DataTableView ─────────────────────────────────────────────────────────────
+const IDE_DS_THEME = {
+  accent: "#60a5fa", text: "#e5e7eb", textMuted: "#94a3b8",
+  panel: "#161b22", panelBorder: "rgba(255,255,255,0.12)", panelAlt: "rgba(96,165,250,0.12)",
+};
+
 function DataTableView({ datasetId, datasets }) {
   const list = (datasets && datasets.length) ? datasets : DATASETS;
   const ds = list.find(d=>d.id===datasetId);
   const [rows, setRows] = useState(ds?.preview || []);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
+  const [viewMode, setViewMode] = useState("table");   // "table" | "chart"
+  const [selectedSym, setSelectedSym] = useState(null);
+  const [chartRows, setChartRows] = useState([]);
+  const [chartLoading, setChartLoading] = useState(false);
 
+  // 심볼 선택 초기화: 데이터셋이 바뀌면 첫 번째 심볼로 리셋
   useEffect(() => {
-    // 내 Binance 계좌 — 실시간 잔고 (getBinanceBalance)
+    if (ds?.symbols?.length) setSelectedSym(ds.symbols[0]);
+    else setSelectedSym(null);
+  }, [ds?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 테이블 데이터 로드
+  useEffect(() => {
     if (ds && ds.liveBinance) {
       let alive = true;
       setLoading(true); setErr(null);
@@ -501,7 +587,7 @@ function DataTableView({ datasetId, datasets }) {
       return () => { alive = false; };
     }
     if (!ds || !ds.live) { setRows(ds?.preview || []); return; }
-    const sym = ds.symbols && ds.symbols[0];
+    const sym = selectedSym || (ds.symbols && ds.symbols[0]);
     if (!sym) { setRows([]); return; }
     let alive = true;
     setLoading(true); setErr(null);
@@ -509,7 +595,6 @@ function DataTableView({ datasetId, datasets }) {
       .then(res => {
         if (!alive) return;
         const data = (res && res.data) || [];
-        // 최신이 위로 오도록 역순
         setRows(data.slice().reverse().map(r => ({
           ts: String(r.ts || "").slice(0, 19),
           symbol: r.symbol,
@@ -519,61 +604,800 @@ function DataTableView({ datasetId, datasets }) {
       .catch(() => { if (alive) setErr("미리보기 로드 실패 — Analytics 사이드카 / 수집 현황을 확인하세요."); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [ds?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ds?.id, selectedSym]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 차트 데이터 로드 (200봉)
+  useEffect(() => {
+    if (!ds?.live || ds?.liveBinance) return;
+    const sym = selectedSym || (ds.symbols && ds.symbols[0]);
+    if (!sym) return;
+    let alive = true;
+    setChartLoading(true);
+    getDataPreview(sym, ds.tf || "1d", ds.source, 200)
+      .then(res => {
+        if (!alive) return;
+        const data = ((res && res.data) || []).slice().sort((a, b) => String(a.ts) < String(b.ts) ? -1 : 1);
+        setChartRows(data);
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setChartLoading(false); });
+    return () => { alive = false; };
+  }, [ds?.id, selectedSym]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ds) return null;
   const cols = ds.cols || ["ts","symbol","open","high","low","close","volume"];
+  const symList = ds.symbols || [];
+  const isLiveOhlcv = ds.live && !ds.liveBinance;
+
+  // 차트 시리즈 구성: 종가 + SMA 20/50
+  const closePts = chartRows.map(r => ({ x: new Date(r.ts || r.date), y: Number(r.close) }));
+  const closeVals = closePts.map(p => p.y);
+  const sma20Vals = calcSMA(closeVals, 20);
+  const sma50Vals = calcSMA(closeVals, 50);
+  const chartSeries = closePts.length > 1 ? [
+    { name: `${selectedSym || ""} Close`, color: "#60a5fa",  points: closePts },
+    { name: "SMA 20",  color: "#f59e0b", points: closePts.map((p, i) => ({ x: p.x, y: sma20Vals[i] })).filter(p => p.y != null) },
+    { name: "SMA 50",  color: "#a78bfa", points: closePts.map((p, i) => ({ x: p.x, y: sma50Vals[i] })).filter(p => p.y != null) },
+  ] : [];
+
+  // 가격 변화율 계산 (차트 헤더용)
+  const latestClose = closePts.length ? closePts[closePts.length - 1].y : null;
+  const prevClose   = closePts.length > 1 ? closePts[closePts.length - 2].y : null;
+  const changePct   = (latestClose && prevClose) ? ((latestClose - prevClose) / prevClose * 100) : null;
+
   return (
     <div style={{flex:1,overflow:"auto",padding:"16px 20px",background:"#0f1117"}}>
-      <div style={{marginBottom:10,display:"flex",alignItems:"center",gap:12}}>
-        <div>
-          <div style={{fontSize:13,fontWeight:700,color:"white",display:"flex",alignItems:"center",gap:8}}>
+      {/* ── 헤더 ─────────────────────────────────────── */}
+      <div style={{marginBottom:12,display:"flex",alignItems:"flex-start",gap:12,flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:700,color:"white",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
             {ds.name}
-            {(ds.live || ds.liveBinance) && <span style={{fontSize:8,padding:"1px 6px",borderRadius:999,background:"rgba(16,185,129,0.15)",color:"#10B981",fontWeight:700}}>{ds.liveBinance ? "LIVE" : "LIVE DB"}</span>}
+            {(ds.live || ds.liveBinance) && (
+              <span style={{fontSize:8,padding:"1px 6px",borderRadius:999,background:"rgba(16,185,129,0.15)",color:"#10B981",fontWeight:700}}>
+                {ds.liveBinance ? "LIVE" : "LIVE DB"}
+              </span>
+            )}
           </div>
           <div style={{fontSize:10,color:"#4B5563",marginTop:2}}>{ds.desc}  ·  {ds.rows} rows  ·  {cols.length} cols</div>
         </div>
-        <div style={{marginLeft:"auto",display:"flex",gap:6,flexWrap:"wrap"}}>
-          {cols.map(c=>(
-            <span key={c} style={{fontSize:9,padding:"2px 7px",borderRadius:4,background:"rgba(96,165,250,0.1)",color:"#60a5fa",fontFamily:"monospace"}}>{c}</span>
-          ))}
+
+        {/* 심볼 드롭다운 (multi-symbol 데이터셋) */}
+        {isLiveOhlcv && symList.length > 1 && (
+          <select
+            value={selectedSym || ""}
+            onChange={e => setSelectedSym(e.target.value)}
+            style={{
+              background:"#161b22", color:"#e2e8f0", border:"1px solid rgba(255,255,255,0.12)",
+              borderRadius:6, padding:"4px 8px", fontSize:11, cursor:"pointer",
+            }}
+          >
+            {symList.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
+
+        {/* 차트 / 테이블 토글 */}
+        {isLiveOhlcv && (
+          <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:"1px solid rgba(255,255,255,0.1)"}}>
+            {["chart","table"].map(mode => (
+              <button key={mode} onClick={() => setViewMode(mode)} style={{
+                padding:"4px 12px", fontSize:10, fontWeight:700, cursor:"pointer", border:"none",
+                background: viewMode === mode ? "#60a5fa" : "transparent",
+                color: viewMode === mode ? "#000" : "#6B7280",
+              }}>
+                {mode === "chart" ? "📈 차트" : "🗂 테이블"}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 컬럼 배지 */}
+        {!isLiveOhlcv && (
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {cols.map(c=>(
+              <span key={c} style={{fontSize:9,padding:"2px 7px",borderRadius:4,background:"rgba(96,165,250,0.1)",color:"#60a5fa",fontFamily:"monospace"}}>{c}</span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── 차트 뷰 ──────────────────────────────────── */}
+      {viewMode === "chart" && isLiveOhlcv && (
+        <div style={{background:"rgba(255,255,255,0.02)",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",padding:"14px 16px",marginBottom:12}}>
+          {/* 현재가 헤더 */}
+          <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:10}}>
+            <span style={{fontSize:18,fontWeight:800,color:"#e2e8f0",fontFamily:"monospace"}}>
+              {latestClose != null ? latestClose.toLocaleString(undefined, {maximumFractionDigits:4}) : "—"}
+            </span>
+            {changePct != null && (
+              <span style={{fontSize:12,fontWeight:700,color: changePct >= 0 ? "#10B981" : "#EF4444"}}>
+                {changePct >= 0 ? "+" : ""}{changePct.toFixed(2)}%
+              </span>
+            )}
+            <span style={{fontSize:10,color:"#4B5563",marginLeft:"auto"}}>
+              {selectedSym}  ·  {ds.tf || "1d"}  ·  {chartRows.length}봉
+            </span>
+          </div>
+
+          {chartLoading ? (
+            <div style={{textAlign:"center",padding:"40px 0",color:"#4B5563",fontSize:11}}>차트 로딩 중…</div>
+          ) : chartSeries.length > 0 ? (
+            <TrendLineChart
+              series={chartSeries}
+              theme={IDE_DS_THEME}
+              height={220}
+              toggleable
+              initialHidden={["SMA 50"]}
+            />
+          ) : (
+            <div style={{textAlign:"center",padding:"40px 0",color:"#4B5563",fontSize:11}}>
+              데이터 없음 — Analytics 사이드카가 실행 중인지 확인하세요.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 테이블 뷰 ────────────────────────────────── */}
+      {(viewMode === "table" || !isLiveOhlcv) && (
+        <>
+          <div style={{overflowX:"auto"}}>
+            <table style={{borderCollapse:"collapse",width:"100%",fontSize:11.5}}>
+              <thead>
+                <tr>
+                  {cols.map(c=>(
+                    <th key={c} style={{padding:"6px 12px",textAlign:"left",color:"#4B5563",fontWeight:700,
+                      borderBottom:"1px solid rgba(255,255,255,0.08)",background:"#161b22",whiteSpace:"nowrap"}}>{c}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row,i)=>(
+                  <tr key={i} style={{background:i%2===0?"transparent":"rgba(255,255,255,0.015)"}}>
+                    {cols.map(c=>(
+                      <td key={c} style={{padding:"5px 12px",color:"#9CA3AF",borderBottom:"1px solid rgba(255,255,255,0.04)",
+                        fontFamily:"'Fira Code',monospace",whiteSpace:"nowrap",fontSize:11}}>{String(row[c] ?? "")}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{marginTop:10,fontSize:10,color:"#2d3748"}}>
+            {loading ? "실제 DB에서 미리보기 로딩 중…"
+              : err ? err
+              : ds.liveBinance ? `* 실시간 Binance 잔고 ${rows.length}개 자산 (0 잔고 제외)`
+              : ds.live ? `* 최근 ${rows.length}행 (실제 수집 데이터 · source=${ds.source})  |  전체 ${ds.rows} rows 적재됨`
+              : `* 상위 ${rows.length}행 미리보기`}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── #7 최적화 위저드 (파라미터 그리드 백테스트 설정 → Launch) ──
+const OPT_PARAM_LABEL = { sma_fast:"SMA_FAST", sma_slow:"SMA_SLOW", rsi_period:"RSI_PERIOD", rsi_low:"RSI_LOW", rsi_high:"RSI_HIGH", macd_fast:"MACD_FAST", macd_slow:"MACD_SLOW", macd_signal:"MACD_SIGNAL", vix_threshold:"VIX_THRESHOLD", split:"SPLIT", take_profit_pct:"TAKE_PROFIT_PCT", loc_offset_pct:"LOC_OFFSET_PCT", rebalance_days:"REBALANCE_DAYS", expected_return:"EXPECTED_RETURN", band_pct:"BAND_PCT", pool_target_pct:"POOL_TARGET_PCT", initial_pool_pct:"INITIAL_POOL_PCT" };
+const OPT_METRICS = [["sharpe","샤프 지수"],["total_return_pct","총 수익률"],["annualized_return_pct","연환산 수익률"],["max_drawdown_pct","MDD (낮을수록 좋음)"]];
+
+function OptimizeWizardView({ baseParams, busy, progress, onLaunch }) {
+  const numericKeys = Object.entries(baseParams || {}).filter(([k,v]) => typeof v === "number" && k !== "ticker").map(([k])=>k);
+  const mkRow = (k, i) => {
+    const v = baseParams[k];
+    // 소수/작은 값(band_pct=0.2, expected_return=0.02 등)은 분수 그리드, 정수형(SMA 윈도우 등)은 정수 그리드
+    if (!Number.isInteger(v) || Math.abs(v) < 5) {
+      const span = Math.max(Math.abs(v) * 0.5, 0.02);
+      const r = (x) => Math.round(x * 1000) / 1000;
+      return { name: k, enabled: i < 2, min: r(Math.max(0, v - span)), max: r(v + span), step: r(Math.max(span / 2, 0.005)) };
+    }
+    const span = Math.max(2, Math.round(Math.abs(v) * 0.5));
+    return { name: k, enabled: i < 2, min: Math.max(1, v - span), max: v + span, step: Math.max(1, Math.round(span / 2)) };
+  };
+  const [rows, setRows] = useState(() => numericKeys.map(mkRow));
+  const [metric, setMetric] = useState("sharpe");
+  const [period, setPeriod] = useState("5y");
+  const [nodeTier, setNodeTier] = useState("O4");          // 컴퓨트 노드(표시·QC식)
+  const [constraintOn, setConstraintOn] = useState(false); // 제약: MDD 상한
+  const [maxMdd, setMaxMdd] = useState(30);
+  const setRow = (i, patch) => setRows(prev => prev.map((r,j)=> j===i?{...r,...patch}:r));
+  const enabled = rows.filter(r=>r.enabled);
+  const comboCount = enabled.length ? enabled.reduce((acc,r)=>{ const n = r.step>0 ? Math.floor((Number(r.max)-Number(r.min))/Number(r.step))+1 : 0; return acc * Math.max(0,n); }, 1) : 0;
+  const launch = () => {
+    const params = rows.filter(r=>r.enabled).slice(0,2).map(r=>({name:r.name, min:Number(r.min), max:Number(r.max), step:Number(r.step)}));
+    if (!params.length) { alert("최소 1개 파라미터를 선택하세요."); return; }
+    if (params.some(p=>!(p.step>0) || p.max<p.min)) { alert("범위/스텝 값을 확인하세요(step>0, max≥min)."); return; }
+    onLaunch({ params, metric, metricLabel:(OPT_METRICS.find(m=>m[0]===metric)||[])[1]||metric, period, constraint: constraintOn ? { max_drawdown_pct: Number(maxMdd) } : null });
+  };
+  const estSec = Math.round(comboCount * 1.5);
+  const estLabel = estSec >= 60 ? `${Math.floor(estSec/60)}분 ${estSec%60}초` : `${estSec}초`;
+  const card = { background:"#161b22", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:"14px 16px", marginBottom:12 };
+  const lbl = { fontSize:10.5, color:"#94A3B8", fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:10 };
+  const inp = { width:58, background:"#0d1117", border:"1px solid rgba(255,255,255,0.12)", borderRadius:5, color:"#E5E7EB", fontSize:11.5, padding:"3px 6px", textAlign:"center" };
+
+  return (
+    <div style={{padding:"24px 32px", color:"#E5E7EB", maxWidth:720, fontFamily:"'Inter',sans-serif"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+        <BarChart3 size={20} color="#F59E0B"/>
+        <span style={{fontSize:18,fontWeight:800}}>최적화 (파라미터 그리드)</span>
+      </div>
+      <div style={{fontSize:12,color:"#94A3B8",marginBottom:18}}>
+        파라미터 범위를 스윕하며 백테스트를 반복 실행해 견고성·민감도를 평가합니다. (기존 vectorbt 엔진으로 실제 백테스트)
+      </div>
+
+      <div style={card}>
+        <div style={lbl}>파라미터 &amp; 범위</div>
+        {numericKeys.length===0 ? (
+          <div style={{fontSize:12,color:"#fbbf24",lineHeight:1.6}}>코드에서 스윕 가능한 숫자 파라미터(SMA_FAST 등)를 찾지 못했습니다. main.py 상단에 <code>SMA_FAST = 20</code> 형태로 정의하세요.</div>
+        ) : (
+          <>
+            <div style={{display:"grid",gridTemplateColumns:"22px 1fr 60px 60px 60px",gap:8,alignItems:"center",fontSize:9.5,color:"#64748B",fontWeight:700,marginBottom:6,paddingLeft:2}}>
+              <span/><span>파라미터</span><span style={{textAlign:"center"}}>MIN</span><span style={{textAlign:"center"}}>MAX</span><span style={{textAlign:"center"}}>STEP</span>
+            </div>
+            {rows.map((r,i)=>(
+              <div key={r.name} style={{display:"grid",gridTemplateColumns:"22px 1fr 60px 60px 60px",gap:8,alignItems:"center",marginBottom:7}}>
+                <input type="checkbox" checked={r.enabled} onChange={e=>setRow(i,{enabled:e.target.checked})} style={{accentColor:"#F59E0B",width:15,height:15}}/>
+                <span style={{fontSize:12,fontFamily:"monospace",color:r.enabled?"#E5E7EB":"#64748B"}}>{OPT_PARAM_LABEL[r.name]||r.name} <span style={{color:"#64748B"}}>={baseParams[r.name]}</span></span>
+                <input style={inp} value={r.min} disabled={!r.enabled} onChange={e=>setRow(i,{min:e.target.value})}/>
+                <input style={inp} value={r.max} disabled={!r.enabled} onChange={e=>setRow(i,{max:e.target.value})}/>
+                <input style={inp} value={r.step} disabled={!r.enabled} onChange={e=>setRow(i,{step:e.target.value})}/>
+              </div>
+            ))}
+            <div style={{fontSize:10.5,color:"#64748B",marginTop:8}}>최대 2개까지 사용(2개면 2D 히트맵). 선택 {Math.min(enabled.length,2)}개 · 예상 백테스트 <b style={{color: comboCount>64?"#f87171":"#93c5fd"}}>{comboCount}</b>회{comboCount>64?" (64회 이하로 줄이세요)":""}</div>
+          </>
+        )}
+      </div>
+
+      <div style={{...card, display:"flex", gap:24, alignItems:"center"}}>
+        <div><div style={lbl}>목표 지표</div>
+          <select value={metric} onChange={e=>setMetric(e.target.value)} style={{background:"#0d1117",border:"1px solid rgba(255,255,255,0.12)",borderRadius:6,color:"#E5E7EB",fontSize:12,padding:"5px 8px"}}>
+            {OPT_METRICS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+        <div><div style={lbl}>기간</div>
+          <select value={period} onChange={e=>setPeriod(e.target.value)} style={{background:"#0d1117",border:"1px solid rgba(255,255,255,0.12)",borderRadius:6,color:"#E5E7EB",fontSize:12,padding:"5px 8px"}}>
+            {["1y","3y","5y","10y"].map(p=><option key={p} value={p}>{p}</option>)}
+          </select>
         </div>
       </div>
-      <div style={{overflowX:"auto"}}>
-        <table style={{borderCollapse:"collapse",width:"100%",fontSize:11.5}}>
-          <thead>
-            <tr>
-              {cols.map(c=>(
-                <th key={c} style={{padding:"6px 12px",textAlign:"left",color:"#4B5563",fontWeight:700,
-                  borderBottom:"1px solid rgba(255,255,255,0.08)",background:"#161b22",whiteSpace:"nowrap"}}>{c}</th>
-              ))}
-            </tr>
-          </thead>
+
+      {/* 제약 조건 (Constraints) */}
+      <div style={card}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={lbl}>제약 조건 (Constraints)</div>
+          <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11.5,color:"#cbd5e1",cursor:"pointer"}}>
+            <input type="checkbox" checked={constraintOn} onChange={e=>setConstraintOn(e.target.checked)} style={{accentColor:"#F59E0B",width:14,height:14}}/> 사용
+          </label>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:constraintOn?"#E5E7EB":"#64748B"}}>
+          MDD ≤ <input type="number" value={maxMdd} disabled={!constraintOn} onChange={e=>setMaxMdd(e.target.value)} style={{...inp,width:64}}/> %
+          <span style={{fontSize:10.5,color:"#64748B"}}>— 이 한도를 넘는 조합은 최적 후보에서 제외</span>
+        </div>
+      </div>
+
+      {/* 예상 백테스트 수 & 컴퓨트 노드 (QC식) */}
+      <div style={card}>
+        <div style={lbl}>예상 백테스트 수 & 컴퓨트 노드</div>
+        <div style={{fontSize:12,color:"#cbd5e1",marginBottom:12}}>예상 <b style={{color: comboCount>64?"#f87171":"#93c5fd"}}>{comboCount}</b>회 · 약 <b style={{color:"#93c5fd"}}>{estLabel}</b> <span style={{fontSize:10.5,color:"#64748B"}}>(조합당 ~1.5s · 우리 클라우드 분석 서버에서 순차 실행)</span></div>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          {[["O2","공유 노드","2 vCPU · 8GB","무료/STANDARD"],["O4","표준 노드","4 vCPU · 12GB","STANDARD"],["O8","고성능 노드","8 vCPU · 16GB","PREMIUM"]].map(([id,name,spec,plan])=>{
+            const on = nodeTier===id;
+            return (
+              <div key={id} onClick={()=>setNodeTier(id)} style={{flex:"1 1 150px",minWidth:140,padding:"11px 13px",borderRadius:9,cursor:"pointer",
+                border:`1.5px solid ${on?"#F59E0B":"rgba(255,255,255,0.1)"}`,background:on?"rgba(245,158,11,0.08)":"transparent"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+                  <span style={{fontSize:12,fontWeight:800,color:on?"#fbbf24":"#cbd5e1"}}>{name}</span>
+                  <span style={{fontSize:8.5,fontWeight:700,padding:"1px 6px",borderRadius:999,background:"rgba(167,139,250,0.15)",color:"#c4b5fd"}}>{plan}</span>
+                </div>
+                <div style={{fontSize:10,color:"#64748B"}}>{spec}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{fontSize:10,color:"#64748B",marginTop:8,lineHeight:1.5}}>* 현재는 단일 분석 서버에서 순차 실행됩니다. 고성능·병렬 노드(잡큐)는 PREMIUM 클라우드 컴퓨트 로드맵입니다.</div>
+      </div>
+
+      {busy && (
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,color:"#94A3B8",marginBottom:4}}>최적화 진행 {progress.done}/{progress.total}</div>
+          <div style={{height:6,background:"rgba(255,255,255,0.08)",borderRadius:3,overflow:"hidden"}}>
+            <div style={{height:"100%",width:`${progress.total?Math.round(progress.done/progress.total*100):0}%`,background:"linear-gradient(90deg,#F59E0B,#D97706)",transition:"width .2s"}}/>
+          </div>
+        </div>
+      )}
+
+      <button onClick={launch} disabled={busy || comboCount===0 || comboCount>64}
+        style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,width:"100%",padding:"12px",borderRadius:9,border:"none",
+          background: busy||comboCount===0||comboCount>64 ? "rgba(245,158,11,0.3)" : "linear-gradient(135deg,#F59E0B,#D97706)",
+          color:"white",fontSize:13.5,fontWeight:800,cursor: busy||comboCount===0||comboCount>64 ? "not-allowed":"pointer"}}>
+        {busy ? <Loader size={14} style={{animation:"spin 1s linear infinite"}}/> : <BarChart3 size={14}/>}
+        {busy ? "실행 중…" : `Launch Optimization (${comboCount}회 백테스트)`}
+      </button>
+    </div>
+  );
+}
+
+// ── #8 최적화 결과 — 모든 조합 에쿼티 오버레이 (최적=하이라이트) ──
+function OptEquityOverlay({ combos, best, height = 220 }) {
+  const valid = (combos || []).filter(c => Array.isArray(c.equity) && c.equity.length > 1);
+  if (!valid.length) return null;
+  const W = 720, PADL = 46, PADR = 10, PADT = 10, PADB = 18;
+  const norm = (c) => { const v0 = Number(c.equity[0].value) || 1; return c.equity.map(p => (Number(p.value) / v0) * 100); };
+  const bestKey = best ? JSON.stringify(best.params) : null;
+  let yMin = Infinity, yMax = -Infinity;
+  const series = valid.map(c => { const ys = norm(c); ys.forEach(y => { if (y < yMin) yMin = y; if (y > yMax) yMax = y; }); return { ys, isBest: bestKey && JSON.stringify(c.params) === bestKey }; });
+  if (!isFinite(yMin)) return null;
+  const pad = (yMax - yMin) * 0.05 || 1; yMin -= pad; yMax += pad;
+  const plotW = W - PADL - PADR, plotH = height - PADT - PADB;
+  const xAt = (i, len) => PADL + (len <= 1 ? 0 : (i / (len - 1)) * plotW);
+  const yAt = (v) => PADT + (1 - (v - yMin) / (yMax - yMin)) * plotH;
+  const path = (ys) => ys.map((y, i) => `${i === 0 ? "M" : "L"} ${xAt(i, ys.length).toFixed(1)} ${yAt(y).toFixed(1)}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} width="100%" style={{ display: "block" }}>
+      {Array.from({ length: 5 }, (_, k) => { const v = yMin + (yMax - yMin) * k / 4; const y = yAt(v); return <g key={k}><line x1={PADL} x2={W - PADR} y1={y} y2={y} stroke={DASH.border} strokeWidth={0.5} /><text x={PADL - 5} y={y + 3} textAnchor="end" fontSize={8.5} fill={DASH.muted}>{v.toFixed(0)}</text></g>; })}
+      {series.filter(s => !s.isBest).map((s, i) => <path key={i} d={path(s.ys)} fill="none" stroke="#475569" strokeWidth={0.8} opacity={0.45} />)}
+      {series.filter(s => s.isBest).map((s, i) => <path key={"b" + i} d={path(s.ys)} fill="none" stroke={DASH.blue} strokeWidth={2.2} />)}
+      <text x={W - PADR} y={PADT + 9} textAnchor="end" fontSize={9} fill={DASH.blue}>━ 최적 조합 · 시작=100 정규화</text>
+    </svg>
+  );
+}
+
+// ── #8 최적화 히트맵 (지표 1개, p1×p2 그리드) ──
+function OptHeatmap({ combos, p1, p2, a1, a2, metric, label, best, lowerBetter }) {
+  const valOf = (c) => { const v = Number(c.stats?.[metric]); return Number.isFinite(v) ? v : null; };
+  const scored = combos.map(valOf).filter(v => v != null);
+  const mn = scored.length ? Math.min(...scored) : 0, mx = scored.length ? Math.max(...scored) : 1;
+  const colorFor = (s) => { if (s == null) return "#1f2937"; let t = mx === mn ? 0.5 : (s - mn) / (mx - mn); if (lowerBetter) t = 1 - t; return `hsl(${Math.round(t * 125)},62%,42%)`; };
+  const findCombo = (v1, v2) => combos.find(c => c.params[p1] === v1 && (p2 ? c.params[p2] === v2 : true));
+  const isPct = String(metric).includes("pct");
+  const fmt = (s) => s == null ? "—" : (isPct ? s.toFixed(1) : s.toFixed(2));
+  return (
+    <div style={{ ...dashCard, marginBottom: 0, flex: "1 1 210px", minWidth: 196 }}>
+      <div style={{ fontSize: 10.5, color: "#cbd5e1", fontWeight: 700, marginBottom: 8 }}>{label}{lowerBetter ? " ↓우수" : " ↑우수"}</div>
+      <div style={{ overflow: "auto" }}>
+        <table style={{ borderCollapse: "separate", borderSpacing: 2 }}>
           <tbody>
-            {rows.map((row,i)=>(
-              <tr key={i} style={{background:i%2===0?"transparent":"rgba(255,255,255,0.015)"}}>
-                {cols.map(c=>(
-                  <td key={c} style={{padding:"5px 12px",color:"#9CA3AF",borderBottom:"1px solid rgba(255,255,255,0.04)",
-                    fontFamily:"'Fira Code',monospace",whiteSpace:"nowrap",fontSize:11}}>{String(row[c] ?? "")}</td>
-                ))}
+            {p2 ? a2.slice().reverse().map(v2 => (
+              <tr key={v2}>
+                <td style={{ fontSize: 9, color: DASH.muted, paddingRight: 5, textAlign: "right", fontFamily: "monospace" }}>{v2}</td>
+                {a1.map(v1 => { const c = findCombo(v1, v2); const isBest = best && c && c.params[p1] === best.params[p1] && c.params[p2] === best.params[p2]; const v = c ? valOf(c) : null; return <td key={v1} title={`${p1}=${v1}, ${p2}=${v2} → ${fmt(v)}`} style={{ background: colorFor(v), width: 38, height: 26, textAlign: "center", fontSize: 7.5, color: "#fff", borderRadius: 3, outline: isBest ? "2px solid #fff" : "none" }}>{fmt(v)}</td>; })}
               </tr>
-            ))}
+            )) : (
+              <tr>{a1.map(v1 => { const c = findCombo(v1); const isBest = best && c && c.params[p1] === best.params[p1]; const v = c ? valOf(c) : null; return <td key={v1} title={`${p1}=${v1} → ${fmt(v)}`} style={{ background: colorFor(v), width: 44, height: 34, textAlign: "center", fontSize: 8.5, color: "#fff", borderRadius: 3, outline: isBest ? "2px solid #fff" : "none" }}>{fmt(v)}</td>; })}</tr>
+            )}
+            <tr><td />{a1.map(v1 => <td key={v1} style={{ fontSize: 8.5, color: DASH.muted, textAlign: "center", fontFamily: "monospace", paddingTop: 2 }}>{v1}</td>)}</tr>
           </tbody>
         </table>
       </div>
-      <div style={{marginTop:10,fontSize:10,color:"#2d3748"}}>
-        {loading ? "실제 DB에서 미리보기 로딩 중…"
-          : err ? err
-          : ds.liveBinance ? `* 실시간 Binance 잔고 ${rows.length}개 자산 (0 잔고 제외)`
-          : ds.live ? `* 최근 ${rows.length}행 (실제 수집 데이터 · source=${ds.source})  |  전체 ${ds.rows} rows 적재됨`
-          : `* 상위 ${rows.length}행 미리보기`}
+      <div style={{ fontSize: 8.5, color: "#64748b", marginTop: 4 }}>↔ {OPT_PARAM_LABEL[p1] || p1}{p2 ? ` · ↕ ${OPT_PARAM_LABEL[p2] || p2}` : ""}</div>
+    </div>
+  );
+}
+
+const OPT_HEATMAP_METRICS = [["sharpe", "샤프 지수"], ["max_drawdown_pct", "MDD"], ["total_return_pct", "총 수익률"]];
+
+function OptimizeResultView({ results, busy, progress, onApply }) {
+  if (!results) {
+    return <div style={{padding:"40px 32px",color:"#94A3B8",fontSize:13,fontFamily:"'Inter',sans-serif"}}>
+      {busy ? `최적화 실행 중…  ${progress.done}/${progress.total} 백테스트` : "최적화 위저드(🎯)에서 'Launch Optimization' 을 누르세요."}
+    </div>;
+  }
+  const { metric, metricLabel, p1, p2, a1, a2, combos, best, flat, bestFull, runtime } = results;
+  const lowerBetter = metric === "max_drawdown_pct";
+  const fmt = (s)=> s==null?"—":(String(metric).includes("pct")? s.toFixed(1)+"%" : s.toFixed(2));
+  const sortedRows = [...combos].sort((a,b)=> (a.score==null)-(b.score==null) || (lowerBetter ? (a.score-b.score) : (b.score-a.score)));
+  const fmtMs = (ms)=> ms==null?"—":(ms>=1000?(ms/1000).toFixed(1)+"s":Math.round(ms)+"ms");
+  const rt = runtime || {};
+
+  return (
+    <div style={{padding:"18px 24px 40px", color:DASH.text, background:DASH.bg, minHeight:"100%", fontFamily:"'Inter',sans-serif"}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+        <BarChart3 size={18} color="#F59E0B"/>
+        <span style={{fontSize:17,fontWeight:800}}>최적화 결과</span>
+        {busy && <span style={{fontSize:11,color:"#F59E0B"}}>· 실행 중 {progress.done}/{progress.total}</span>}
       </div>
+
+      {/* 통계 바 (QC식) */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:0,marginBottom:14,padding:"4px 0",borderTop:`1px solid ${DASH.border}`,borderBottom:`1px solid ${DASH.border}`}}>
+        <KpiCell label="완료" value={`${rt.completed ?? "—"}`} color={DASH.green}/>
+        <KpiCell label="실패" value={`${rt.failed ?? 0}`} color={rt.failed?DASH.red:"#cbd5e1"}/>
+        <KpiCell label="총 조합" value={`${rt.total ?? combos.length}`}/>
+        <KpiCell label="평균 소요" value={fmtMs(rt.avgMs)}/>
+        <KpiCell label="총 런타임" value={fmtMs(rt.totalMs)}/>
+        <KpiCell label="목표 지표" value={metricLabel} color={DASH.amber}/>
+      </div>
+
+      {/* 설정(Configuration) 스트립 */}
+      <div style={{...dashCard, display:"flex", flexWrap:"wrap", gap:"4px 22px", fontSize:11.5}}>
+        <span style={{color:DASH.muted}}>최적화 전략 <b style={{color:DASH.text}}>Grid Search · {lowerBetter?"Min":"Max"} of {metricLabel}</b></span>
+        <span style={{color:DASH.muted}}>{OPT_PARAM_LABEL[p1]||p1} <b style={{color:DASH.text}}>[{a1[0]} ~ {a1[a1.length-1]}]</b></span>
+        {p2 && <span style={{color:DASH.muted}}>{OPT_PARAM_LABEL[p2]||p2} <b style={{color:DASH.text}}>[{a2[0]} ~ {a2[a2.length-1]}]</b></span>}
+        <span style={{color:DASH.muted}}>기간 <b style={{color:DASH.text}}>{results.period||"—"}</b></span>
+      </div>
+
+      {flat && (
+        <div style={{...dashCard, borderColor:"rgba(245,158,11,0.4)", background:"rgba(245,158,11,0.08)", color:"#fbbf24", fontSize:12.5, lineHeight:1.6}}>
+          ⚠️ 모든 조합의 결과가 동일합니다. 선택한 전략이 스윕한 파라미터(<b>{[p1,p2].filter(Boolean).join(", ")}</b>)를 <b>사용하지 않을 가능성</b>이 큽니다.
+          예: 무한매수(IB)·밸류리밸런싱(VR) 전략은 SMA/RSI 파라미터를 쓰지 않습니다. 해당 전략의 실제 파라미터로 스윕하세요.
+        </div>
+      )}
+
+      {best && (
+        <div style={{...dashCard, borderColor:"rgba(74,222,128,0.3)", background:"rgba(34,197,94,0.06)", display:"flex", alignItems:"center", gap:16, flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontSize:10.5,color:DASH.muted,fontWeight:700,marginBottom:4}}>최적 파라미터</div>
+            <div style={{fontSize:14,fontWeight:800,fontFamily:"monospace"}}>
+              {Object.entries(best.params).map(([k,v])=>`${OPT_PARAM_LABEL[k]||k}=${v}`).join("  ·  ")}
+            </div>
+            <div style={{fontSize:11.5,color:"#cbd5e1",marginTop:5}}>
+              {metricLabel} <b style={{color:"#4ade80"}}>{fmt(best.score)}</b>
+              {best.stats && <> · 수익 {fmt(best.stats.total_return_pct)} · Sharpe {best.stats.sharpe?.toFixed?.(2) ?? "—"} · MDD {best.stats.max_drawdown_pct?.toFixed?.(1) ?? "—"}%</>}
+            </div>
+          </div>
+          <button onClick={()=>onApply(best.params)} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,padding:"9px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#16a34a,#15803d)",color:"white",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
+            <CheckCircle2 size={14}/> 이 파라미터 적용
+          </button>
+        </div>
+      )}
+
+      {/* 모든 조합 에쿼티 오버레이 */}
+      {combos.some(c=>Array.isArray(c.equity)&&c.equity.length>1) && (
+        <div style={dashCard}><div style={dashCardTitle}>📈 조합별 전략 에쿼티 ({combos.length}개 · 최적 강조)</div><OptEquityOverlay combos={combos} best={best}/></div>
+      )}
+
+      {/* 다중 히트맵 (샤프 / MDD / 총수익률) */}
+      <div style={{marginBottom:14}}>
+        <div style={{...dashCardTitle, marginBottom:8}}>🔥 파라미터 민감도 히트맵 {p2?`(${OPT_PARAM_LABEL[p1]||p1} × ${OPT_PARAM_LABEL[p2]||p2})`:`(${OPT_PARAM_LABEL[p1]||p1} 스윕)`}</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:12}}>
+          {OPT_HEATMAP_METRICS.map(([m,lbl])=>(
+            <OptHeatmap key={m} combos={combos} p1={p1} p2={p2} a1={a1} a2={a2||[null]} metric={m} label={lbl} best={best} lowerBetter={m==="max_drawdown_pct"}/>
+          ))}
+        </div>
+        <div style={{fontSize:9.5,color:"#64748b",marginTop:6}}>흰 테두리 = 목표지표({metricLabel}) 기준 최적 조합. 색이 고르면 견고(파라미터 둔감), 한쪽만 진하면 과최적화 위험.</div>
+      </div>
+
+      {/* 백테스트 목록 */}
+      <div style={dashCard}>
+        <div style={dashCardTitle}>백테스트 목록 (상위순)</div>
+        <DashTable
+          columns={[
+            {label:"파라미터",align:"left",render:c=>Object.entries(c.params).map(([k,v])=>`${OPT_PARAM_LABEL[k]||k}=${v}`).join(", ")},
+            {label:metricLabel,render:c=>fmt(c.score),color:()=>DASH.blue},
+            {label:"수익률",render:c=>c.stats?.total_return_pct!=null?c.stats.total_return_pct.toFixed(1)+"%":(c.stats?.error?"오류":"—"),color:c=>signColor(c.stats?.total_return_pct)},
+            {label:"Sharpe",render:c=>c.stats?.sharpe?.toFixed?.(2) ?? "—"},
+            {label:"MDD",render:c=>c.stats?.max_drawdown_pct!=null?c.stats.max_drawdown_pct.toFixed(1)+"%":"—",color:()=>DASH.amber},
+            {label:"소요",render:c=>fmtMs(c.ms),color:()=>DASH.muted},
+          ]}
+          rows={sortedRows}/>
+      </div>
+
+      {/* 최적 파라미터 적용 풀 백테스트 → 리치 대시보드 재사용 */}
+      {bestFull && best && (
+        <div style={{...dashCard, padding:0, overflow:"hidden"}}>
+          <div style={{...dashCardTitle, padding:"12px 16px 0"}}>🏆 최적 파라미터 적용 백테스트 — {Object.entries(best.params).map(([k,v])=>`${OPT_PARAM_LABEL[k]||k}=${v}`).join(" · ")}</div>
+          <BacktestReportView btResult={bestFull} />
+        </div>
+      )}
     </div>
   );
 }
 
 // ── BacktestReportView ────────────────────────────────────────────────────────
-function BacktestReportView({ btResult }) {
+// ── Deploy to Live 위저드 (우리 KIS/Binance 자동체결 파이프라인 연결) ──
+function DeployWizardView({ wsId, strategyName }) {
+  const [accts, setAccts] = useState([]);
+  const [selId, setSelId] = useState("");
+  const [autoExec, setAutoExec] = useState(true);
+  const [autoRestart, setAutoRestart] = useState(true);
+  const [notifOrder, setNotifOrder] = useState(true);
+  const [notifInsight, setNotifInsight] = useState(true);
+  const [show, setShow] = useState({ data: false, cash: false, hold: false });
+  const [bal, setBal] = useState(null);
+  const [balLoading, setBalLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    listBrokerAccounts().then(r => {
+      const list = Array.isArray(r) ? r : [];
+      setAccts(list);
+      const first = list.find(a => a.env === "MOCK") || list[0];
+      if (first) setSelId(String(first.id));
+    }).catch(() => setAccts([]));
+  }, []);
+
+  const sel = accts.find(a => String(a.id) === String(selId));
+  const isReal = sel?.env === "REAL";
+  const assetClass = sel?.brokerType === "BINANCE" ? "암호화폐(현물)" : "해외주식·ETF";
+  const acctName = (a) => `${a.env === "MOCK" ? "Paper Trading · 모의" : `${a.brokerType} · 실거래`} (${a.accountAlias || a.accountNumber || "#" + a.id})`;
+
+  // Show 토글 시 잔고 lazy fetch
+  useEffect(() => {
+    if (!sel || !(show.cash || show.hold) || bal) return;
+    setBalLoading(true);
+    getBrokerBalance(sel.env, sel.brokerType).then(setBal).catch(() => setBal({ err: true })).finally(() => setBalLoading(false));
+  }, [sel, show.cash, show.hold, bal]);
+  useEffect(() => { setBal(null); setShow({ data: false, cash: false, hold: false }); }, [selId]);
+
+  const deploy = async () => {
+    if (!wsId || !sel) { setErr("배포할 계좌를 선택하세요."); return; }
+    setBusy(true); setErr(null);
+    try {
+      await linkWorkspaceBroker(wsId, sel.id);
+      await updateWorkspaceStatus(wsId, "LIVE");
+      await setBrokerTrading(sel.env, true, sel.brokerType);
+      if (autoExec) await setBrokerAutoExecute(sel.env, true, sel.brokerType);
+      setDone({ env: sel.env, brokerType: sel.brokerType, autoExec });
+    } catch (e) {
+      setErr(e?.response?.data?.error || e?.message || "배포 실패");
+    } finally { setBusy(false); }
+  };
+
+  const card = { background: "#161b22", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, marginBottom: 12, overflow: "hidden" };
+  const rowS = { display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)" };
+  const rowLbl = { display: "flex", alignItems: "center", gap: 8, width: 150, flexShrink: 0, fontSize: 12.5, color: "#cbd5e1", fontWeight: 600 };
+
+  if (done) {
+    return (
+      <div style={{ padding: "28px 32px", color: "#E5E7EB", maxWidth: 720, fontFamily: "'Inter',sans-serif" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <Rocket size={20} color="#4ade80" /><span style={{ fontSize: 18, fontWeight: 800 }}>라이브 배포 완료</span>
+        </div>
+        <div style={{ ...card, padding: "14px 16px", borderColor: "rgba(74,222,128,0.3)", background: "rgba(34,197,94,0.06)" }}>
+          <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+            ✅ <b>{strategyName}</b> 전략이 <b>{done.brokerType} [{done.env}]</b> 계좌로 라이브 운영됩니다.<br />
+            ✅ 워크스페이스 <b>LIVE</b> · 매매 스위치 <b>ON</b>{done.autoExec ? " · 자동 체결 ON" : " · 수동 승인"}{autoRestart ? " · 자동 재가동" : ""}<br />
+            {done.autoExec ? "→ 일일 시그널이 OrderProposal 생성, 안전게이트 통과 시 자동 체결." : "→ '주문 제안' 큐에서 직접 승인."}
+          </div>
+        </div>
+        <div style={{ fontSize: 11.5, color: "#94A3B8", lineHeight: 1.7 }}>
+          ⚠️ {done.env === "REAL" ? "실거래(REAL): 전역 kill-switch·1건/일일 한도 적용." : "모의(MOCK): 자본 위험 없음."}{" "}현황은 <b style={{ color: "#CBD5E1" }}>주문 제안</b>·<b style={{ color: "#CBD5E1" }}>종합 계좌 잔고</b>.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "22px 32px", color: "#E5E7EB", maxWidth: 760, fontFamily: "'Inter',sans-serif" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Rocket size={20} color="#a78bfa" /><span style={{ fontSize: 18, fontWeight: 800 }}>Deploy Live</span>
+          <span style={{ fontSize: 11.5, color: "#94A3B8" }}>{strategyName || "전략"}</span>
+        </div>
+        <button onClick={deploy} disabled={busy || !sel}
+          style={{ padding: "8px 22px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 800, cursor: busy || !sel ? "not-allowed" : "pointer", color: "white", background: busy || !sel ? "rgba(124,58,237,0.3)" : (isReal ? "linear-gradient(135deg,#dc2626,#b91c1c)" : "linear-gradient(135deg,#7c3aed,#6d28d9)") }}>
+          {busy ? "배포 중…" : "Deploy"}
+        </button>
+      </div>
+
+      <div style={card}>
+        {/* Brokerage */}
+        <div style={rowS}>
+          <div style={rowLbl}>🏦 Brokerage</div>
+          {accts.length === 0
+            ? <div style={{ fontSize: 12, color: "#fbbf24" }}>등록된 계좌 없음 — '종합 계좌 잔고'에서 KIS/Binance 등록</div>
+            : <select value={selId} onChange={e => setSelId(e.target.value)} style={{ flex: 1, background: "#0d1117", border: `1px solid ${isReal ? "#f87171" : "rgba(255,255,255,0.14)"}`, borderRadius: 8, color: "#E5E7EB", fontSize: 13, padding: "9px 11px", fontWeight: 600 }}>
+                {accts.map(a => <option key={a.id} value={a.id}>{acctName(a)}</option>)}
+              </select>}
+        </div>
+        {sel && <div style={{ ...rowS, paddingTop: 6, paddingBottom: 10 }}>
+          <div style={rowLbl} />
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: isReal ? "rgba(248,113,113,0.15)" : "rgba(96,165,250,0.15)", color: isReal ? "#f87171" : "#93c5fd" }}>{sel.env}</span>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "rgba(99,102,241,0.12)", color: "#a5b4fc" }}>{assetClass}</span>
+            {sel.tradingEnabled ? <span style={{ fontSize: 10, color: "#4ade80" }}>매매 ON</span> : <span style={{ fontSize: 10, color: "#64748B" }}>매매 OFF</span>}
+          </div>
+        </div>}
+
+        {/* Node */}
+        <div style={rowS}>
+          <div style={rowLbl}>🖧 Node</div>
+          <div style={{ fontSize: 12.5, color: "#e2e8f0" }}>AlphaHelix 클라우드 노드 <span style={{ color: "#64748B", fontSize: 11 }}>· analytics(c6i) · 관리형 실행</span></div>
+        </div>
+
+        {/* Data Provider */}
+        <div style={rowS}>
+          <div style={rowLbl}>🗄 Data Provider</div>
+          <div style={{ flex: 1, fontSize: 12, color: "#94A3B8" }}>1개 선택됨</div>
+          <button onClick={() => setShow(s => ({ ...s, data: !s.data }))} style={linkBtn}>{show.data ? "숨기기" : "표시"}</button>
+        </div>
+        {show.data && <div style={{ ...rowS, paddingTop: 0, color: "#cbd5e1", fontSize: 12 }}><div style={rowLbl} /><div>{sel?.brokerType === "BINANCE" ? "Binance 공개 API · yfinance(보조)" : "yfinance / Polygon(설정 시) · KIS 시세"}</div></div>}
+
+        {/* Cash State */}
+        <div style={rowS}>
+          <div style={rowLbl}>💵 예수금(Cash)</div>
+          <div style={{ flex: 1, fontSize: 12, color: "#94A3B8" }}>{show.cash ? (balLoading ? "조회 중…" : bal?.err ? "조회 실패" : `${bal?.cash_usd != null ? "$" + Number(bal.cash_usd).toLocaleString() : ""}${bal?.cash_krw ? " · ₩" + Number(bal.cash_krw).toLocaleString() : ""}` || "—") : "라이브 계좌 예수금"}</div>
+          <button onClick={() => setShow(s => ({ ...s, cash: !s.cash }))} style={linkBtn}>{show.cash ? "숨기기" : "표시"}</button>
+        </div>
+
+        {/* Holdings State */}
+        <div style={rowS}>
+          <div style={rowLbl}>📦 보유 종목</div>
+          <div style={{ flex: 1, fontSize: 12, color: "#94A3B8" }}>{show.hold ? (balLoading ? "조회 중…" : bal?.err ? "조회 실패" : `${(bal?.positions || []).length}종목 보유`) : "라이브 계좌 포지션"}</div>
+          <button onClick={() => setShow(s => ({ ...s, hold: !s.hold }))} style={linkBtn}>{show.hold ? "숨기기" : "표시"}</button>
+        </div>
+        {show.hold && (bal?.positions || []).length > 0 && <div style={{ ...rowS, paddingTop: 0, flexWrap: "wrap" }}><div style={rowLbl} /><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>{(bal.positions).slice(0, 12).map((p, i) => <span key={i} style={{ fontSize: 10.5, padding: "2px 7px", borderRadius: 5, background: "rgba(255,255,255,0.06)", color: "#cbd5e1" }}>{p.ticker} {p.qtyDecimal ?? p.qty ?? ""}</span>)}</div></div>}
+
+        {/* Notifications */}
+        <div style={{ ...rowS, alignItems: "flex-start" }}>
+          <div style={{ ...rowLbl, paddingTop: 2 }}>🔔 알림</div>
+          <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+            <label style={chkLbl}><input type="checkbox" checked={notifOrder} onChange={e => setNotifOrder(e.target.checked)} style={chkBox} /> 체결 알림(Order Events)</label>
+            <label style={chkLbl}><input type="checkbox" checked={notifInsight} onChange={e => setNotifInsight(e.target.checked)} style={chkBox} /> 시그널 알림(Insights)</label>
+          </div>
+        </div>
+
+        {/* Auto restart */}
+        <div style={rowS}>
+          <div style={rowLbl}>♻️ 자동 재가동</div>
+          <label style={chkLbl}><input type="checkbox" checked={autoRestart} onChange={e => setAutoRestart(e.target.checked)} style={chkBox} /> 장 시작 시 시그널 스케줄 자동 유지</label>
+        </div>
+
+        {/* 체결 방식 */}
+        <div style={{ ...rowS, borderBottom: "none" }}>
+          <div style={rowLbl}>⚡ 체결 방식</div>
+          <label style={chkLbl}><input type="checkbox" checked={autoExec} onChange={e => setAutoExec(e.target.checked)} style={chkBox} /> 자동 체결 (안전게이트 통과 시 자동 주문)</label>
+        </div>
+      </div>
+
+      {/* 안전 게이트 / note */}
+      <div style={{ ...card, padding: "12px 16px", borderColor: isReal ? "rgba(248,113,113,0.3)" : "rgba(255,255,255,0.08)", background: isReal ? "rgba(248,113,113,0.06)" : "#161b22" }}>
+        <div style={{ fontSize: 11.5, color: "#CBD5E1", lineHeight: 1.7 }}>
+          {isReal
+            ? "⚠️ 실거래(REAL): 전역 kill-switch · 1건/일일 한도 · 손실 서킷브레이커가 모든 주문에 적용됩니다. REAL 졸업 게이트(2주+20회) 통과 계좌만 권장."
+            : "🧪 모의(MOCK): 자본 위험 없음. 한도·게이트는 검증 목적 동일 적용. 라이브 거래는 위험을 수반합니다."}
+        </div>
+      </div>
+
+      {err && <div style={{ padding: "10px 14px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, color: "#fca5a5", fontSize: 12, marginBottom: 12 }}>⚠ {err}</div>}
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ fontSize: 10.5, color: "#64748B", lineHeight: 1.6 }}>Deploy = 워크스페이스 LIVE + 계좌 연결 + 매매 스위치 ON{autoExec ? " + 자동 체결" : ""}. 라이브 배포 시 약관에 동의합니다.</div>
+        <button onClick={deploy} disabled={busy || !sel}
+          style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "11px 26px", borderRadius: 9, border: "none", fontSize: 13.5, fontWeight: 800, cursor: busy || !sel ? "not-allowed" : "pointer", color: "white", background: busy || !sel ? "rgba(124,58,237,0.3)" : (isReal ? "linear-gradient(135deg,#dc2626,#b91c1c)" : "linear-gradient(135deg,#7c3aed,#6d28d9)"), boxShadow: busy || !sel ? "none" : "0 3px 12px rgba(109,40,217,0.4)" }}>
+          {busy ? <Loader size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Rocket size={14} />}
+          {busy ? "배포 중…" : (isReal ? "실거래 배포" : "모의 배포")}
+        </button>
+      </div>
+    </div>
+  );
+}
+const linkBtn = { background: "none", border: "none", color: "#60a5fa", fontSize: 11.5, fontWeight: 700, cursor: "pointer", flexShrink: 0 };
+const chkLbl = { display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 12.5, color: "#cbd5e1" };
+const chkBox = { accentColor: "#a78bfa", width: 15, height: 15 };
+
+// ── QC급 백테스트 대시보드 — 공통 팔레트 + 포맷터 ──
+const DASH = { bg:"#0f1117", panel:"#161b22", border:"rgba(255,255,255,0.08)", text:"#E5E7EB", muted:"#94A3B8", green:"#22c55e", red:"#ef4444", blue:"#60a5fa", amber:"#f59e0b", violet:"#a78bfa" };
+const _fin = (v) => v != null && Number.isFinite(Number(v));
+const fmtMoney = (v, d=2) => !_fin(v) ? "N/A" : `${Number(v)<0?"-":""}$${Math.abs(Number(v)).toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d})}`;
+const fmtMoneyK = (v) => { if(!_fin(v)) return "N/A"; const a=Math.abs(Number(v)),sg=Number(v)<0?"-":""; if(a>=1e9)return `${sg}$${(a/1e9).toFixed(2)}B`; if(a>=1e6)return `${sg}$${(a/1e6).toFixed(2)}M`; if(a>=1e3)return `${sg}$${(a/1e3).toFixed(1)}K`; return `${sg}$${a.toFixed(0)}`; };
+const fmtPctS = (v, sign=true) => !_fin(v) ? "N/A" : `${sign&&Number(v)>0?"+":""}${Number(v).toFixed(2)}%`;
+const fmtN = (v, d=2) => !_fin(v) ? "N/A" : Number(v).toFixed(d);
+const signColor = (v) => !_fin(v) ? DASH.text : (Number(v) >= 0 ? DASH.green : DASH.red);
+
+// 상단 KPI 셀 (QC 메트릭바)
+function KpiCell({ label, value, sub, color }) {
+  return (
+    <div style={{padding:"9px 16px 9px 0", minWidth:104}}>
+      <div style={{fontSize:19,fontWeight:800,color:color||DASH.text,fontVariantNumeric:"tabular-nums",lineHeight:1.1,whiteSpace:"nowrap"}}>{value}</div>
+      <div style={{fontSize:10,color:DASH.muted,fontWeight:600,marginTop:3,textTransform:"uppercase",letterSpacing:"0.05em"}}>{label}</div>
+      {sub != null && <div style={{fontSize:9.5,color:color||DASH.muted,marginTop:1}}>{sub}</div>}
+    </div>
+  );
+}
+function StatLine({ label, value, color }) {
+  return (
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+      <span style={{fontSize:11.5,color:DASH.muted}}>{label}</span>
+      <b style={{fontSize:12,color:color||DASH.text,fontVariantNumeric:"tabular-nums"}}>{value}</b>
+    </div>
+  );
+}
+const dashCard = { background:DASH.panel, border:`1px solid ${DASH.border}`, borderRadius:12, padding:"14px 16px", marginBottom:14 };
+const dashCardTitle = { fontSize:11,color:"#cbd5e1",fontWeight:700,marginBottom:10 };
+
+// 일별 수익률 막대 (양=초록 / 음=빨강)
+function ReturnsBars({ data, height=80 }) {
+  const pts = (data||[]).filter(d=>d && d.ret_pct!=null);
+  if (pts.length < 2) return null;
+  const W=720, PADL=40, PADR=8, PADT=6, PADB=14;
+  const mx = Math.max(0.01, ...pts.map(d=>Math.abs(d.ret_pct)));
+  const plotW=W-PADL-PADR, plotH=height-PADT-PADB;
+  const xAt=i=>PADL+(i/(pts.length-1))*plotW;
+  const yAt=v=>PADT+(1-(v+mx)/(2*mx))*plotH;
+  const bw=Math.max(0.6,(plotW/pts.length)*0.7);
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} width="100%" style={{display:"block"}}>
+      {[mx,-mx].map((v,k)=><text key={k} x={PADL-5} y={yAt(v)+3} textAnchor="end" fontSize={8.5} fill={DASH.muted}>{v.toFixed(1)}%</text>)}
+      <line x1={PADL} x2={W-PADR} y1={yAt(0)} y2={yAt(0)} stroke={DASH.border} strokeWidth={0.8}/>
+      {pts.map((d,i)=>{ const v=d.ret_pct; return <rect key={i} x={xAt(i)-bw/2} y={Math.min(yAt(0),yAt(v))} width={bw} height={Math.max(0.4,Math.abs(yAt(v)-yAt(0)))} fill={v>=0?DASH.green:DASH.red} opacity={0.7}><title>{`${d.date}: ${v.toFixed(2)}%`}</title></rect>; })}
+    </svg>
+  );
+}
+
+// 낙폭(드로다운) 영역 차트
+function DrawdownArea({ data, height=150 }) {
+  const pts=(data||[]).filter(d=>d && d.dd_pct!=null);
+  if(pts.length<2) return null;
+  const W=720,PADL=44,PADR=10,PADT=10,PADB=20;
+  const mn=Math.min(-0.01,...pts.map(d=>d.dd_pct));
+  const plotW=W-PADL-PADR, plotH=height-PADT-PADB;
+  const xAt=i=>PADL+(i/(pts.length-1))*plotW;
+  const yAt=v=>PADT+(1-(v-mn)/(0-mn))*plotH;
+  const line=pts.map((p,i)=>`${i===0?"M":"L"} ${xAt(i).toFixed(1)} ${yAt(p.dd_pct).toFixed(1)}`).join(" ");
+  const area=`M ${xAt(0)} ${yAt(0)} ${line.slice(1)} L ${xAt(pts.length-1)} ${yAt(0)} Z`;
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} width="100%" style={{display:"block"}}>
+      {Array.from({length:5},(_,k)=>{ const v=mn*(1-k/4); const y=yAt(v); return <g key={k}><line x1={PADL} x2={W-PADR} y1={y} y2={y} stroke={DASH.border} strokeWidth={0.5}/><text x={PADL-5} y={y+3} textAnchor="end" fontSize={8.5} fill={DASH.muted}>{v.toFixed(1)}%</text></g>; })}
+      <path d={area} fill="rgba(239,68,68,0.18)"/>
+      <path d={line} fill="none" stroke="#ef4444" strokeWidth={1.4}/>
+    </svg>
+  );
+}
+
+// 월별 수익률 히트맵 (연 × 12개월 + 연간합)
+function MonthlyHeatmap({ months }) {
+  const data=(months||[]).filter(m=>m && m.ret_pct!=null);
+  if(!data.length) return null;
+  const years=[...new Set(data.map(m=>m.year))].sort();
+  const byYM={}; data.forEach(m=>{byYM[`${m.year}-${m.month}`]=m.ret_pct;});
+  const mx=Math.max(1,...data.map(m=>Math.abs(m.ret_pct)));
+  const color=v=>{ if(v==null) return "transparent"; const t=Math.min(1,Math.abs(v)/mx); const a=0.14+t*0.62; return v>=0?`rgba(34,197,94,${a})`:`rgba(239,68,68,${a})`; };
+  const yearTotal=y=>{ const ms=data.filter(m=>m.year===y); return (ms.reduce((acc,m)=>acc*(1+m.ret_pct/100),1)-1)*100; };
+  const cell={padding:"5px 3px",fontSize:9.5,textAlign:"center",fontVariantNumeric:"tabular-nums"};
+  return (
+    <div style={{overflowX:"auto"}}>
+      <table style={{borderCollapse:"separate",borderSpacing:2,width:"100%",minWidth:560}}>
+        <thead><tr><th style={{...cell,color:DASH.muted}}/>{Array.from({length:12},(_,i)=><th key={i} style={{...cell,color:DASH.muted}}>{i+1}</th>)}<th style={{...cell,color:DASH.muted,fontWeight:700}}>연간</th></tr></thead>
+        <tbody>{years.map(y=>(
+          <tr key={y}>
+            <td style={{...cell,color:DASH.muted,fontWeight:700}}>{y}</td>
+            {Array.from({length:12},(_,mi)=>{ const v=byYM[`${y}-${mi+1}`]; return <td key={mi} style={{...cell,background:color(v),color:v==null?DASH.muted:"#fff",borderRadius:3}} title={v==null?"":`${y}-${mi+1}: ${v.toFixed(2)}%`}>{v==null?"":v.toFixed(1)}</td>; })}
+            {(()=>{const yt=yearTotal(y);return <td style={{...cell,fontWeight:800,color:yt>=0?DASH.green:DASH.red}}>{yt.toFixed(1)}</td>;})()}
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+// 일별 수익률 분포 히스토그램
+function ReturnsHistogram({ data, height=150 }) {
+  const vals=(data||[]).map(d=>d?.ret_pct).filter(v=>_fin(v));
+  if(vals.length<5) return null;
+  const mn=Math.min(...vals), mx=Math.max(...vals); const span=(mx-mn)||1;
+  const bins=21, w=span/bins, counts=new Array(bins).fill(0);
+  vals.forEach(v=>{ let b=Math.floor((v-mn)/w); b=Math.max(0,Math.min(bins-1,b)); counts[b]++; });
+  const cmax=Math.max(...counts,1);
+  const W=720,PADL=28,PADR=10,PADT=8,PADB=18; const plotW=W-PADL-PADR, plotH=height-PADT-PADB, bw=plotW/bins;
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} width="100%" style={{display:"block"}}>
+      {counts.map((c,i)=>{ const bl=mn+i*w; const h=(c/cmax)*plotH; return <rect key={i} x={PADL+i*bw+0.5} y={PADT+plotH-h} width={bw-1} height={h} fill={bl>=0?DASH.green:DASH.red} opacity={0.6}><title>{`${bl.toFixed(2)}%~${(bl+w).toFixed(2)}%: ${c}일`}</title></rect>; })}
+      <line x1={PADL} x2={W-PADR} y1={PADT+plotH} y2={PADT+plotH} stroke={DASH.border}/>
+      {mn<0&&mx>0&&(()=>{const zx=PADL+((0-mn)/span)*plotW;return <line x1={zx} x2={zx} y1={PADT} y2={PADT+plotH} stroke={DASH.muted} strokeDasharray="3 3" strokeWidth={0.8}/>;})()}
+      <text x={PADL} y={height-5} fontSize={8.5} fill={DASH.muted}>{mn.toFixed(1)}%</text>
+      <text x={W-PADR} y={height-5} textAnchor="end" fontSize={8.5} fill={DASH.muted}>{mx.toFixed(1)}%</text>
+    </svg>
+  );
+}
+
+// 범용 표 (orders / trades)
+function DashTable({ columns, rows, empty="자료 없음" }) {
+  if(!rows || !rows.length) return <div style={{color:DASH.muted,fontSize:12,padding:"24px 0",textAlign:"center"}}>{empty}</div>;
+  const th={padding:"7px 10px",fontSize:10,color:DASH.muted,fontWeight:700,textAlign:"right",whiteSpace:"nowrap",borderBottom:`1px solid ${DASH.border}`};
+  const td={padding:"7px 10px",fontSize:11.5,textAlign:"right",whiteSpace:"nowrap",borderBottom:"1px solid rgba(255,255,255,0.04)",fontVariantNumeric:"tabular-nums"};
+  return (
+    <div style={{overflowX:"auto",maxHeight:440,overflowY:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",minWidth:Math.max(560,columns.length*100)}}>
+        <thead><tr>{columns.map((c,i)=><th key={i} style={{...th,textAlign:c.align||"right"}}>{c.label}</th>)}</tr></thead>
+        <tbody>{rows.map((r,ri)=>(
+          <tr key={ri}>{columns.map((c,ci)=>{ const cell=c.render?c.render(r):r[c.key]; return <td key={ci} style={{...td,textAlign:c.align||"right",color:c.color?c.color(r):DASH.text}}>{cell}</td>; })}</tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function BacktestReportView({ btResult, code, strategyName }) {
+  const [sub, setSub] = useState("overview");
   const [subInd, setSubInd] = useState({ rsi: false, macd: false, stoch: false });
   if (!btResult?.stats) {
     return (
@@ -585,65 +1409,518 @@ function BacktestReportView({ btResult }) {
     );
   }
   const s = btResult.stats;
-  // 에쿼티 + 보조선 시리즈 (StrategyWorkspace 리포트와 동일한 TrendLineChart 사용)
+  const rm = btResult.risk_metrics || {};
+  const bhm = btResult.buy_and_hold_metrics || {};
   const IDE_THEME = { accent:"#60a5fa", text:"#e5e7eb", textMuted:"#94a3b8", panel:"#161b22", panelBorder:"rgba(255,255,255,0.12)", panelAlt:"rgba(96,165,250,0.12)" };
+
+  // ── 시리즈 ──
   const eqPts = (btResult.equity_curve || []).map((d, i) => ({ x: d.date ? new Date(d.date) : i, y: Number(d.value) }));
   const eqVals = eqPts.map((p) => p.y);
   const eqDates = eqPts.map((p) => p.x);
+  const benchPts = (btResult.benchmark_curve || []).map((d, i) => ({ x: d.date ? new Date(d.date) : i, y: Number(d.value) }));
+  // 보강 필드(analytics) 부재 시 equity_curve 에서 파생 — Lean·구캐시 결과도 리치하게(그레이스풀)
+  const derived = useMemo(() => {
+    const ec = (btResult.equity_curve || []).filter(d => d && d.value != null);
+    if (ec.length < 2) return {};
+    const dd = [], rd = []; let peak = -Infinity;
+    for (let i = 0; i < ec.length; i++) {
+      const v = Number(ec[i].value); peak = Math.max(peak, v);
+      dd.push({ date: ec[i].date, dd_pct: peak > 0 ? (v / peak - 1) * 100 : 0 });
+      if (i > 0) { const pv = Number(ec[i - 1].value); rd.push({ date: ec[i].date, ret_pct: pv > 0 ? (v / pv - 1) * 100 : 0 }); }
+    }
+    const mmap = {};
+    rd.forEach(r => { const ym = String(r.date || "").slice(0, 7); if (ym) (mmap[ym] = mmap[ym] || []).push(r.ret_pct); });
+    const monthly = Object.entries(mmap).map(([ym, arr]) => { const [y, m] = ym.split("-"); return { year: +y, month: +m, ret_pct: (arr.reduce((a, x) => a * (1 + x / 100), 1) - 1) * 100 }; });
+    return { dd, rd, monthly };
+  }, [btResult.equity_curve]);
+  const ddData = btResult.drawdown_curve || derived.dd;
+  const rdData = btResult.returns_daily || derived.rd;
+  const mrData = btResult.monthly_returns || derived.monthly;
   const mkS = (arr, name, color, width, extra) => ({ name, color, width, ...extra, points: eqPts.map((p, i) => ({ x: p.x, y: arr[i] })) });
   const bbIde = eqVals.length >= 20 ? calcBollinger(eqVals, 20, 2) : null;
   const ideSeries = eqPts.length > 1 ? [
     { name: "에쿼티", color: "#60a5fa", width: 2, points: eqPts },
+    ...(benchPts.length > 1 ? [{ name: "벤치마크(B&H)", color: "#94a3b8", width: 1.4, dash: "5 3", opacity: 0.85, points: benchPts }] : []),
     ...(eqVals.length >= 20 ? [mkS(calcSMA(eqVals, 20), "SMA 20", "#10b981", 1.4)] : []),
     ...(eqVals.length >= 50 ? [mkS(calcSMA(eqVals, 50), "SMA 50", "#f59e0b", 1.4)] : []),
     ...(eqVals.length >= 120 ? [mkS(calcSMA(eqVals, 120), "SMA 120", "#ef4444", 1.4)] : []),
     ...(eqVals.length >= 20 ? [mkS(calcEMA(eqVals, 20), "EMA 20", "#8b5cf6", 1.4)] : []),
     ...(bbIde ? [mkS(bbIde.upper, "BB 상단", "#94a3b8", 1, { dash: "4 3", opacity: 0.8 }), mkS(bbIde.lower, "BB 하단", "#94a3b8", 1, { dash: "4 3", opacity: 0.8 })] : []),
   ] : [];
-  const fmtPct = (v) => v == null ? "N/A" : `${v > 0 ? "+" : ""}${v.toFixed(1)}%`;
-  const fmtNum = (v, d=2) => v == null ? "N/A" : v.toFixed(d);
+
+  // ── KPI (보강 필드 없으면 equity_curve 에서 파생) ──
+  const endEq = _fin(s.end_equity) ? s.end_equity : (eqVals.length ? eqVals[eqVals.length-1] : null);
+  const startEq = _fin(s.start_equity) ? s.start_equity : (eqVals.length ? eqVals[0] : null);
+  const netProfit = _fin(s.net_profit) ? s.net_profit : (_fin(endEq)&&_fin(startEq) ? endEq-startEq : null);
   const period = `${s.start || ""} – ${s.end || ""}`;
+  const engineLabel = s.engine === "lean" ? `Lean · QC${s.run_id ? " · "+s.run_id : ""}` : "vectorbt";
+  const trades = Array.isArray(btResult.trades) && btResult.trades.length ? btResult.trades : null;
+  const recentTrades = !trades && Array.isArray(btResult.recent_trades) && btResult.recent_trades.length ? btResult.recent_trades : null;
+  const orders = Array.isArray(btResult.orders) ? btResult.orders : null;
+
+  const KPIS = [
+    { label:"최종 자산", value: fmtMoneyK(endEq) },
+    { label:"순손익", value: fmtMoneyK(netProfit), color: signColor(netProfit), sub: _fin(s.net_profit_pct)?fmtPctS(s.net_profit_pct):null },
+    { label:"총 수익률", value: fmtPctS(s.total_return_pct), color: signColor(s.total_return_pct) },
+    { label:"연환산(CAR)", value: fmtPctS(s.annualized_return_pct), color: signColor(s.annualized_return_pct) },
+    { label:"샤프", value: fmtN(s.sharpe), color: DASH.blue },
+    { label:"MDD", value: fmtPctS(s.max_drawdown_pct,false), color: DASH.amber },
+    { label:"승률", value: fmtPctS(s.win_rate_pct,false), color: DASH.blue },
+    { label:"거래수", value: _fin(s.trades)?`${s.trades}회`:"N/A", color: "#cbd5e1" },
+  ];
+
+  const TABS = [["overview","개요"],["report","리포트"],["orders","주문"],["trades","체결"],["logs","로그"],["code","코드"]];
+
   return (
-    <div style={{flex:1,overflow:"auto",padding:"20px",background:"#0f1117"}}>
-      <div style={{marginBottom:16,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-        <BarChart3 size={16} color="#60a5fa"/>
-        <span style={{fontSize:14,fontWeight:800,color:"white"}}>백테스트 리포트</span>
-        <span style={{fontSize:10,color:"#4B5563"}}>{period} · {s.engine === "lean" ? `Lean · QC${s.run_id ? " · " + s.run_id : ""}` : "vectorbt"}</span>
-        <span style={{fontSize:9,padding:"2px 8px",borderRadius:999,background:"rgba(16,185,129,0.15)",color:"#10B981",fontWeight:700}}>완료</span>
+    <div style={{flex:1,overflow:"auto",background:DASH.bg}}>
+      {/* ═ 상단 KPI 메트릭 바 ═ */}
+      <div style={{borderBottom:`1px solid ${DASH.border}`,background:"#12161d",padding:"4px 20px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0 2px"}}>
+          <BarChart3 size={15} color={DASH.blue}/>
+          <span style={{fontSize:13,fontWeight:800,color:"white"}}>{strategyName || btResult.ticker || "백테스트"} 결과</span>
+          <span style={{fontSize:10,color:"#4B5563"}}>{period} · {engineLabel}{btResult.strategy?` · ${btResult.strategy}`:""}</span>
+          <span style={{fontSize:9,padding:"2px 8px",borderRadius:999,background:"rgba(16,185,129,0.15)",color:"#10B981",fontWeight:700}}>완료</span>
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",alignItems:"flex-end"}}>
+          {KPIS.map((k,i)=><KpiCell key={i} {...k}/>)}
+        </div>
       </div>
-      {ideSeries.length > 1 && (
-        <div style={{marginBottom:16,background:"rgba(255,255,255,0.02)",borderRadius:12,
-          border:"1px solid rgba(255,255,255,0.06)",padding:"14px 16px"}}>
-          <div style={{fontSize:11,color:"#cbd5e1",fontWeight:700,marginBottom:8}}>📈 에쿼티 추세 &amp; 보조지표</div>
-          <TrendLineChart series={ideSeries} theme={IDE_THEME} height={240}
-            toggleable initialHidden={["EMA 20","BB 상단","BB 하단"]} />
-          {/* 하단 보조지표 패널 (RSI / MACD / Stochastic) */}
-          <div style={{display:"flex",gap:7,alignItems:"center",margin:"12px 0 2px",flexWrap:"wrap"}}>
-            <span style={{fontSize:11,color:"#94a3b8",fontWeight:700}}>보조지표 패널</span>
-            {[["rsi","RSI"],["macd","MACD"],["stoch","Stochastic"]].map(([k,lbl])=>(
-              <button key={k} type="button" onClick={()=>setSubInd(v=>({...v,[k]:!v[k]}))}
-                style={{padding:"3px 12px",borderRadius:999,fontSize:11,fontWeight:700,cursor:"pointer",
-                  border:`1px solid ${subInd[k]?"#60a5fa":"rgba(255,255,255,0.14)"}`,
-                  background:subInd[k]?"#60a5fa":"transparent",color:subInd[k]?"#fff":"#94a3b8"}}>{lbl}</button>
-            ))}
+
+      {/* ═ 서브탭 ═ */}
+      <div style={{display:"flex",gap:2,padding:"0 16px",borderBottom:`1px solid ${DASH.border}`,background:"#12161d"}}>
+        {TABS.map(([id,label])=>(
+          <button key={id} onClick={()=>setSub(id)} style={{padding:"9px 14px",background:"none",border:"none",cursor:"pointer",fontSize:12.5,fontWeight:sub===id?800:600,color:sub===id?"#fff":DASH.muted,borderBottom:`2px solid ${sub===id?DASH.blue:"transparent"}`,marginBottom:-1}}>{label}</button>
+        ))}
+      </div>
+
+      <div style={{padding:"16px 20px 40px"}}>
+        {/* ───── 개요 ───── */}
+        {sub==="overview" && <>
+          {ideSeries.length>1 && (
+            <div style={dashCard}>
+              <div style={dashCardTitle}>📈 전략 에쿼티 &amp; 벤치마크</div>
+              <TrendLineChart series={ideSeries} theme={IDE_THEME} height={250} toggleable initialHidden={["EMA 20","BB 상단","BB 하단","SMA 120"]}/>
+              {rdData && rdData.length > 1 && <>
+                <div style={{fontSize:10.5,color:DASH.muted,fontWeight:700,margin:"12px 0 2px"}}>일별 수익률</div>
+                <ReturnsBars data={rdData}/>
+              </>}
+              <div style={{display:"flex",gap:7,alignItems:"center",margin:"12px 0 2px",flexWrap:"wrap"}}>
+                <span style={{fontSize:11,color:DASH.muted,fontWeight:700}}>보조지표</span>
+                {[["rsi","RSI"],["macd","MACD"],["stoch","Stochastic"]].map(([k,lbl])=>(
+                  <button key={k} type="button" onClick={()=>setSubInd(v=>({...v,[k]:!v[k]}))} style={{padding:"3px 12px",borderRadius:999,fontSize:11,fontWeight:700,cursor:"pointer",border:`1px solid ${subInd[k]?DASH.blue:"rgba(255,255,255,0.14)"}`,background:subInd[k]?DASH.blue:"transparent",color:subInd[k]?"#fff":DASH.muted}}>{lbl}</button>
+                ))}
+              </div>
+              {subInd.rsi && <SubIndicatorChart kind="rsi" values={eqVals} dates={eqDates} theme={IDE_THEME}/>}
+              {subInd.macd && <SubIndicatorChart kind="macd" values={eqVals} dates={eqDates} theme={IDE_THEME}/>}
+              {subInd.stoch && <SubIndicatorChart kind="stoch" values={eqVals} dates={eqDates} theme={IDE_THEME}/>}
+            </div>
+          )}
+
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+            {ddData && ddData.length > 1 && <div style={dashCard}><div style={dashCardTitle}>📉 낙폭(Drawdown)</div><DrawdownArea data={ddData}/></div>}
+            {rdData && rdData.length > 4 && <div style={dashCard}><div style={dashCardTitle}>📊 일별 수익률 분포</div><ReturnsHistogram data={rdData}/></div>}
           </div>
-          {subInd.rsi && <SubIndicatorChart kind="rsi" values={eqVals} dates={eqDates} theme={IDE_THEME} />}
-          {subInd.macd && <SubIndicatorChart kind="macd" values={eqVals} dates={eqDates} theme={IDE_THEME} />}
-          {subInd.stoch && <SubIndicatorChart kind="stoch" values={eqVals} dates={eqDates} theme={IDE_THEME} />}
+
+          {mrData && mrData.length > 0 && <div style={dashCard}><div style={dashCardTitle}>🗓 월별 수익률 (%)</div><MonthlyHeatmap months={mrData}/></div>}
+
+          {/* 종합 스탯 그리드 */}
+          <div style={dashCard}>
+            <div style={dashCardTitle}>📋 종합 통계</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:"0 28px"}}>
+              <div>
+                <StatLine label="시작 자산" value={fmtMoney(startEq)}/>
+                <StatLine label="최종 자산" value={fmtMoney(endEq)}/>
+                <StatLine label="순손익" value={fmtMoney(netProfit)} color={signColor(netProfit)}/>
+                <StatLine label="총 수익률" value={fmtPctS(s.total_return_pct)} color={signColor(s.total_return_pct)}/>
+                <StatLine label="연환산(CAR)" value={fmtPctS(s.annualized_return_pct)} color={signColor(s.annualized_return_pct)}/>
+                <StatLine label="벤치마크 수익률" value={fmtPctS(s.benchmark_return_pct ?? bhm.cagr_pct)} color={signColor(s.benchmark_return_pct)}/>
+              </div>
+              <div>
+                <StatLine label="샤프 지수" value={fmtN(s.sharpe)} color={DASH.blue}/>
+                <StatLine label="소르티노" value={fmtN(s.sortino)} color={DASH.blue}/>
+                <StatLine label="칼마 지수" value={fmtN(s.calmar ?? rm.calmar)} color={DASH.blue}/>
+                <StatLine label="변동성(연)" value={fmtPctS(s.volatility_pct ?? rm.volatility_pct,false)}/>
+                <StatLine label="MDD" value={fmtPctS(s.max_drawdown_pct,false)} color={DASH.amber}/>
+                <StatLine label="PSR (SR>0 확률)" value={fmtPctS(s.psr_pct,false)} color={DASH.violet}/>
+              </div>
+              <div>
+                <StatLine label="총 거래수" value={_fin(s.trades)?`${s.trades}회`:"N/A"}/>
+                <StatLine label="승률" value={fmtPctS(s.win_rate_pct,false)}/>
+                <StatLine label="Profit Factor" value={fmtN(s.profit_factor)} color={DASH.violet}/>
+                <StatLine label="평균 익절 / 손절" value={`${fmtPctS(s.avg_win_pct)} / ${fmtPctS(s.avg_loss_pct)}`}/>
+                <StatLine label="최고 / 최악일" value={`${fmtPctS(s.best_day_pct ?? rm.best_day_pct)} / ${fmtPctS(s.worst_day_pct ?? rm.worst_day_pct)}`}/>
+                <StatLine label="총 수수료 / 거래대금" value={`${fmtMoneyK(s.total_fees)} / ${fmtMoneyK(s.volume)}`}/>
+              </div>
+            </div>
+          </div>
+        </>}
+
+        {/* ───── 리포트 (전략 vs Buy&Hold + 리스크) ───── */}
+        {sub==="report" && (
+          <div style={dashCard}>
+            <div style={dashCardTitle}>📑 리스크·성과 리포트 (전략 vs 단순보유)</div>
+            {Object.keys(rm).length===0 && Object.keys(bhm).length===0
+              ? <div style={{color:DASH.muted,fontSize:12,padding:"16px 0"}}>리스크 지표가 없습니다(구버전 캐시일 수 있음). 백테스트를 다시 실행하세요.</div>
+              : <DashTable
+                  columns={[
+                    {label:"지표",key:"k",align:"left",color:()=>DASH.muted},
+                    {label:"전략",key:"strat",color:r=>r.sign?signColor(r._sv):DASH.text},
+                    {label:"단순보유(B&H)",key:"bh",color:()=>"#cbd5e1"},
+                  ]}
+                  rows={[
+                    {k:"연환산(CAR)",_sv:rm.cagr_pct,sign:1,strat:fmtPctS(rm.cagr_pct),bh:fmtPctS(bhm.cagr_pct)},
+                    {k:"샤프",strat:fmtN(rm.sharpe),bh:fmtN(bhm.sharpe)},
+                    {k:"소르티노",strat:fmtN(rm.sortino),bh:fmtN(bhm.sortino)},
+                    {k:"칼마",strat:fmtN(rm.calmar),bh:fmtN(bhm.calmar)},
+                    {k:"MDD",strat:fmtPctS(rm.max_drawdown_pct,false),bh:fmtPctS(bhm.max_drawdown_pct,false)},
+                    {k:"변동성(연)",strat:fmtPctS(rm.volatility_pct,false),bh:fmtPctS(bhm.volatility_pct,false)},
+                    {k:"승률",strat:fmtPctS(rm.win_rate_pct,false),bh:fmtPctS(bhm.win_rate_pct,false)},
+                    {k:"최고일",strat:fmtPctS(rm.best_day_pct),bh:fmtPctS(bhm.best_day_pct)},
+                    {k:"최악일",strat:fmtPctS(rm.worst_day_pct),bh:fmtPctS(bhm.worst_day_pct)},
+                    {k:"VaR 95%",strat:fmtPctS(rm.var_95_pct,false),bh:fmtPctS(bhm.var_95_pct,false)},
+                    {k:"CVaR 95%",strat:fmtPctS(rm.cvar_95_pct,false),bh:fmtPctS(bhm.cvar_95_pct,false)},
+                    ...(rm.alpha!=null||rm.beta!=null?[
+                      {k:"알파 (vs SPY)",strat:fmtN(rm.alpha),bh:"—"},
+                      {k:"베타 (vs SPY)",strat:fmtN(rm.beta),bh:"—"},
+                      {k:"정보비율(IR)",strat:fmtN(rm.information_ratio),bh:"—"},
+                    ]:[]),
+                  ]}/>}
+            <div style={{fontSize:10.5,color:DASH.muted,marginTop:10,lineHeight:1.6}}>전략 수익률(수수료·슬리피지 반영)에 대한 QuantStats 리스크 지표. 벤치마크는 SPY 단순보유.</div>
+          </div>
+        )}
+
+        {/* ───── 주문 ───── */}
+        {sub==="orders" && (
+          <div style={dashCard}>
+            <div style={dashCardTitle}>🧾 주문 내역 {orders?`(${orders.length}건${btResult.orders_truncated?" · 1000건 초과 일부 생략":""})`:""}</div>
+            <DashTable
+              columns={[
+                {label:"일시",key:"date",align:"left"},
+                {label:"구분",key:"side",align:"center",color:r=>r.side==="BUY"?DASH.red:DASH.blue},
+                {label:"종목",key:"ticker",align:"left"},
+                {label:"수량",render:r=>fmtN(r.qty,4)},
+                {label:"단가",render:r=>fmtMoney(r.price)},
+                {label:"금액",render:r=>fmtMoney(r.value)},
+                {label:"수수료",render:r=>fmtMoney(r.fee)},
+              ]}
+              rows={orders}
+              empty={btResult.strategy==="infinite_buying"||btResult.strategy==="value_rebalancing"?"이 엔진은 주문 단위 기록을 제공하지 않습니다. '체결' 탭을 확인하세요.":"주문 내역이 없습니다."}/>
+          </div>
+        )}
+
+        {/* ───── 체결(트레이드) ───── */}
+        {sub==="trades" && (
+          <div style={dashCard}>
+            <div style={dashCardTitle}>💱 체결(라운드트립) {trades?`(${trades.length}건)`:recentTrades?`(최근 ${recentTrades.length}건)`:""}</div>
+            {trades ? (
+              <DashTable
+                columns={[
+                  {label:"진입일",key:"entry_date",align:"left"},
+                  {label:"청산일",key:"exit_date",align:"left"},
+                  {label:"수량",render:r=>fmtN(r.qty,4)},
+                  {label:"진입가",render:r=>fmtMoney(r.entry_price)},
+                  {label:"청산가",render:r=>fmtMoney(r.exit_price)},
+                  {label:"손익",render:r=>fmtMoney(r.pnl),color:r=>signColor(r.pnl)},
+                  {label:"수익률",render:r=>fmtPctS(r.return_pct),color:r=>signColor(r.return_pct)},
+                  {label:"상태",key:"status",align:"center",color:()=>DASH.muted},
+                ]}
+                rows={trades}/>
+            ) : recentTrades ? (
+              <DashTable
+                columns={Object.keys(recentTrades[0]).map((k)=>({label:k,key:k,align:typeof recentTrades[0][k]==="number"?"right":"left",render:r=>typeof r[k]==="number"?fmtN(r[k],4):String(r[k])}))}
+                rows={recentTrades}/>
+            ) : <div style={{color:DASH.muted,fontSize:12,padding:"24px 0",textAlign:"center"}}>체결 내역이 없습니다.</div>}
+          </div>
+        )}
+
+        {/* ───── 로그 ───── */}
+        {sub==="logs" && (
+          <div style={{...dashCard, fontFamily:"'JetBrains Mono',monospace"}}>
+            <div style={{...dashCardTitle,fontFamily:"'Inter',sans-serif"}}>📜 실행 로그</div>
+            <pre style={{margin:0,fontSize:11.5,lineHeight:1.8,color:"#cbd5e1",whiteSpace:"pre-wrap"}}>{[
+              `[엔진]   ${engineLabel}`,
+              `[종목]   ${btResult.ticker || (btResult.tickers||[]).join(", ") || "—"}   [전략] ${btResult.strategy || "—"}`,
+              `[기간]   ${period}`,
+              `[자본]   ${fmtMoney(startEq)} → ${fmtMoney(endEq)}  (${fmtPctS(s.net_profit_pct ?? s.total_return_pct)})`,
+              `[성과]   총수익 ${fmtPctS(s.total_return_pct)} · CAR ${fmtPctS(s.annualized_return_pct)} · Sharpe ${fmtN(s.sharpe)} · MDD ${fmtPctS(s.max_drawdown_pct,false)}`,
+              `[거래]   주문 ${orders?orders.length:"—"}건 · 체결 ${trades?trades.length:(recentTrades?recentTrades.length:"—")}건 · 승률 ${fmtPctS(s.win_rate_pct,false)}`,
+              `[비용]   수수료 ${fmtMoney(s.total_fees)} · 거래대금 ${fmtMoney(s.volume)}`,
+              btResult.orders_truncated ? `⚠ 주문 1000건 초과 — 표시 일부 생략(통계는 전체 반영)` : ``,
+              `✓ 백테스트 완료`,
+            ].filter(Boolean).join("\n")}</pre>
+          </div>
+        )}
+
+        {/* ───── 코드 ───── */}
+        {sub==="code" && (
+          <div style={{...dashCard, padding:0, overflow:"hidden"}}>
+            <div style={{...dashCardTitle, padding:"12px 16px 0"}}>🐍 실행 전략 코드 {code?"(main.py · 읽기전용)":""}</div>
+            {code ? (
+              <pre style={{margin:0,padding:"10px 16px 16px",fontSize:11.5,lineHeight:1.65,color:"#cbd5e1",fontFamily:"'JetBrains Mono',monospace",overflow:"auto",maxHeight:520,whiteSpace:"pre"}}>{code}</pre>
+            ) : <div style={{color:DASH.muted,fontSize:12,padding:"24px 16px"}}>코드를 불러올 수 없습니다.</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── 코드 해설 주피터 노트북 — main.py 를 모듈/블록별 셀로 분해 + 설명 ──
+const NB_PARAM_DESC = {
+  TICKER:"대상 종목 티커", TICKERS:"대상 종목 목록", BENCHMARK:"성과 비교 기준(벤치마크)",
+  SMA_FAST:"단기 이동평균 기간(거래일)", SMA_SLOW:"장기 이동평균 기간(거래일)",
+  RSI_PERIOD:"RSI 계산 기간", RSI_LOW:"과매도 진입 기준", RSI_HIGH:"과매수 청산 기준",
+  MACD_FAST:"MACD 단기 EMA", MACD_SLOW:"MACD 장기 EMA", MACD_SIGNAL:"시그널선 EMA 기간",
+  VIX_THRESHOLD:"VIX 위험회피 임계값",
+  SPLIT:"분할 매수 횟수(시드 N등분)", TAKE_PROFIT_PCT:"평단 대비 익절 목표(%)", LOC_OFFSET_PCT:"종가 대비 추가매수 지정가 오프셋(%)",
+  REBALANCE_DAYS:"리밸런싱 주기(거래일)", EXPECTED_RETURN:"주기당 목표 수익률", BAND_PCT:"허용 밴드 폭(±)",
+  POOL_TARGET_PCT:"목표 풀(주식) 비중", INITIAL_POOL_PCT:"초기 풀 비중", INITIAL_CAPITAL:"초기 자본금",
+};
+
+function buildNotebookCells(code) {
+  if (!code) return [];
+  const kind = /SPLIT\s*=/.test(code) ? "ib" : /REBALANCE_DAYS\s*=/.test(code) ? "vr"
+    : /RSI_PERIOD\s*=/.test(code) ? "rsi" : /MACD_/.test(code) ? "macd"
+    : /VIX_THRESHOLD\s*=/.test(code) ? "vix" : "sma";
+  // 빈 줄 기준 블록 분할
+  const blocks = []; let cur = [];
+  for (const ln of code.split("\n")) {
+    if (ln.trim() === "") { if (cur.length) { blocks.push(cur.join("\n")); cur = []; } }
+    else cur.push(ln);
+  }
+  if (cur.length) blocks.push(cur.join("\n"));
+
+  return blocks.map((t) => {
+    if (/def\s+Initialize/.test(t) || /class\s+\w+\s*\(/.test(t))
+      return { title:"초기화 (Initialize)", icon:"🚀", code:t, md:"알고리즘 시작 시 한 번 호출됩니다. 백테스트 기간·초기자본·대상 종목을 등록하고, 사용할 기술적 지표를 생성한 뒤 지표가 충분한 데이터로 준비되도록 `SetWarmUp` 을 설정합니다." };
+    if (/def\s+OnData/.test(t)) {
+      const md = kind==="rsi" ? "매 거래일 새 데이터마다 호출되는 매매 로직입니다. RSI 가 과매도(`RSI_LOW`) 아래로 내려가면 매수, 과매수(`RSI_HIGH`) 위로 올라가면 청산합니다 — 평균회귀 전략."
+        : kind==="macd" ? "매 거래일 호출됩니다. MACD 선이 시그널선을 **상향 돌파**하면 매수, **하향 돌파**하면 청산하는 추세추종 로직입니다."
+        : kind==="vix" ? "매 거래일 호출됩니다. VIX 가 임계값 이하(안정장)면 매수 포지션을 유지하고, 초과(위험장)면 전량 청산해 손실을 회피합니다."
+        : "매 거래일 새 데이터마다 호출되는 핵심 매매 로직입니다. 단기 이동평균이 장기 이동평균 위로 올라가면(**골든크로스**) 매수, 아래로 내려가면(**데드크로스**) 청산합니다.";
+      return { title:"매매 로직 (OnData)", icon:"📈", code:t, md };
+    }
+    if (/def\s+OnEndOfAlgorithm/.test(t))
+      return { title:"종료 처리 (OnEndOfAlgorithm)", icon:"🏁", code:t, md:"백테스트가 끝날 때 호출됩니다. 최종 포트폴리오 가치를 로그로 남겨 결과를 확인합니다." };
+    if (/def\s+run/.test(t)) {
+      const md = kind==="ib" ? "무한매수법의 핵심 실행 로직입니다. 매 거래일 시드를 `SPLIT` 등분한 금액으로 분할 매수하고, 평단가 대비 `TAKE_PROFIT_PCT` 도달 시 전량 익절한 뒤 사이클을 반복합니다. (실제 시뮬레이션은 AlphaHelix analytics 의 vectorbt 기반 엔진이 수행)"
+        : "밸류 리밸런싱의 핵심 실행 로직입니다. `REBALANCE_DAYS` 마다 목표가치를 갱신하고, 평가액이 밴드(±`BAND_PCT`)를 벗어나면 풀(주식) 비중을 `POOL_TARGET_PCT` 로 복원합니다 — 하락 시 저가매수, 상승 시 차익실현.";
+      return { title:"백테스트 실행 로직 (run)", icon:"⚡", code:t, md };
+    }
+    if (t.trim().split("\n").every(l => /^\s*(from|import)\s/.test(l)))
+      return { title:"라이브러리 임포트", icon:"📦", code:t, md:"전략 작성에 필요한 라이브러리를 불러옵니다. QuantConnect LEAN 환경의 `AlgorithmImports` 는 `QCAlgorithm`·기술적 지표·주문 API 등 모든 클래스를 제공합니다." };
+    if (/^\s*[A-Z_]{2,}\s*=/m.test(t)) {
+      const consts = [];
+      t.split("\n").forEach(l => { const m = l.match(/^\s*([A-Z_]{2,})\s*=\s*(.+?)\s*$/); if (m) consts.push([m[1], m[2].replace(/\s*#.*$/, "").trim()]); });
+      const stratName = (t.match(/전략 유형:\s*(.+)/) || [])[1];
+      const md = [
+        stratName ? `**전략 유형: ${stratName.trim()}**` : "전략의 핵심 파라미터를 정의합니다.",
+        "아래 값들이 바로 **최적화(Optimization) 위저드에서 스윕**되는 대상입니다 — 범위를 바꿔 견고성을 검증할 수 있습니다.",
+        ...consts.filter(([k]) => NB_PARAM_DESC[k]).map(([k, v]) => `- \`${k} = ${v}\` — ${NB_PARAM_DESC[k]}`),
+      ].join("\n");
+      return { title:"파라미터 · 설정", icon:"⚙️", code:t, md };
+    }
+    if (t.trim().split("\n").every(l => l.trim() === "" || l.trim().startsWith("#")))
+      return { title:"설명 주석", icon:"📝", code:t, md:"전략의 동작 원리를 설명하는 주석입니다." };
+    return { title:"코드 블록", icon:"🔹", code:t, md:"" };
+  });
+}
+
+// 라이트 마크다운(굵게 / 인라인코드 / 불릿) 렌더
+function NbMarkdown({ text }) {
+  const renderInline = (s) => {
+    const out = []; const re = /(\*\*[^*]+\*\*|`[^`]+`)/g; let last = 0, m, key = 0;
+    while ((m = re.exec(s))) {
+      if (m.index > last) out.push(s.slice(last, m.index));
+      const tok = m[0];
+      if (tok.startsWith("**")) out.push(<b key={key++} style={{ color:"#e2e8f0" }}>{tok.slice(2, -2)}</b>);
+      else out.push(<code key={key++} style={{ background:"rgba(255,255,255,0.08)", padding:"1px 5px", borderRadius:4, fontSize:11, color:"#a5b4fc", fontFamily:"monospace" }}>{tok.slice(1, -1)}</code>);
+      last = m.index + tok.length;
+    }
+    if (last < s.length) out.push(s.slice(last));
+    return out;
+  };
+  return (
+    <div style={{ fontSize:12, color:"#cbd5e1", lineHeight:1.7 }}>
+      {String(text).split("\n").map((l, i) =>
+        l.trim().startsWith("- ")
+          ? <div key={i} style={{ display:"flex", gap:6, marginTop:2 }}><span style={{ color:DASH.violet }}>•</span><span>{renderInline(l.trim().slice(2))}</span></div>
+          : <div key={i} style={{ marginTop: i ? 3 : 0 }}>{renderInline(l)}</div>
+      )}
+    </div>
+  );
+}
+
+function NotebookView({ code, strategyName }) {
+  const cells = React.useMemo(() => buildNotebookCells(code), [code]);
+  if (!code) return <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:"#4B5563", fontSize:13 }}>코드가 없습니다. 워크스페이스를 선택하세요.</div>;
+  return (
+    <div style={{ flex:1, overflow:"auto", background:DASH.bg, padding:"20px 24px 50px" }}>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+        <BookOpen size={16} color={DASH.violet}/>
+        <span style={{ fontSize:15, fontWeight:800, color:"white" }}>{strategyName || "전략"} · 코드 해설 노트북</span>
+      </div>
+      <div style={{ fontSize:11.5, color:DASH.muted, marginBottom:18, lineHeight:1.6 }}>전략 코드를 모듈(셀) 단위로 나눠 한 블록씩 설명합니다. Jupyter 노트북처럼 위에서 아래로 읽으며 전략 동작을 이해하세요.</div>
+      {cells.map((c, i) => (
+        <div key={i} style={{ marginBottom:16, border:`1px solid ${DASH.border}`, borderRadius:10, overflow:"hidden", background:DASH.panel }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, padding:"8px 14px", borderBottom:`1px solid ${DASH.border}`, background:"#12161d" }}>
+            <span style={{ fontSize:13 }}>{c.icon}</span>
+            <span style={{ fontSize:12.5, fontWeight:800, color:"#e2e8f0" }}>{c.title}</span>
+            <span style={{ marginLeft:"auto", fontSize:9.5, color:"#475569", fontFamily:"monospace" }}>셀 {i + 1}</span>
+          </div>
+          <div style={{ display:"flex", gap:10, padding:"10px 14px" }}>
+            <span style={{ fontSize:9.5, color:"#475569", fontFamily:"monospace", flexShrink:0, paddingTop:2 }}>In[{i + 1}]</span>
+            <pre style={{ margin:0, flex:1, fontSize:11.5, lineHeight:1.6, color:"#cbd5e1", fontFamily:"'JetBrains Mono',monospace", overflow:"auto", whiteSpace:"pre" }}>{c.code}</pre>
+          </div>
+          {c.md && (
+            <div style={{ padding:"10px 14px 12px 38px", borderTop:"1px solid rgba(255,255,255,0.04)", background:"rgba(167,139,250,0.05)" }}>
+              <NbMarkdown text={c.md}/>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── 오픈소스 데이터셋 카탈로그 브라우저 (QuantConnect Datasets 스타일) ──
+function DatasetsBrowser() {
+  const [catalog, setCatalog] = React.useState(null);
+  const [err, setErr] = React.useState(null);
+  const [q, setQ] = React.useState("");
+  const [sel, setSel] = React.useState(null);          // 선택된 데이터셋
+  const [symbol, setSymbol] = React.useState("");
+  const [preview, setPreview] = React.useState(null);  // {columns, rows}
+  const [pvLoading, setPvLoading] = React.useState(false);
+  const [pvErr, setPvErr] = React.useState(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    getDatasetsCatalog().then(r => alive && setCatalog(r)).catch(() => alive && setErr("카탈로그 로드 실패 — Analytics 사이드카 확인"));
+    return () => { alive = false; };
+  }, []);
+
+  const loadPreview = React.useCallback((ds, sym) => {
+    setSel(ds); setPreview(null); setPvErr(null);
+    if (!ds.live) { setPvErr(`'${ds.source}' 커넥터 준비중 — 라이브 소스(노란 배지)에서 미리보기 가능합니다.`); return; }
+    setPvLoading(true);
+    const useSym = (sym ?? symbol) || (ds.sample_symbols || [])[0] || "";
+    setSymbol(useSym);
+    getDatasetPreview(ds.id, useSym, 30)
+      .then(r => setPreview(r))
+      .catch(e => setPvErr("미리보기 실패: " + (e?.response?.data?.error || e?.message || "")))
+      .finally(() => setPvLoading(false));
+  }, [symbol]);
+
+  const datasets = (catalog?.datasets || []).filter(d => {
+    if (!q) return true;
+    const s = (d.name + " " + d.source + " " + d.asset_class + " " + (d.sample_symbols || []).join(" ")).toLowerCase();
+    return s.includes(q.toLowerCase());
+  });
+  const liveCount = (catalog?.datasets || []).filter(d => d.live).length;
+
+  const badge = (txt, color, bg) => <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 999, color, background: bg }}>{txt}</span>;
+
+  return (
+    <div style={{ flex: 1, overflow: "auto", background: DASH.bg, padding: "20px 24px 50px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <Database size={16} color={DASH.green} />
+        <span style={{ fontSize: 15, fontWeight: 800, color: "white" }}>데이터셋 카탈로그</span>
+        {catalog && <span style={{ fontSize: 11, color: DASH.muted }}>· {catalog.datasets.length}개 소스 · 라이브 {liveCount}</span>}
+      </div>
+      <div style={{ fontSize: 11.5, color: DASH.muted, marginBottom: 14, lineHeight: 1.6 }}>오픈소스 시장 데이터를 한 곳에서 탐색합니다. <b style={{ color: "#fde68a" }}>라이브</b> 소스는 클릭 시 실데이터 미리보기(캐시), <b style={{ color: "#64748b" }}>준비중</b>은 로드맵입니다.</div>
+
+      {err && <div style={{ color: DASH.red, fontSize: 12, padding: 16 }}>{err}</div>}
+      {!catalog && !err && <div style={{ color: DASH.muted, fontSize: 12, padding: 16 }}>카탈로그 불러오는 중…</div>}
+
+      {catalog && (
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+          {/* 카탈로그 그리드 */}
+          <div style={{ flex: "1 1 420px", minWidth: 320 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: DASH.panel, border: `1px solid ${DASH.border}`, borderRadius: 8, padding: "6px 10px", marginBottom: 12 }}>
+              <Database size={13} color={DASH.muted} />
+              <input value={q} onChange={e => setQ(e.target.value)} placeholder="소스·자산군·심볼 검색 (예: 크립토, AAPL, FRED)" style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: DASH.text, fontSize: 12 }} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(230px,1fr))", gap: 10 }}>
+              {datasets.map(d => (
+                <div key={d.id} onClick={() => loadPreview(d, (d.sample_symbols || [])[0])}
+                  style={{ border: `1px solid ${sel?.id === d.id ? DASH.blue : DASH.border}`, borderRadius: 10, padding: "11px 13px", cursor: "pointer", background: sel?.id === d.id ? "rgba(96,165,250,0.07)" : DASH.panel, transition: "border .15s" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 800, color: "#e2e8f0", flex: 1, lineHeight: 1.2 }}>{d.name}</span>
+                    {d.live ? badge("라이브", "#1c1917", "#fde68a") : badge("준비중", "#94a3b8", "rgba(148,163,184,0.15)")}
+                  </div>
+                  <div style={{ fontSize: 10, color: DASH.muted, marginBottom: 6 }}>{d.source}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+                    {badge(d.asset_class, "#a5b4fc", "rgba(99,102,241,0.12)")}
+                    {badge(d.market, "#7dd3fc", "rgba(14,165,233,0.12)")}
+                    {badge(d.interval, "#cbd5e1", "rgba(255,255,255,0.06)")}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "#94a3b8", lineHeight: 1.5 }}>{d.description}</div>
+                  <div style={{ fontSize: 9.5, color: "#475569", marginTop: 6 }}>📅 {d.coverage} · ⚖ {d.license}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 미리보기 패널 */}
+          <div style={{ flex: "1 1 360px", minWidth: 300, position: "sticky", top: 0 }}>
+            <div style={{ ...dashCard, marginBottom: 0 }}>
+              {!sel ? <div style={{ color: DASH.muted, fontSize: 12, padding: "30px 0", textAlign: "center" }}>← 데이터셋을 선택하면 실데이터 미리보기가 표시됩니다.</div> : <>
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: "#e2e8f0", marginBottom: 2 }}>{sel.name}</div>
+                <div style={{ fontSize: 10.5, color: DASH.muted, marginBottom: 10 }}>{sel.source} · {sel.asset_class}</div>
+                {sel.live && (
+                  <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                    <input value={symbol} onChange={e => setSymbol(e.target.value)} onKeyDown={e => e.key === "Enter" && loadPreview(sel, symbol)}
+                      placeholder="심볼" style={{ flex: 1, minWidth: 120, background: "#0d1117", border: `1px solid ${DASH.border}`, borderRadius: 7, color: DASH.text, fontSize: 12, padding: "6px 9px" }} />
+                    <button onClick={() => loadPreview(sel, symbol)} style={{ padding: "6px 12px", borderRadius: 7, border: "none", background: DASH.blue, color: "#06121f", fontSize: 11.5, fontWeight: 800, cursor: "pointer" }}>미리보기</button>
+                  </div>
+                )}
+                {(sel.sample_symbols || []).length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+                    {sel.sample_symbols.map(s => <button key={s} onClick={() => loadPreview(sel, s)} disabled={!sel.live}
+                      style={{ fontSize: 10, padding: "2px 8px", borderRadius: 999, border: `1px solid ${DASH.border}`, background: symbol === s ? "rgba(96,165,250,0.15)" : "transparent", color: sel.live ? "#cbd5e1" : "#475569", cursor: sel.live ? "pointer" : "not-allowed" }}>{s}</button>)}
+                  </div>
+                )}
+                {pvLoading && <div style={{ color: DASH.muted, fontSize: 12, padding: 16 }}>실데이터 불러오는 중…</div>}
+                {pvErr && <div style={{ color: "#fbbf24", fontSize: 11.5, padding: "10px 12px", background: "rgba(245,158,11,0.08)", borderRadius: 8, lineHeight: 1.5 }}>{pvErr}</div>}
+                {preview && preview.rows && (
+                  <div style={{ overflowX: "auto", border: `1px solid ${DASH.border}`, borderRadius: 8 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                      <thead><tr>{preview.columns.map(c => <th key={c} style={{ padding: "6px 8px", textAlign: "right", color: DASH.muted, fontWeight: 700, borderBottom: `1px solid ${DASH.border}`, whiteSpace: "nowrap" }}>{c}</th>)}</tr></thead>
+                      <tbody>{preview.rows.map((r, i) => <tr key={i}>{preview.columns.map(c => <td key={c} style={{ padding: "5px 8px", textAlign: "right", color: "#cbd5e1", borderBottom: "1px solid rgba(255,255,255,0.04)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{typeof r[c] === "number" ? r[c].toLocaleString() : String(r[c] ?? "")}</td>)}</tr>)}</tbody>
+                    </table>
+                  </div>
+                )}
+                {preview && <div style={{ fontSize: 9.5, color: "#475569", marginTop: 6 }}>최근 {preview.rows?.length || 0}행 · 실데이터(캐시 60분 TTL)</div>}
+              </>}
+            </div>
+          </div>
         </div>
       )}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:16}}>
-        <MetricCard label="총 수익률"    value={fmtPct(s.total_return_pct)}      color={s.total_return_pct >= 0 ? "#10B981" : "#EF4444"}/>
-        <MetricCard label="연환산 수익률" value={fmtPct(s.annualized_return_pct)} color={s.annualized_return_pct >= 0 ? "#10B981" : "#EF4444"}/>
-        <MetricCard label="샤프 지수"    value={fmtNum(s.sharpe)}                color="#60a5fa"/>
-        <MetricCard label="MDD"          value={fmtPct(s.max_drawdown_pct)}      color="#F59E0B"/>
-        <MetricCard label="승률"         value={fmtPct(s.win_rate_pct)}          color="#60a5fa"/>
-        <MetricCard label="총 거래 횟수" value={`${s.trades ?? "N/A"}회`}        color="#9CA3AF"/>
-        {s.engine === "lean" && <>
-          <MetricCard label="Sortino"       value={fmtNum(s.sortino)}       color="#34d399"/>
-          <MetricCard label="Profit Factor" value={fmtNum(s.profit_factor)} color="#a78bfa"/>
-          <MetricCard label="총 수수료"     value={s.total_fees != null ? `$${Math.round(s.total_fees).toLocaleString()}` : "N/A"} color="#9CA3AF"/>
-        </>}
+    </div>
+  );
+}
+
+// ── 백테스트/Lean 실행 진행 팝업 (QC식 Requesting→Launching→Waiting) ──
+function RunProgressOverlay({ engine }) {
+  const [sec, setSec] = React.useState(0);
+  React.useEffect(() => { const t = setInterval(() => setSec(s => Math.round((s + 0.1) * 10) / 10), 100); return () => clearInterval(t); }, []);
+  const steps = ["요청 전송 (Requesting)", "엔진 실행 (Launching)", "결과 대기 (Waiting for Results)"];
+  const active = sec < 0.8 ? 0 : (engine === "lean" ? (sec < 4 ? 1 : 2) : (sec < 1.6 ? 1 : 2));
+  return (
+    <div style={{ position: "fixed", top: "44%", left: "56%", transform: "translate(-50%,-50%)", zIndex: 9999, width: 348, background: DASH.panel, border: `1px solid ${DASH.border}`, borderRadius: 14, padding: "18px 22px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, color: DASH.muted, marginBottom: 14, lineHeight: 1.5 }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#fbbf24", flexShrink: 0 }} />
+        {engine === "lean" ? "Lean · QuantConnect 엔진" : "vectorbt 엔진"} · AlphaHelix 클라우드 노드에서 실행 중
+      </div>
+      {steps.map((s, i) => (
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", opacity: i <= active ? 1 : 0.4 }}>
+          {i < active ? <CheckCircle2 size={16} color="#4ade80" /> : i === active ? <Loader size={16} color="#60a5fa" style={{ animation: "spin 1s linear infinite" }} /> : <div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid #475569" }} />}
+          <span style={{ fontSize: 12.5, color: i <= active ? "#e2e8f0" : "#64748B", fontWeight: i === active ? 700 : 500 }}>{s}</span>
+        </div>
+      ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${DASH.border}`, fontSize: 11, color: DASH.muted }}>
+        <Loader size={11} style={{ animation: "spin 1s linear infinite" }} /> {sec.toFixed(1)}s 경과
       </div>
     </div>
   );
@@ -885,14 +2162,12 @@ export default function DeveloperLab() {
   useTheme();
   const [searchParams] = useSearchParams();
 
-  // index.css html{zoom:1.1} 보정 — IDE 마운트 시 zoom:1 로 고정, 언마운트 시 원복
+  // IDE 마운트 시 스크롤 비활성화, 언마운트 시 복원
   useEffect(() => {
     const html = document.documentElement;
-    html.style.zoom = "1";
     html.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
     return () => {
-      html.style.zoom = "";        // index.css zoom:1.1 복원
       html.style.overflow = "";
       document.body.style.overflow = "";
     };
@@ -925,6 +2200,11 @@ export default function DeveloperLab() {
   const engineMenuRef = useRef(null);
   const leanJobRef = useRef(null);   // 현재 폴링 중인 Lean job_id (새 실행 시 이전 폴링 취소)
   const [leanHealth, setLeanHealth] = useState(null);  // Lean 실행환경 준비 상태(Docker/CLI/이미지)
+  // 실행 위치(로컬 자가호스팅 / 클라우드 관리형) + 구독 티어 게이팅
+  const [execLoc, setExecLoc] = useState("cloud");     // "cloud" | "local"
+  const [userTier, setUserTier] = useState(null);      // FREE | STANDARD | PREMIUM
+  useEffect(() => { getDeveloperAccess().then(a => setUserTier(a?.userType || null)).catch(() => {}); }, []);
+  const cloudAllowed = userTier === "PREMIUM";          // 클라우드 관리형 컴퓨트 = PREMIUM("스탠다드 이상")
   // Claude Code 에이전트 입력
   const [claudeOpen, setClaudeOpen] = useState(false);
   const [claudeReq, setClaudeReq] = useState("");
@@ -942,6 +2222,10 @@ export default function DeveloperLab() {
   const [improveData, setImproveData] = useState(null);
   const [improveErr, setImproveErr] = useState(null);
   const [improveApplied, setImproveApplied] = useState(null);
+  // #7/#8 최적화 — 파라미터 그리드 백테스트(기존 vectorbt 백테스트를 그리드로 반복)
+  const [optBusy, setOptBusy] = useState(false);
+  const [optProgress, setOptProgress] = useState({ done: 0, total: 0 });
+  const [optResults, setOptResults] = useState(null); // { metric, metricLabel, p1, p2, combos:[{params,stats,score}], best }
   // P4: Claude 패치 전후 효과 측정
   const [compareOpen, setCompareOpen] = useState(false);
   const [compareBusy, setCompareBusy] = useState(false);
@@ -949,6 +2233,9 @@ export default function DeveloperLab() {
   const [compareErr, setCompareErr] = useState(null);
   const [queueMsg, setQueueMsg] = useState(null);
   const [wsList, setWsList] = useState([]);
+  const [wsCandidates, setWsCandidates] = useState([]);   // 현재 워크스페이스의 전략 후보(3개)
+  const [wsSelectedId, setWsSelectedId] = useState(null);  // 선택된 후보 id
+  const [wsSwitchBusy, setWsSwitchBusy] = useState(false);
   const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
   const wsDropdownRef = useRef(null);
 
@@ -1060,6 +2347,30 @@ export default function DeveloperLab() {
     document.addEventListener("mouseup", onUp);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sidePanelW]);
+
+  // 액티비티바(아이콘 열) 가로 리사이즈 — 사용자가 폭 조절 가능. 넓힐수록 탐색기가 오른쪽으로 밀림.
+  const [actBarW, setActBarW] = useState(() => {
+    const v = Number(localStorage.getItem("ah.workbench.actBarWidth"));
+    return Number.isFinite(v) && v >= 44 && v <= 120 ? v : 56;
+  });
+  const handleActResizeMouseDown = useCallback((e) => {
+    e.preventDefault();
+    const startX = e.clientX, startW = actBarW;
+    let latest = startW;
+    const onMove = (ev) => { latest = Math.min(120, Math.max(44, startW + ev.clientX - startX)); setActBarW(latest); };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      try { localStorage.setItem("ah.workbench.actBarWidth", String(latest)); } catch (_) {}
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actBarW]);
 
   // ── 하단 콘솔 ──
   const [bottomH, setBottomH] = useState(180);
@@ -1224,6 +2535,15 @@ export default function DeveloperLab() {
         localStorage.setItem("alpha.lastWsId", id);
         setStrategyName(data.name || "AlphaHelix Strategy");
         setBtResult(null);
+        // 전략 후보(3개) + 선택 id 추출 — 워크스페이스 패널의 전략 트리에 사용
+        try {
+          const cfg0 = data.strategyConfig
+            ? (typeof data.strategyConfig === "string" ? JSON.parse(data.strategyConfig) : data.strategyConfig)
+            : null;
+          const cands = Array.isArray(cfg0?.candidates) ? cfg0.candidates : [];
+          setWsCandidates(cands);
+          setWsSelectedId(cfg0?.selectedId ?? cfg0?.selected_id ?? (cands[0]?.id ?? null));
+        } catch { setWsCandidates([]); setWsSelectedId(null); }
         if (data.codeJson) {
           try { setFileContents(JSON.parse(data.codeJson)); } catch { /* ignore */ }
         } else if (data.strategyConfig) {
@@ -1241,6 +2561,41 @@ export default function DeveloperLab() {
       .finally(() => setWsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── 워크스페이스 패널 액션: 전환 / 추가 / 전략후보 선택 ──
+  const handleSwitchWorkspace = useCallback((id) => {
+    if (!id || String(id) === String(wsId)) return;
+    setOpenTabs([{ id:"tab_main", name:"main.py", type:"code", fileKey:"main" }]);
+    setActiveTabId("tab_main");
+    loadWorkspace(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsId, loadWorkspace]);
+
+  const handleAddWorkspace = useCallback(async () => {
+    const name = window.prompt("새 워크스페이스 이름");
+    if (!name || !name.trim()) return;
+    try {
+      const w = await createWorkspace(name.trim());
+      const r = await listWorkspaces();
+      setWsList(Array.isArray(r) ? r : (r?.content || []));
+      handleSwitchWorkspace(w.id);
+    } catch (e) {
+      alert("워크스페이스 생성 실패: " + (e?.response?.data?.error || e.message));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleSwitchWorkspace]);
+
+  const handleSelectCandidate = useCallback(async (candidateId) => {
+    if (!wsId || !candidateId || candidateId === wsSelectedId) return;
+    setWsSwitchBusy(true);
+    try {
+      await selectStrategyCandidate(wsId, candidateId);
+      loadWorkspace(wsId);
+    } catch (e) {
+      alert("전략 선택 실패: " + (e?.response?.data?.error || e.message));
+    } finally { setWsSwitchBusy(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsId, wsSelectedId, loadWorkspace]);
 
   useEffect(() => {
     const id = localStorage.getItem("alpha.lastWsId");
@@ -1318,6 +2673,12 @@ export default function DeveloperLab() {
     setActiveTabId(tabId);
   }, []);
 
+  const handleOpenDatasets = useCallback(() => {
+    const id = "tab_datasets";
+    setOpenTabs(prev => prev.find(t=>t.id===id) ? prev : [...prev, { id, name:"🗂 데이터셋 카탈로그", type:"datasets" }]);
+    setActiveTabId(id);
+  }, []);
+
   const closeTab = useCallback((tabId, e) => {
     e?.stopPropagation();
     setOpenTabs(prev => {
@@ -1387,7 +2748,9 @@ export default function DeveloperLab() {
       const reportId = `tab_report_${Date.now()}`;
       setOpenTabs(prev => {
         const filtered = prev.filter(t => t.type !== "report");
-        return [...filtered, { id: reportId, name: "📊 백테스트 결과", type: "report" }];
+        const withReport = [...filtered, { id: reportId, name: "📊 백테스트 결과", type: "report" }];
+        // 3번째 탭: 코드 해설 노트북 (없으면 추가)
+        return withReport.some(t => t.type === "notebook") ? withReport : [...withReport, { id: "tab_notebook", name: "📓 코드 해설", type: "notebook" }];
       });
       setActiveTabId(reportId);
     } catch (e) {
@@ -1400,6 +2763,11 @@ export default function DeveloperLab() {
   // ── Lean (QuantConnect) 백테스트 실행 — 비동기 잡 시작 + 진행 폴링 ──
   const handleRunLean = useCallback(async () => {
     if (runStatus === "running") return;
+    // 클라우드 관리형 Lean = PREMIUM 게이팅. 로컬(자가호스팅)은 본인 Docker 로 실행.
+    if (execLoc === "cloud" && !cloudAllowed) {
+      alert("클라우드 관리형 Lean 백테스트는 PREMIUM 구독에서 사용할 수 있습니다.\n\n• 우리 서버가 실행하므로 노트북 성능과 무관합니다.\n• STANDARD 는 '로컬(자가호스팅)' 엔진으로 본인 Docker 에서 Lean 을 실행하거나, 클라우드 vectorbt 백테스트를 사용하세요.\n\n엔진 패널에서 실행 위치를 '로컬' 로 바꾸면 본인 환경에서 실행합니다.");
+      return;
+    }
     timerRefs.current.forEach(clearTimeout);
     timerRefs.current = [];
     setRunStatus("running");
@@ -1526,7 +2894,7 @@ export default function DeveloperLab() {
       setRunStatus("idle");
       setLogLines(prev => [...prev, { type:"warn", msg:`[Lean] 폴링 시간 초과 — 백그라운드 실행은 계속될 수 있음 (job=${jobId})`, ts: nowTs() }]);
     }
-  }, [runStatus, wsId, fileContents, activeTabId, openTabs, leanStrategyId, leanStrategies]);
+  }, [runStatus, wsId, fileContents, activeTabId, openTabs, leanStrategyId, leanStrategies, execLoc, cloudAllowed]);
 
   // ── P3: 전략 개선 제안서 (진단 + 선택지 + 전후 백테스트 비교) ──
   const handleImproveProposal = useCallback(async () => {
@@ -1600,7 +2968,7 @@ export default function DeveloperLab() {
         const d = e.response.data || {};
         setClaudeMessages(prev => [...prev, { role:"error", content:`Claude 에이전트 비활성: ${d.error || "꺼져 있음"} ${d.hint ? "("+d.hint+")" : ""}` }]);
       } else if (e?.response?.status === 402) {
-        setClaudeMessages(prev => [...prev, { role:"error", content: e.response.data?.error || "Developer IDE(Claude)는 STANDARD 구독부터입니다." }]);
+        setClaudeMessages(prev => [...prev, { role:"error", content: e.response.data?.error || "Quant Developer IDE(Claude)는 STANDARD 구독부터입니다." }]);
       } else {
         setClaudeMessages(prev => [...prev, { role:"error", content:`Claude 시작 실패: ${e?.response?.data?.error || e?.message}` }]);
       }
@@ -1682,8 +3050,110 @@ export default function DeveloperLab() {
   }, [wsId, btResult]);
 
   const handleDeploy = useCallback(() => {
-    alert("배포 전 체크리스트:\n\n✓ 백테스트 완료 확인\n✓ Trust Score ≥ 70\n⚠ KIS 모의계좌 연동 필요\n\n[계좌·주문] 탭에서 KIS 계좌를 먼저 등록하세요.");
-  }, []);
+    if (!wsId) { alert("워크스페이스를 먼저 선택하세요."); return; }
+    const id = "tab_deploy";
+    setOpenTabs(prev => prev.find(t=>t.id===id) ? prev : [...prev, { id, name:"🚀 Deploy to Live", type:"deploy" }]);
+    setActiveTabId(id);
+  }, [wsId]);
+
+  // ── #7 최적화 위저드 열기 ──
+  const handleOpenOptimize = useCallback(() => {
+    if (!wsId) { alert("워크스페이스를 먼저 선택하세요."); return; }
+    const id = "tab_optimize";
+    setOpenTabs(prev => prev.find(t=>t.id===id) ? prev : [...prev, { id, name:"🎯 최적화", type:"optimize" }]);
+    setActiveTabId(id);
+  }, [wsId]);
+
+  // ── 코드 해설 노트북 탭 열기 ──
+  const handleOpenNotebook = useCallback(() => {
+    if (!wsId) { alert("워크스페이스를 먼저 선택하세요."); return; }
+    const id = "tab_notebook";
+    setOpenTabs(prev => prev.find(t=>t.id===id) ? prev : [...prev, { id, name:"📓 코드 해설", type:"notebook" }]);
+    setActiveTabId(id);
+  }, [wsId]);
+
+  // ── #7/#8 최적화 실행: 파라미터 그리드로 백테스트 반복 → 결과 탭 ──
+  const handleLaunchOptimize = useCallback(async (config) => {
+    if (optBusy || !wsId) return;
+    const { params, metric, metricLabel, period, constraint } = config;
+    const active = openTabs.find(t=>t.id===activeTabId);
+    const base = parseParamsFromCode((active?.fileKey && fileContents[active.fileKey]) || fileContents.main || "");
+    // 그리드 좌표 생성
+    const axis = (p) => {
+      const out = []; const step = p.step > 0 ? p.step : 1;
+      for (let v = p.min; v <= p.max + 1e-9; v += step) out.push(Math.round(v * 1000) / 1000);
+      return out;
+    };
+    const p1 = params[0], p2 = params[1] || null;
+    const a1 = axis(p1), a2 = p2 ? axis(p2) : [null];
+    const combos = [];
+    for (const v1 of a1) for (const v2 of a2) combos.push({ [p1.name]: v1, ...(p2 ? { [p2.name]: v2 } : {}) });
+    if (combos.length === 0) { alert("파라미터 범위가 비어 있습니다."); return; }
+    if (combos.length > 64) { alert(`조합이 ${combos.length}개로 너무 많습니다. 범위/스텝을 조정해 64개 이하로 줄이세요.`); return; }
+
+    setOptBusy(true);
+    setOptProgress({ done: 0, total: combos.length });
+    setOpenTabs(prev => prev.find(t=>t.id==="tab_optresult") ? prev : [...prev, { id:"tab_optresult", name:"📈 최적화 결과", type:"optresult" }]);
+    setActiveTabId("tab_optresult");
+    const results = [];
+    const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+    const t0 = now();
+    let sumMs = 0;
+    for (let i = 0; i < combos.length; i++) {
+      const cp = { ...base, ...combos[i] };
+      const ts = now();
+      try {
+        const r = await runBacktest(wsId, period || "5y", cp);
+        const s = r?.stats || {};
+        const raw = Number(s[metric]);
+        results.push({ params: combos[i], stats: s, score: Number.isFinite(raw) ? raw : null, equity: r?.equity_curve || null, ms: now() - ts });
+      } catch (e) {
+        results.push({ params: combos[i], stats: { error: e?.response?.data?.error || e.message }, score: null, equity: null, ms: now() - ts });
+      }
+      sumMs += results[i].ms || 0;
+      setOptProgress({ done: i + 1, total: combos.length });
+    }
+    const totalMs = now() - t0;
+    const valid = results.filter(r => r.score != null);
+    // 제약 조건(MDD 상한) 만족 조합만 best 후보로(만족 조합이 있을 때만 적용)
+    let pool = valid;
+    if (constraint?.max_drawdown_pct != null) {
+      const ok = valid.filter(r => r.stats?.max_drawdown_pct == null || Math.abs(r.stats.max_drawdown_pct) <= constraint.max_drawdown_pct);
+      if (ok.length) pool = ok;
+    }
+    const best = pool.length
+      ? pool.reduce((a, b) => (metric === "max_drawdown_pct" ? (a.score <= b.score ? a : b) : (a.score >= b.score ? a : b)))
+      : null;
+    // 결과가 전부 동일한지(스윕 파라미터가 전략에 영향 없음 — 예: 무한매수가 SMA 파라미터 미사용) 판정
+    const uniqScores = new Set(valid.map(r => Math.round(r.score * 1e6)));
+    const flat = valid.length > 1 && uniqScores.size === 1;
+    // 최적 파라미터로 풀 백테스트(에쿼티 커브 + 전체 스탯) 1회 더 실행 → 결과 대시보드 하단에 표시
+    let bestFull = null;
+    if (best) {
+      try { bestFull = await runBacktest(wsId, period || "5y", { ...base, ...best.params }); } catch { /* keep null */ }
+    }
+    const validCount = valid.length;
+    const runtime = { totalMs, avgMs: combos.length ? sumMs / combos.length : 0, completed: validCount, failed: combos.length - validCount, total: combos.length };
+    setOptResults({ metric, metricLabel, p1: p1.name, p2: p2?.name || null, a1, a2: p2 ? a2 : null, combos: results, best, flat, bestFull, runtime, period: period || "5y" });
+    setOptBusy(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [optBusy, wsId, openTabs, activeTabId, fileContents]);
+
+  // 최적화 결과의 best 파라미터를 코드에 적용
+  const applyOptParams = useCallback((paramsObj) => {
+    setFileContents(prev => {
+      let code = prev.main || "";
+      const MAP = { sma_fast:"SMA_FAST", sma_slow:"SMA_SLOW", rsi_period:"RSI_PERIOD", rsi_low:"RSI_LOW", rsi_high:"RSI_HIGH", macd_fast:"MACD_FAST", macd_slow:"MACD_SLOW", macd_signal:"MACD_SIGNAL", vix_threshold:"VIX_THRESHOLD", split:"SPLIT", take_profit_pct:"TAKE_PROFIT_PCT", loc_offset_pct:"LOC_OFFSET_PCT", rebalance_days:"REBALANCE_DAYS", expected_return:"EXPECTED_RETURN", band_pct:"BAND_PCT", pool_target_pct:"POOL_TARGET_PCT", initial_pool_pct:"INITIAL_POOL_PCT" };
+      for (const [k, v] of Object.entries(paramsObj)) {
+        const CONST = MAP[k]; if (!CONST) continue;
+        code = code.replace(new RegExp(`^(\\s*${CONST}\\s*=\\s*)[\\d.]+`, "m"), `$1${v}`);
+      }
+      const next = { ...prev, main: code };
+      if (wsId) saveCode(wsId, JSON.stringify(next)).catch(()=>{});
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsId]);
 
   const activeTab = openTabs.find(t=>t.id===activeTabId);
   // 우측 Claude 도크 너비 드래그 리사이즈 (왼쪽으로 끌면 넓어짐)
@@ -1908,14 +3378,14 @@ export default function DeveloperLab() {
             ?<><Loader size={11} style={{animation:"spin 1s linear infinite"}}/>실행 중…</>
             :<><Play size={11}/>{engine==="lean" ? "Run Lean" : "Run Backtest"}</>}
         </button>
-        <button onClick={handleImproveProposal} disabled={improveBusy}
-          title="AI 진단 + 안정형/공격형 조정안 + 전후 백테스트 비교"
+        <button onClick={handleOpenOptimize} disabled={optBusy}
+          title="파라미터 그리드 백테스트로 견고성·민감도 최적화"
           style={{display:"flex",alignItems:"center",gap:4,padding:"5px 13px",borderRadius:6,
-            background:improveBusy?"rgba(245,158,11,0.18)":"linear-gradient(135deg,#F59E0B,#D97706)",border:"none",
-            color:"white",fontSize:12,fontWeight:700,cursor:improveBusy?"wait":"pointer",
-            boxShadow:improveBusy?"none":"0 2px 8px rgba(217,119,6,0.35)"}}>
-          {improveBusy ? <Loader size={11} style={{animation:"spin 1s linear infinite"}}/> : <Lightbulb size={11}/>}
-          개선 제안
+            background:optBusy?"rgba(245,158,11,0.18)":"linear-gradient(135deg,#F59E0B,#D97706)",border:"none",
+            color:"white",fontSize:12,fontWeight:700,cursor:optBusy?"wait":"pointer",
+            boxShadow:optBusy?"none":"0 2px 8px rgba(217,119,6,0.35)"}}>
+          {optBusy ? <Loader size={11} style={{animation:"spin 1s linear infinite"}}/> : <Lightbulb size={11}/>}
+          최적화 개선
         </button>
         <button onClick={handleDeploy}
           style={{display:"flex",alignItems:"center",gap:4,padding:"5px 13px",borderRadius:6,
@@ -1933,22 +3403,29 @@ export default function DeveloperLab() {
 
         {/* ── Activity Bar ─────────────────────────────────────────────────── */}
         <div style={{
-          width:36, flexShrink:0, background:"#161b22",
+          width:actBarW, flexShrink:0, background:"#161b22",
           borderRight:"1px solid rgba(255,255,255,0.06)",
           display:"flex", flexDirection:"column", alignItems:"center",
-          paddingTop:6, gap:2,
+          paddingTop:6, gap:2, position:"relative",
         }}>
+          {/* 가로 리사이즈 핸들 */}
+          <div onMouseDown={handleActResizeMouseDown}
+            style={{position:"absolute",top:0,right:0,width:4,height:"100%",cursor:"col-resize",zIndex:10,background:"transparent"}}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(96,165,250,0.35)"}
+            onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+          />
           {[
-            { icon:<FolderOpen size={20}/>, title:"파일 탐색기",   tutId:"tutorial-dev-explorer", act: sidePanel==="explorer", fn: ()=>setSidePanel(p=>p==="explorer"?null:"explorer") },
-            { icon:<FileCode size={20}/>,   title:"코드만 보기",   tutId:"tutorial-dev-code",     act: sidePanel===null,        fn: ()=>setSidePanel(null) },
-            { icon:<Database size={20}/>,   title:"데이터 탐색기", tutId:"tutorial-dev-data",     act: sidePanel==="data",     fn: ()=>setSidePanel(p=>p==="data"?null:"data") },
-            { icon:<GitBranch size={20}/>,  title:"GitHub 연결",   tutId:"tutorial-dev-git",      act: sidePanel==="git",      fn: ()=>setSidePanel(p=>p==="git"?null:"git") },
-            { icon:<BarChart3 size={20}/>,  title:"백테스트 결과", tutId:"tutorial-dev-report",   act: openTabs.some(t=>t.type==="report")&&activeTab?.type==="report",
+            { icon:<Boxes size={24}/>,      title:"워크스페이스",   tutId:"tutorial-dev-workspace", act: sidePanel==="workspace", fn: ()=>setSidePanel(p=>p==="workspace"?null:"workspace") },
+            { icon:<FolderOpen size={24}/>, title:"파일 탐색기",   tutId:"tutorial-dev-explorer", act: sidePanel==="explorer", fn: ()=>setSidePanel(p=>p==="explorer"?null:"explorer") },
+            { icon:<FileCode size={24}/>,   title:"코드만 보기",   tutId:"tutorial-dev-code",     act: sidePanel===null,        fn: ()=>setSidePanel(null) },
+            { icon:<Database size={24}/>,   title:"데이터 탐색기", tutId:"tutorial-dev-data",     act: sidePanel==="data",     fn: ()=>setSidePanel(p=>p==="data"?null:"data") },
+            { icon:<GitBranch size={24}/>,  title:"GitHub 연결",   tutId:"tutorial-dev-git",      act: sidePanel==="git",      fn: ()=>setSidePanel(p=>p==="git"?null:"git") },
+            { icon:<BarChart3 size={24}/>,  title:"백테스트 결과", tutId:"tutorial-dev-report",   act: openTabs.some(t=>t.type==="report")&&activeTab?.type==="report",
               fn: ()=>{ const t=openTabs.find(tt=>tt.type==="report"); if(t) setActiveTabId(t.id); else handleRunBacktest(); } },
-            { icon:<Terminal size={20}/>,   title:"콘솔 / 터미널", tutId:"tutorial-dev-console",  act: false,                   fn: ()=>logEndRef.current?.scrollIntoView({behavior:"smooth"}) },
+            { icon:<Terminal size={24}/>,   title:"LEAN 엔진 / 콘솔", tutId:"tutorial-dev-console", act: sidePanel==="engine", fn: ()=>setSidePanel(p=>p==="engine"?null:"engine") },
           ].map((b,i)=>(
             <button key={i} title={b.title} onClick={b.fn} data-tutorial-id={b.tutId || undefined} style={{
-              width:36, height:36, borderRadius:6, border:"none",
+              width:"100%", height:44, borderRadius:6, border:"none",
               background: b.act ? "rgba(96,165,250,0.16)" : "transparent",
               color: b.act ? "#60a5fa" : "#9CA3AF",
               cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
@@ -1964,7 +3441,7 @@ export default function DeveloperLab() {
             title="IDE AI 어시스턴트 CLI 설정"
             onClick={() => setIdeSettingsOpen(true)}
             style={{
-              width:36, height:36, borderRadius:6, border:"none",
+              width:"100%", height:44, borderRadius:6, border:"none",
               background: ideSettingsOpen ? "rgba(0,122,204,0.22)" : "transparent",
               color: ideSettingsOpen ? "#60AAFF" : "#4B7FC4",
               cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
@@ -1974,7 +3451,7 @@ export default function DeveloperLab() {
             onMouseEnter={e=>{e.currentTarget.style.color="#93C5FD"; e.currentTarget.style.background="rgba(0,122,204,0.20)";}}
             onMouseLeave={e=>{e.currentTarget.style.color=ideSettingsOpen?"#60AAFF":"#4B7FC4"; e.currentTarget.style.background=ideSettingsOpen?"rgba(0,122,204,0.22)":"transparent";}}
           >
-            <Settings size={18}/>
+            <Settings size={22}/>
           </button>
         </div>
 
@@ -2000,7 +3477,10 @@ export default function DeveloperLab() {
                 display:"flex", alignItems:"center",
               }}>
                 <span style={{flex:1}}>
-                  {sidePanel==="explorer" ? (repoTree ? "레포지토리" : "탐색기") : "데이터 브라우저"}
+                  {sidePanel==="workspace" ? "워크스페이스"
+                    : sidePanel==="engine" ? "LEAN 엔진"
+                    : sidePanel==="explorer" ? (repoTree ? "레포지토리" : "탐색기")
+                    : "데이터 브라우저"}
                 </span>
                 {sidePanel==="explorer" && repoTree && (
                   <>
@@ -2037,6 +3517,157 @@ export default function DeveloperLab() {
 
             <div ref={sidePanelScrollRef} className="dark-scroll" style={{flex:1, overflow:"auto", display:sidePanel==="git"?"flex":"block", flexDirection:"column"}}>
 
+              {/* ── Workspace ── */}
+              {sidePanel==="workspace" && (
+                <div>
+                  <div style={{padding:"8px 10px"}}>
+                    <button onClick={handleAddWorkspace}
+                      style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,width:"100%",
+                        padding:"7px 10px",borderRadius:7,border:"1px dashed rgba(96,165,250,0.5)",
+                        background:"rgba(96,165,250,0.08)",color:"#93c5fd",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
+                      <Plus size={13}/> 새 워크스페이스
+                    </button>
+                  </div>
+                  {wsList.length===0 && (
+                    <div style={{padding:"4px 14px 10px", fontSize:11, color:"#94A3B8", lineHeight:1.5}}>
+                      워크스페이스가 없습니다.<br/>위 버튼으로 추가하세요.
+                    </div>
+                  )}
+                  {wsList.map(w => {
+                    const isCur = String(w.id) === String(wsId);
+                    return (
+                      <div key={w.id}>
+                        <div onClick={()=>{ if(!isCur) handleSwitchWorkspace(w.id); }}
+                          style={{display:"flex",alignItems:"center",gap:6,padding:"6px 10px",
+                            cursor:isCur?"default":"pointer",userSelect:"none",
+                            background:isCur?"rgba(96,165,250,0.12)":"transparent",
+                            color:isCur?"#e2e8f0":"#CBD5E1",fontSize:12,fontWeight:isCur?700:500}}
+                          onMouseEnter={e=>{ if(!isCur) e.currentTarget.style.background="rgba(255,255,255,0.04)"; }}
+                          onMouseLeave={e=>{ if(!isCur) e.currentTarget.style.background="transparent"; }}>
+                          {isCur?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
+                          <Boxes size={13} color={isCur?"#60a5fa":"#64748B"} style={{flexShrink:0}}/>
+                          <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.name || `전략 #${w.id}`}</span>
+                        </div>
+                        {isCur && (wsCandidates.length>0 ? wsCandidates.map(c=>{
+                          const sel = c.id === wsSelectedId;
+                          const label = c.strategy_name || c.strategy_type || c.id;
+                          return (
+                            <div key={c.id} onClick={()=>handleSelectCandidate(c.id)}
+                              title={c.description || label}
+                              style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px 5px 28px",cursor:"pointer",
+                                background:sel?"rgba(124,58,237,0.14)":"transparent",
+                                color:sel?"#c4b5fd":"#94A3B8",fontSize:11.5,fontWeight:sel?700:500}}
+                              onMouseEnter={e=>{ if(!sel) e.currentTarget.style.background="rgba(255,255,255,0.04)"; }}
+                              onMouseLeave={e=>{ if(!sel) e.currentTarget.style.background="transparent"; }}>
+                              <FileCode size={12} color={sel?"#a78bfa":"#64748B"} style={{flexShrink:0}}/>
+                              <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}{c.risk_tone?` · ${c.risk_tone}`:""}</span>
+                              {wsSwitchBusy && sel ? <Loader size={11} style={{animation:"spin 1s linear infinite"}}/> : (sel && <CheckCircle2 size={12} color="#a78bfa"/>)}
+                            </div>
+                          );
+                        }) : (
+                          <div style={{padding:"4px 8px 6px 28px", fontSize:10.5, color:"#64748B", lineHeight:1.5}}>
+                            전략 후보 없음 — 전략 카드 탭에서<br/>Goal → Strategy 로 생성하세요.
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ── LEAN Engine ── */}
+              {sidePanel==="engine" && (
+                <div style={{padding:"4px 0"}}>
+                  <div style={{padding:"6px 12px 4px", fontSize:10, color:"#94A3B8", fontWeight:700}}>백테스트 엔진</div>
+                  {[["vectorbt","vectorbt","빠른 벡터 시뮬레이션 (기본·py엔진)"],["lean","Lean (QuantConnect)","정밀 이벤트 기반 · Docker 필요"]].map(([val,label,desc])=>{
+                    const on = engine===val;
+                    const accent = val==="lean" ? "#a78bfa" : "#60a5fa";
+                    return (
+                      <div key={val} onClick={()=>setEngine(val)}
+                        style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 12px",cursor:"pointer",
+                          background:on?(val==="lean"?"rgba(167,139,250,0.12)":"rgba(96,165,250,0.12)"):"transparent"}}
+                        onMouseEnter={e=>{ if(!on) e.currentTarget.style.background="rgba(255,255,255,0.04)"; }}
+                        onMouseLeave={e=>{ if(!on) e.currentTarget.style.background="transparent"; }}>
+                        <div style={{width:14,height:14,borderRadius:"50%",border:`2px solid ${on?accent:"#475569"}`,marginTop:1,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          {on && <div style={{width:6,height:6,borderRadius:"50%",background:accent}}/>}
+                        </div>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:12,fontWeight:on?700:500,color:on?"#e2e8f0":"#CBD5E1"}}>{label}</div>
+                          <div style={{fontSize:10,color:"#64748B",marginTop:2,lineHeight:1.4}}>{desc}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* ── 실행 위치 (로컬 자가호스팅 / 클라우드 관리형) ── */}
+                  <div style={{padding:"10px 12px 4px", fontSize:10, color:"#94A3B8", fontWeight:700}}>실행 위치 (Execution)</div>
+                  {[
+                    ["cloud","☁️ 클라우드 (관리형)","우리 서버가 실행 — 노트북 성능 무관 · Lean·대규모 최적화·자동 백테스트","PREMIUM","#a78bfa"],
+                    ["local","💻 로컬 (자가호스팅)","내 환경의 analytics/Docker 에서 실행 · 개발자·셀프호스트","STANDARD","#60a5fa"],
+                  ].map(([val,label,desc,plan,accent])=>{
+                    const on = execLoc===val;
+                    const locked = val==="cloud" && !cloudAllowed;
+                    return (
+                      <div key={val} onClick={()=>{ if(locked){ alert("클라우드 관리형 컴퓨트는 PREMIUM 구독에서 사용할 수 있습니다.\n노트북 성능과 무관하게 우리 서버가 Lean·대규모 최적화·자동 백테스트를 실행합니다. (로컬 엔진은 STANDARD 에서 본인 환경으로 실행)"); return; } setExecLoc(val); }}
+                        style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 12px",cursor:locked?"not-allowed":"pointer",opacity:locked?0.6:1,
+                          background:on?"rgba(167,139,250,0.10)":"transparent"}}
+                        onMouseEnter={e=>{ if(!on&&!locked) e.currentTarget.style.background="rgba(255,255,255,0.04)"; }}
+                        onMouseLeave={e=>{ if(!on) e.currentTarget.style.background="transparent"; }}>
+                        <div style={{width:14,height:14,borderRadius:"50%",border:`2px solid ${on?accent:"#475569"}`,marginTop:1,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                          {on && <div style={{width:6,height:6,borderRadius:"50%",background:accent}}/>}
+                        </div>
+                        <div style={{minWidth:0,flex:1}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontSize:12,fontWeight:on?700:500,color:on?"#e2e8f0":"#CBD5E1"}}>{label}</span>
+                            <span style={{fontSize:8.5,fontWeight:700,padding:"1px 6px",borderRadius:999,background:plan==="PREMIUM"?"rgba(167,139,250,0.18)":"rgba(96,165,250,0.15)",color:plan==="PREMIUM"?"#c4b5fd":"#93c5fd"}}>{plan}{plan==="PREMIUM"?"":"+"}</span>
+                            {locked && <span style={{fontSize:9,color:"#fbbf24"}}>🔒 업그레이드</span>}
+                          </div>
+                          <div style={{fontSize:10,color:"#64748B",marginTop:2,lineHeight:1.4}}>{desc}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {execLoc==="cloud" && (
+                    <div style={{margin:"4px 12px 0",fontSize:9.5,color:"#a5b4fc",lineHeight:1.5}}>현재 {userTier||"…"} · 백테스트는 항상 우리 분석 서버에서 실행됩니다(브라우저 아님).</div>
+                  )}
+
+                  {engine==="lean" && (
+                    <div style={{margin:"8px 12px 6px",padding:"10px",borderRadius:8,background:"rgba(0,0,0,0.2)",border:"1px solid rgba(255,255,255,0.06)"}}>
+                      <div style={{fontSize:10,color:"#94A3B8",fontWeight:700,marginBottom:6,letterSpacing:"0.06em"}}>LEAN ENGINE</div>
+                      <div style={{fontSize:11.5,color:"#CBD5E1",marginBottom:6}}>
+                        버전: <span style={{fontFamily:"monospace",color:"#a78bfa"}}>{leanHealth?.image || "master (latest)"}</span>
+                      </div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                        {[["활성",leanHealth?.enabled],["Docker",leanHealth?.docker],["CLI",leanHealth?.lean_cli],["준비",leanHealth?.ready]].map(([l,ok])=>(
+                          <span key={l} style={{fontSize:9.5,fontWeight:700,padding:"2px 7px",borderRadius:999,
+                            background:ok?"rgba(34,197,94,0.15)":"rgba(239,68,68,0.12)",color:ok?"#4ade80":"#f87171"}}>{ok?"✓":"✕"} {l}</span>
+                        ))}
+                      </div>
+                      {!leanHealth?.ready && <div style={{fontSize:10,color:"#fbbf24",marginTop:6,lineHeight:1.5}}>Lean 미준비 — Docker + analytics venv 의 lean CLI 설치가 필요합니다.</div>}
+                    </div>
+                  )}
+                  {engine==="lean" && leanStrategies.length>0 && (
+                    <>
+                      <div style={{padding:"4px 12px", fontSize:10, color:"#94A3B8", fontWeight:700}}>Lean 전략 프리셋</div>
+                      {leanStrategies.map(s=>(
+                        <div key={s.id} onClick={()=>setLeanStrategyId(s.id)}
+                          style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px 5px 16px",cursor:"pointer",
+                            background:s.id===leanStrategyId?"rgba(167,139,250,0.12)":"transparent",
+                            color:s.id===leanStrategyId?"#c4b5fd":"#94A3B8",fontSize:11.5,fontWeight:s.id===leanStrategyId?700:500}}
+                          onMouseEnter={e=>{ if(s.id!==leanStrategyId) e.currentTarget.style.background="rgba(255,255,255,0.04)"; }}
+                          onMouseLeave={e=>{ if(s.id!==leanStrategyId) e.currentTarget.style.background="transparent"; }}>
+                          <Boxes size={12} color={s.id===leanStrategyId?"#a78bfa":"#64748B"} style={{flexShrink:0}}/>
+                          <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name||s.id}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  <div style={{padding:"8px 12px", fontSize:10, color:"#64748B", lineHeight:1.5, borderTop:"1px solid rgba(255,255,255,0.05)", marginTop:6}}>
+                    💡 콘솔/터미널 실행 로그는 하단 <b style={{color:"#94A3B8"}}>CONSOLE</b>·<b style={{color:"#94A3B8"}}>TERMINAL</b> 탭에서 확인하세요.
+                  </div>
+                </div>
+              )}
+
               {/* ── Explorer ── */}
               {sidePanel==="explorer" && (
                 <div>
@@ -2058,7 +3689,7 @@ export default function DeveloperLab() {
                       onSelect={setSelectedPath}
                     />
                   ) : (
-                    /* 워크스페이스 기본 파일 */
+                    /* 워크스페이스 기본 — 선택 전략의 실행/백테스트/최적화 */
                     <>
                       <div onClick={()=>setFolderOpen(v=>!v)}
                         style={{display:"flex",alignItems:"center",gap:4,
@@ -2066,28 +3697,42 @@ export default function DeveloperLab() {
                           color:"#F1F5F9",fontSize:11,fontWeight:700}}>
                         {folderOpen?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
                         <FolderOpen size={12} color="#60a5fa" style={{flexShrink:0}}/>
-                        MY_STRATEGY
+                        <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{strategyName || "MY_STRATEGY"}</span>
                       </div>
-                      {folderOpen && Object.entries(FILE_META).map(([key,meta])=>(
-                        <div key={key} onClick={()=>openFile(key)}
-                          style={{
-                            display:"flex", alignItems:"center", gap:6,
-                            padding:"4px 8px 4px 26px", cursor:"pointer",
-                            background:activeTab?.fileKey===key&&activeTab?.type==="code"
-                              ?"rgba(96,165,250,0.1)":"transparent",
-                            color:activeTab?.fileKey===key&&activeTab?.type==="code"
-                              ?"#e2e8f0":"#CBD5E1",
-                            fontSize:11.5,
-                          }}
-                          onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
-                          onMouseLeave={e=>e.currentTarget.style.background=
-                            activeTab?.fileKey===key&&activeTab?.type==="code"?"rgba(96,165,250,0.1)":"transparent"}>
-                          <FileCode size={12} color="#60a5fa" style={{flexShrink:0}}/>
-                          {meta.name}
-                        </div>
-                      ))}
+                      {folderOpen && (
+                        <>
+                          <div style={{padding:"4px 8px 2px 26px", fontSize:9, color:"#64748B", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em"}}>실행</div>
+                          {Object.entries(FILE_META).map(([key,meta])=>(
+                            <div key={key} onClick={()=>openFile(key)}
+                              style={{display:"flex", alignItems:"center", gap:6, padding:"4px 8px 4px 30px", cursor:"pointer",
+                                background:activeTab?.fileKey===key&&activeTab?.type==="code"?"rgba(96,165,250,0.1)":"transparent",
+                                color:activeTab?.fileKey===key&&activeTab?.type==="code"?"#e2e8f0":"#CBD5E1", fontSize:11.5}}
+                              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
+                              onMouseLeave={e=>e.currentTarget.style.background=activeTab?.fileKey===key&&activeTab?.type==="code"?"rgba(96,165,250,0.1)":"transparent"}>
+                              <FileCode size={12} color="#60a5fa" style={{flexShrink:0}}/>
+                              {meta.name}
+                            </div>
+                          ))}
+                          <div style={{padding:"6px 8px 2px 26px", fontSize:9, color:"#64748B", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em"}}>분석 · 배포</div>
+                          {[
+                            { icon:<BarChart3 size={12} color="#F59E0B"/>, label:"백테스트 결과", active: activeTab?.type==="report",
+                              fn:()=>{ const t=openTabs.find(tt=>tt.type==="report"); if(t) setActiveTabId(t.id); else handleRunBacktest(); } },
+                            { icon:<BookOpen size={12} color="#a78bfa"/>,  label:"코드 해설", active: activeTab?.type==="notebook", fn:handleOpenNotebook },
+                            { icon:<Lightbulb size={12} color="#F59E0B"/>, label:"최적화 개선", active:false, fn:handleImproveProposal },
+                            { icon:<Rocket size={12} color="#a78bfa"/>,    label:"Deploy to Live", active: activeTab?.type==="deploy", fn:handleDeploy },
+                          ].map((n,i)=>(
+                            <div key={i} onClick={n.fn}
+                              style={{display:"flex", alignItems:"center", gap:6, padding:"4px 8px 4px 30px", cursor:"pointer",
+                                background:n.active?"rgba(96,165,250,0.1)":"transparent", color:n.active?"#e2e8f0":"#CBD5E1", fontSize:11.5}}
+                              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
+                              onMouseLeave={e=>e.currentTarget.style.background=n.active?"rgba(96,165,250,0.1)":"transparent"}>
+                              {n.icon}{n.label}
+                            </div>
+                          ))}
+                        </>
+                      )}
                       <div style={{padding:"10px 12px 4px", fontSize:10, color:"#94A3B8"}}>
-                        Git 패널에서 레포지토리를 연결하면<br/>파일 트리가 여기에 표시됩니다.
+                        Git 패널에서 레포지토리를 연결하면<br/>실제 파일 트리가 표시됩니다.
                       </div>
                     </>
                   )}
@@ -2097,6 +3742,18 @@ export default function DeveloperLab() {
               {/* ── Data Browser ── */}
               {sidePanel==="data" && (
                 <div>
+                  <div onClick={handleOpenDatasets}
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"7px 9px",margin:"0 0 6px",
+                      cursor:"pointer",userSelect:"none",borderRadius:7,
+                      background:activeTab?.type==="datasets"?"rgba(96,165,250,0.12)":"rgba(96,165,250,0.06)",
+                      border:`1px solid ${activeTab?.type==="datasets"?"#60a5fa":"rgba(96,165,250,0.2)"}`,
+                      color:"#bfdbfe",fontSize:11.5,fontWeight:700}}
+                    onMouseEnter={e=>e.currentTarget.style.background="rgba(96,165,250,0.16)"}
+                    onMouseLeave={e=>e.currentTarget.style.background=activeTab?.type==="datasets"?"rgba(96,165,250,0.12)":"rgba(96,165,250,0.06)"}>
+                    <span style={{fontSize:13}}>🗂</span>
+                    오픈소스 카탈로그 열기
+                    <span style={{marginLeft:"auto",fontSize:8.5,padding:"1px 5px",borderRadius:999,background:"rgba(253,230,138,0.2)",color:"#fde68a"}}>NEW</span>
+                  </div>
                   <div onClick={()=>setDataGroupOpen(v=>!v)}
                     style={{display:"flex",alignItems:"center",gap:4,padding:"5px 8px",
                       cursor:"pointer",userSelect:"none",color:"#F1F5F9",fontSize:11,fontWeight:700}}>
@@ -2208,7 +3865,11 @@ export default function DeveloperLab() {
                 {tab.type==="code"&&<FileCode size={10} color="#60a5fa"/>}
                 {tab.type==="repoFile"&&<FileCode size={10} color="#93c5fd"/>}
                 {tab.type==="data"&&<Database size={10} color="#10B981"/>}
+                {tab.type==="datasets"&&<Database size={10} color="#60a5fa"/>}
                 {tab.type==="report"&&<BarChart3 size={10} color="#F59E0B"/>}
+                {tab.type==="notebook"&&<BookOpen size={10} color="#a78bfa"/>}
+                {tab.type==="deploy"&&<Rocket size={10} color="#a78bfa"/>}
+                {(tab.type==="optimize"||tab.type==="optresult")&&<BarChart3 size={10} color="#F59E0B"/>}
                 <span style={{whiteSpace:"nowrap"}}>{tab.name}</span>
                 {/* dirty indicator */}
                 {tab.type==="repoFile" && modifiedSet.has(tab.filePath) && (
@@ -2258,7 +3919,13 @@ export default function DeveloperLab() {
             )}
 
             {activeTab?.type==="data" && <DataTableView datasetId={activeTab.datasetId} datasets={datasets}/>}
-            {activeTab?.type==="report" && <BacktestReportView btResult={btResult}/>}
+            {activeTab?.type==="datasets" && <DatasetsBrowser/>}
+            {runStatus==="running" && <RunProgressOverlay engine={engine}/>}
+            {activeTab?.type==="report" && <BacktestReportView btResult={btResult} code={fileContents.main} strategyName={strategyName}/>}
+            {activeTab?.type==="notebook" && <NotebookView code={fileContents.main} strategyName={strategyName}/>}
+            {activeTab?.type==="deploy" && <DeployWizardView wsId={wsId} strategyName={strategyName}/>}
+            {activeTab?.type==="optimize" && <OptimizeWizardView baseParams={parseParamsFromCode(fileContents.main||"")} busy={optBusy} progress={optProgress} onLaunch={handleLaunchOptimize}/>}
+            {activeTab?.type==="optresult" && <OptimizeResultView results={optResults} busy={optBusy} progress={optProgress} onApply={applyOptParams}/>}
             {activeTab?.type==="diff" && <ClaudeDiffView changes={claudeDiff?.changes || []} onMeasure={handleMeasureClaudeChange} measuring={compareBusy}/>}
             {activeTab?.type==="commit" && (
               <CommitDiffView commit={activeTab.commit} workspaceId={wsId} />
