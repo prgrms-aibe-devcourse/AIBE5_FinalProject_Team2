@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { listWorkspaces, getWorkspace, runBriefing } from "../alpha/alphaApi";
 import { useTheme } from "../alpha/ThemeContext";
-import { useLanguage } from "../i18n/LanguageContext";
+import { useLanguage } from "../i18n/useLanguage";
 
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const COOLDOWN_MS = 3 * 60 * 60 * 1000;
@@ -879,6 +879,7 @@ export default function BriefingPage() {
   const [busyIds, setBusyIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  const [cooldownModal, setCooldownModal] = useState(null); // { time: "2h 30m" }
   // 대표 워크스페이스 — WorkspaceList 와 동일 키/이벤트(localStorage "alpha.primaryWsId").
   const [primaryId, setPrimaryId] = useState(() => {
     const v = localStorage.getItem("alpha.primaryWsId");
@@ -958,7 +959,7 @@ export default function BriefingPage() {
       const remainMin = Math.ceil((COOLDOWN_MS - (Date.now() - ts)) / 60000);
       const h = Math.floor(remainMin / 60), m = remainMin % 60;
       const time = h > 0 ? `${h}h ${m}m` : `${m}m`;
-      alert(t("briefing.cooldownAlert", { time }));
+      setCooldownModal({ time });
       return;
     }
     generateOne(wsId);
@@ -979,6 +980,69 @@ export default function BriefingPage() {
         @keyframes briefPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.45); } 60% { box-shadow: 0 0 0 7px rgba(34,197,94,0); } }
         @keyframes briefBar { from { transform: translateX(-30%); } to { transform: translateX(80%); } }
       `}</style>
+
+      {/* ── 쿨다운 모달 ── */}
+      {cooldownModal && (
+        <div onClick={() => setCooldownModal(null)} style={{
+          position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 3000, backdropFilter: "blur(4px)",
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "white", borderRadius: 20, width: "100%", maxWidth: 420,
+            boxShadow: "0 24px 64px rgba(0,0,0,0.22)", overflow: "hidden",
+          }}>
+            {/* 헤더 */}
+            <div style={{
+              padding: "24px 28px 20px",
+              background: "linear-gradient(135deg,#eff6ff 0%,#e0e7ff 100%)",
+              borderBottom: "1px solid #E2E8F0",
+              display: "flex", alignItems: "center", gap: 14,
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 14, flexShrink: 0,
+                background: "linear-gradient(135deg,#a78bfa,#6366f1)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 4px 12px rgba(99,102,241,0.3)",
+              }}>
+                <Clock size={22} color="white" />
+              </div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1e3a8a" }}>잠시 기다려 주세요</h2>
+                <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>브리핑은 3시간에 한 번 생성할 수 있어요</p>
+              </div>
+            </div>
+            {/* 본문 */}
+            <div style={{ padding: "24px 28px" }}>
+              <div style={{
+                background: "linear-gradient(135deg,#f5f3ff,#ede9fe)",
+                borderRadius: 12, padding: "16px 20px",
+                display: "flex", alignItems: "center", gap: 12,
+              }}>
+                <Clock size={18} color="#7c3aed" style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: 14, color: "#4c1d95", fontWeight: 600 }}>
+                  다음 생성 가능까지&nbsp;
+                  <span style={{ fontSize: 18, fontWeight: 800, color: "#6d28d9" }}>{cooldownModal.time}</span>
+                  &nbsp;남았습니다
+                </span>
+              </div>
+              <p style={{ margin: "14px 0 0", fontSize: 13, color: "#64748B", lineHeight: 1.7 }}>
+                Perplexity 실시간 검색과 AI 분석에 시간이 필요합니다.<br />
+                잠시 후 다시 시도해 주세요.
+              </p>
+            </div>
+            {/* 푸터 */}
+            <div style={{ padding: "0 28px 24px", display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setCooldownModal(null)} style={{
+                padding: "10px 28px", borderRadius: 10, border: "none",
+                background: "linear-gradient(135deg,#a78bfa 0%,#6366f1 100%)",
+                color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
+                boxShadow: "0 3px 10px rgba(99,102,241,0.3)",
+              }}>확인</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 헤더 */}
       <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 28 }}>

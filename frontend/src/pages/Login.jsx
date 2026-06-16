@@ -5,7 +5,7 @@ import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import useStore from "../store/useStore";
 import { authApi } from "../api";
 import bannerVideo from "../assets/배너후보.mp4";
-import { useLanguage } from "../i18n/LanguageContext";
+import { useLanguage } from "../i18n/useLanguage";
 
 const BASE_FONT = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
@@ -306,7 +306,8 @@ function Login() {
               background: "linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #6366f1 100%)",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
               backgroundClip: "text",
-            }}>Alpha-Helix</span> {t("login.title")}
+              fontFamily: "'Inter Tight', sans-serif", fontWeight: 500, letterSpacing: -0.3,
+            }}>ALPHA-HELIX</span> {t("login.title")}
           </h1>
 
           {/* 이메일 입력 */}
@@ -406,13 +407,13 @@ function Login() {
             {t("login.signupBtn")}
           </button>
 
-          {/* 비밀번호 재설정 / 메인 홈 */}
+          {/* 비밀번호 찾기 / 메인 홈 */}
           <div style={{
             display: "flex", justifyContent: "space-between",
             marginBottom: 32,
           }}>
             <button
-              onClick={() => navigate("/find-password")}
+              onClick={() => navigate("/forgot-password")}
               style={{
                 border: "none", background: "transparent", cursor: "pointer",
                 color: "#6B7280", fontSize: 13, fontFamily: BASE_FONT, padding: 0,
@@ -472,14 +473,6 @@ function Login() {
             ))}
           </div>
 
-          {/* 약관 / 개인정보처리방침 링크 */}
-          <p style={{ textAlign: "center", marginTop: 20, fontSize: 12, color: "#9CA3AF", fontFamily: BASE_FONT }}>
-            <a href="/terms" target="_blank" rel="noopener noreferrer"
-              style={{ color: "#6B7280", fontWeight: 600, textDecoration: "underline" }}>이용약관</a>
-            {"  ·  "}
-            <a href="/privacy" target="_blank" rel="noopener noreferrer"
-              style={{ color: "#6B7280", fontWeight: 600, textDecoration: "underline" }}>개인정보처리방침</a>
-          </p>
         </div>
       </div>
 
@@ -537,11 +530,14 @@ function Login() {
         textAlign: "center", padding: "20px 0 24px",
       }}>
         <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", cursor: "pointer" }}>{t("login.terms")}</span>
+          <a href="/terms" target="_blank" rel="noopener noreferrer"
+            style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", textDecoration: "none" }}>{t("login.terms")}</a>
           <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>|</span>
-          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", cursor: "pointer" }}>{t("login.privacy")}</span>
+          <a href="/privacy" target="_blank" rel="noopener noreferrer"
+            style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", textDecoration: "none" }}>{t("login.privacy")}</a>
           <span style={{ fontSize: 12, color: "rgba(255,255,255,0.5)" }}>|</span>
-          <span style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", cursor: "pointer" }}>{t("login.faqContact")}</span>
+          <a href="mailto:support@alphahelix.ai"
+            style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", textDecoration: "none" }}>{t("login.faqContact")}</a>
         </div>
       </div>
     </div>

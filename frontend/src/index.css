@@ -9,6 +9,8 @@
   }
 
   :root {
+    /* html{zoom:1.1} 보정값 — 100vh 풀높이 레이아웃이 zoom 때문에 10% 넘쳐 잘리는 것 방지 */
+    --app-zoom: 1.1;
     --font-main: 'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
@@ -70,6 +72,7 @@
     border-color: hsl(var(--border));
   }
   body {
+    margin: 0;
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
     font-family: var(--font-main);

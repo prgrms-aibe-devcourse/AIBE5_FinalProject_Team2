@@ -309,7 +309,7 @@ function BrokerLimitsCard({ theme }) {
       <div style={{ display: "grid", gap: 10 }}>
         {accts.map((b) => (
           <div key={b.id} style={{
-            display: "grid", gridTemplateColumns: "auto 1fr 1fr", gap: 10, alignItems: "center",
+            display: "grid", gridTemplateColumns: "auto 1fr 1fr", gap: 10, alignItems: "start",
             padding: "8px 10px", background: "white", borderRadius: 8,
             border: `1px solid ${theme.panelBorder}`,
           }}>
@@ -317,13 +317,14 @@ function BrokerLimitsCard({ theme }) {
               padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 800,
               background: b.env === "REAL" ? "linear-gradient(135deg,#fecaca,#fca5a5)" : "linear-gradient(135deg,#bae6fd,#7dd3fc)",
               color: b.env === "REAL" ? "#7f1d1d" : "#075985",
+              marginTop: 4,
             }}>{(b.brokerType === "BINANCE" ? "Binance " : "KIS ") + (b.env === "REAL" ? "실전" : "모의")}</span>
             {["maxOrderUsd", "dailyOrderUsd"].map((key) => {
               const label = key === "maxOrderUsd" ? "1건당 한도" : "일일 누적 한도";
               const isEditing = editing && editing.brokerType === b.brokerType && editing.env === b.env && editing.key === key;
               return (
-                <div key={key} style={{ display: "flex", flexDirection: "column" }}>
-                  <span style={{ fontSize: 10, color: theme.textMuted, fontWeight: 600 }}>{label}</span>
+                <div key={key} style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                  <span style={{ fontSize: 10, color: theme.textMuted, fontWeight: 600, marginBottom: 3 }}>{label}</span>
                   {isEditing ? (
                     <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                       <span style={{ fontSize: 11, color: theme.textMuted }}>USD</span>
@@ -349,7 +350,7 @@ function BrokerLimitsCard({ theme }) {
                       title="클릭해서 수정"
                       style={{
                         display: "flex", justifyContent: "space-between", alignItems: "center",
-                        fontSize: 14, fontWeight: 800, color: theme.text, cursor: "pointer",
+                        width: "100%", fontSize: 14, fontWeight: 800, color: theme.text, cursor: "pointer",
                       }}>
                       <span>USD {Number(b[key] || 0).toLocaleString("en-US")}</span>
                       <span style={{ opacity: 0.45, fontSize: 11 }}>✏️</span>

@@ -2,16 +2,16 @@ import { useState, useEffect } from "react";
 import { Bell, CheckCheck, Trash2, X } from "lucide-react";
 import { useTheme } from "../alpha/ThemeContext";
 import { useNotificationStore } from "../store/useNotificationStore";
-import { useLanguage } from "../i18n/LanguageContext";
+import { useLanguage } from "../i18n/useLanguage";
 
 const TYPE_CFG = {
   backtest: { color: "#10B981", bg: "#ECFDF5", emoji: "📊" },
-  trust:    { color: "#8B5CF6", bg: "#F5F3FF", emoji: "🛡️" },
   briefing: { color: "#EC4899", bg: "#FDF2F8", emoji: "✨" },
-  system:   { color: "#EF4444", bg: "#FEF2F2", emoji: "⚙️" },
+  system:   { color: "#6366F1", bg: "#EEF2FF", emoji: "⚙️" },
+  order:    { color: "#F59E0B", bg: "#FFFBEB", emoji: "✅" },
 };
 
-const FILTER_KEYS = ["all", "unread", "backtest", "briefing", "system"];
+const FILTER_KEYS = ["all", "unread", "backtest", "briefing", "order", "system"];
 
 function timeAgo(iso, t) {
   const d = Date.now() - new Date(iso).getTime();
@@ -318,7 +318,7 @@ function ActionBtn({ icon, label, color, hoverBg, hoverBorder, hoverColor, onCli
 
 function EmptyState({ filter }) {
   const { t } = useLanguage();
-  const emojis = { all: "🔔", unread: "✅", backtest: "📊", briefing: "✨", system: "⚙️" };
+  const emojis = { all: "🔔", unread: "✅", backtest: "📊", briefing: "✨", order: "✅", system: "⚙️" };
   const emoji = emojis[filter] || "🔔";
   return (
     <div style={{

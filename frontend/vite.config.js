@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // dev 서버 전용 백엔드 proxy 타겟. 운영 빌드에는 적용되지 않음.
-const DEV_BACKEND = process.env.VITE_DEV_BACKEND || 'http://localhost:9091'
+const DEV_BACKEND = process.env.VITE_DEV_BACKEND || 'http://localhost:8080'
 
 // https://vite.dev/config/
 export default defineConfig(({ command }) => ({

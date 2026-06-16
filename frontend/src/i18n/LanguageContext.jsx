@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useState, useEffect } from "react";
 import translations from "./translations";
 
 const LANG_FONTS = {
@@ -8,7 +8,7 @@ const LANG_FONTS = {
   zh: "'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif",
 };
 
-const LanguageContext = createContext(null);
+export const LanguageContext = createContext(null);
 
 export function LanguageProvider({ children }) {
   const [lang, setLang] = useState(
@@ -55,8 +55,3 @@ export function LanguageProvider({ children }) {
   );
 }
 
-export function useLanguage() {
-  const ctx = useContext(LanguageContext);
-  if (!ctx) throw new Error("useLanguage must be used inside LanguageProvider");
-  return ctx;
-}

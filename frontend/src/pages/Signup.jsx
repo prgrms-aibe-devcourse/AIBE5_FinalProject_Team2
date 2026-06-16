@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useGoogleLogin } from "@react-oauth/google";
 import useStore from "../store/useStore";
 import { authApi } from "../api";
 import { Phone, Mail, User, Lock, Eye, EyeOff, Building2, UserSearch } from "lucide-react";
 import bannerVideo from "../assets/배너후보.mp4";
-import { useLanguage } from "../i18n/LanguageContext";
+import { useLanguage } from "../i18n/useLanguage";
 
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const PRIMARY_GRAD = "linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #6366f1 100%)";
@@ -56,9 +56,14 @@ function MemberCard({ icon: Icon, label, selected, onClick }) {
 
 function Signup() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useLanguage();
   const { loginUser, loginType, setLogin, setUsername, setUser, setUserRole, signupFormData, setSignupFormData, clearSignupFormData } = useStore();
   const googleEmail = loginType === "google" ? loginUser : "";
+
+  // GitHub OAuth에서 넘어온 경우 — 이메일·username 미리 채움
+  const githubState = location.state?.githubEmail ? location.state : null;
+  const githubEmail = githubState?.githubEmail ?? "";
 
   const videoRef = useRef(null);
   useEffect(() => {
@@ -66,10 +71,10 @@ function Signup() {
   }, []);
 
   const [form, setFormRaw] = useState(() => signupFormData || {
-    idEmail: googleEmail || "",
+    idEmail: googleEmail || githubEmail || "",
     phone: "",
     extraEmail: "",
-    username: "",
+    username: githubState?.githubLogin ?? "",
     pw: "",
     pwConfirm: "",
     memberType: "클라이언트",
@@ -80,7 +85,47 @@ function Signup() {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [googleOAuthState] = useState(() => crypto.randomUUID());
 
+  const [emailVerified, setEmailVerified] = useState(!!githubEmail);
+  const [codeSent, setCodeSent] = useState(false);
+  const [codeValue, setCodeValue] = useState("");
+  const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+
   const set = (f, v) => setFormRaw(prev => ({ ...prev, [f]: v }));
+
+  const resetVerification = () => {
+    setEmailVerified(false);
+    setCodeSent(false);
+    setCodeValue("");
+  };
+
+  const handleSendCode = async () => {
+    if (!form.idEmail.includes("@")) return;
+    setSending(true);
+    try {
+      await authApi.sendVerificationCode(form.idEmail);
+      setCodeSent(true);
+      setCodeValue("");
+    } catch (e) {
+      alert(e?.response?.data?.error || "메일 발송에 실패했습니다.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    if (codeValue.length !== 6) return;
+    setVerifying(true);
+    try {
+      await authApi.checkVerificationCode(form.idEmail, codeValue);
+      setEmailVerified(true);
+      setCodeSent(false);
+    } catch (e) {
+      alert(e?.response?.data?.error || "인증번호가 틀렸습니다.");
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   const googleSignup = useGoogleLogin({
     state: googleOAuthState,
@@ -98,6 +143,13 @@ function Signup() {
         const userEmail = info.email || "";
         setLogin(userEmail, "google");
         set("idEmail", userEmail);
+        // Google이 이미 이메일을 인증했으므로 백엔드에 자동 인증 처리
+        try {
+          await authApi.googleVerifyEmail(accessToken);
+          setEmailVerified(true);
+        } catch {
+          // 실패해도 UI 진행 허용 — 이후 signup에서 인증 체크로 차단됨
+        }
       } catch {
         setLogin("google", "google");
       }
@@ -107,6 +159,7 @@ function Signup() {
 
   const isValid = !!(
     form.idEmail.trim() &&
+    emailVerified &&
     form.phone.trim().length >= 9 &&
     form.username.trim() &&
     form.pw.length >= 8 &&
@@ -253,19 +306,84 @@ function Signup() {
 
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
 
-            {/* 이메일 아이디 */}
+            {/* 이메일 아이디 + 인증 */}
             <div>
               <LBL>Email ID *</LBL>
-              <InputIcon
-                icon={Mail}
-                type="email"
-                placeholder="your_id_@email.com"
-                value={form.idEmail}
-                onChange={v => set("idEmail", v)}
-                readOnly={!!googleEmail}
-              />
+              <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+                <div style={{ flex: 1 }}>
+                  <InputIcon
+                    icon={Mail}
+                    type="email"
+                    placeholder="your_id_@email.com"
+                    value={form.idEmail}
+                    onChange={v => { set("idEmail", v); resetVerification(); }}
+                    readOnly={!!googleEmail || !!githubEmail || emailVerified}
+                  />
+                </div>
+                {!emailVerified && !googleEmail && (
+                  <button
+                    onClick={handleSendCode}
+                    disabled={!form.idEmail.includes("@") || sending}
+                    style={{
+                      padding: "0 14px", borderRadius: 12, border: "none", fontSize: 13,
+                      fontWeight: 700, fontFamily: F, whiteSpace: "nowrap", cursor: "pointer",
+                      background: form.idEmail.includes("@") && !sending ? PRIMARY_GRAD : "#E5E7EB",
+                      color: form.idEmail.includes("@") && !sending ? "white" : "#9CA3AF",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {sending ? "발송 중…" : codeSent ? "재발송" : "인증번호 발송"}
+                  </button>
+                )}
+                {emailVerified && (
+                  <span style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    fontSize: 13, fontWeight: 700, color: "#10B981", whiteSpace: "nowrap",
+                  }}>
+                    ✓ 인증 완료
+                  </span>
+                )}
+              </div>
+
+              {/* 인증번호 입력 */}
+              {codeSent && !emailVerified && (
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="인증번호 6자리"
+                    value={codeValue}
+                    onChange={e => setCodeValue(e.target.value.replace(/\D/g, ""))}
+                    style={{
+                      flex: 1, padding: "11px 14px", borderRadius: 12,
+                      border: "1.5px solid #E2E8F0", fontSize: 14, fontWeight: 500,
+                      color: "#111827", fontFamily: F, outline: "none",
+                      backgroundColor: "#F8FAFC", letterSpacing: "0.15em",
+                    }}
+                    onFocus={e => { e.target.style.border = "1.5px solid #60A5FA"; }}
+                    onBlur={e => { e.target.style.border = "1.5px solid #E2E8F0"; }}
+                  />
+                  <button
+                    onClick={handleVerifyCode}
+                    disabled={codeValue.length !== 6 || verifying}
+                    style={{
+                      padding: "0 16px", borderRadius: 12, border: "none", fontSize: 13,
+                      fontWeight: 700, fontFamily: F, cursor: codeValue.length === 6 ? "pointer" : "not-allowed",
+                      background: codeValue.length === 6 && !verifying ? PRIMARY_GRAD : "#E5E7EB",
+                      color: codeValue.length === 6 && !verifying ? "white" : "#9CA3AF",
+                      transition: "all 0.15s", whiteSpace: "nowrap",
+                    }}
+                  >
+                    {verifying ? "확인 중…" : "확인"}
+                  </button>
+                </div>
+              )}
+
               {googleEmail && (
                 <p style={{ fontSize: 11, color: "#10B981", margin: "4px 0 0", fontFamily: F }}>{t("signup.googleEmail")}</p>
+              )}
+              {githubEmail && !googleEmail && (
+                <p style={{ fontSize: 11, color: "#10B981", margin: "4px 0 0", fontFamily: F }}>GitHub 인증된 이메일입니다.</p>
               )}
             </div>
 

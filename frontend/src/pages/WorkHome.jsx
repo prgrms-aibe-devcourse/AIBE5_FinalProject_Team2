@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, TrendingUp, ArrowRight, Pencil, Check, X, CircleUser, BarChart3, Award, Layers, Target, BookOpenText } from "lucide-react";
-import { listWorkspaces, getWorkspace, runBriefing, createWorkspace } from "../alpha/alphaApi";
+import { listWorkspaces, getWorkspace, createWorkspace } from "../alpha/alphaApi";
 import CreateWorkspaceModal from "../alpha/CreateWorkspaceModal";
 import { useTheme } from "../alpha/ThemeContext";
-import { useLanguage } from "../i18n/LanguageContext";
+import { useLanguage } from "../i18n/useLanguage";
 import useStore from "../store/useStore";
 import { profileApi } from "../api/profile.api";
 import heliFace from "../assets/heli_face.png";
@@ -367,6 +367,7 @@ export default function WorkHome() {
 
   useEffect(() => {
     (async () => {
+      if (!localStorage.getItem("dbId")) { setLoading(false); return; }
       setLoading(true);
       try {
         const list = await listWorkspaces();
@@ -396,7 +397,10 @@ export default function WorkHome() {
         });
         setStrategies(items);
         if (items.length > 0) {
-          try { const b = await runBriefing(items[0].id); setBriefing(b); } catch (_) {}
+          try {
+            const cached = localStorage.getItem(`alpha.briefing.cache.${items[0].id}`);
+            if (cached) setBriefing(JSON.parse(cached));
+          } catch (_) {}
         }
       } catch (e) {
         setErr(e?.response?.data?.error || e.message);
@@ -487,15 +491,13 @@ export default function WorkHome() {
       </div>
 
       {/* 상단: Freedom Goal · Living Briefing(높이 맞춤) + 오늘의 말씀 포스트잇(붙여준 느낌) */}
-      <div style={{ display: "grid", gridTemplateColumns: "2.05fr 1fr", gap: 22, marginBottom: 36, alignItems: "start" }}>
-        {/* 왼쪽 2칸 — 세로 높이 맞춤 */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 20, alignItems: "stretch" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr", gap: 20, marginBottom: 36, alignItems: "start" }}>
         {/* Freedom Goal Card */}
         <section style={{
           background: "white", border: "1px solid #E2E8F0",
           borderRadius: 14, padding: "22px 22px 20px",
           display: "flex", flexDirection: "column", position: "relative", overflow: "hidden",
-          height: "100%", boxSizing: "border-box",
+          boxSizing: "border-box",
         }}>
           <Target size={96} style={{ position: "absolute", right: -12, bottom: -12, color: "#6366F1", opacity: 0.1, pointerEvents: "none" }} />
           {/* 헤더 */}
@@ -582,7 +584,7 @@ export default function WorkHome() {
               ? "오늘의 브리핑이 도착했습니다.\n지금 바로 확인해보세요."
               : loading
               ? "브리핑 생성 중…"
-              : "미국 시장 개장·마감에 맞춘 오늘의 브리핑이 도착합니다."}
+              : "아직 브리핑이 없습니다.\n클릭해서 지금 바로 생성해보세요."}
           </p>
 
           {/* 하단: 도착 시간 + 읽기 CTA */}
@@ -591,43 +593,36 @@ export default function WorkHome() {
               {briefing?.generatedAt ? (() => {
                 const d = new Date(typeof briefing.generatedAt === "number" ? briefing.generatedAt : Date.parse(briefing.generatedAt));
                 return `오늘 ${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")} 도착`;
-              })() : "오늘 도착 예정"}
+              })() : "브리핑 미생성"}
             </span>
             <span style={{ fontSize: 12, fontWeight: 700, color: "#6366F1", display: "inline-flex", alignItems: "center", gap: 3 }}>
               브리핑 읽기 <ArrowRight size={12} />
             </span>
           </div>
         </section>
-        </div>
 
         {/* 오른쪽 — 오늘의 선물 포스트잇 (붙여준 것처럼 위로 솟음): 투자 그루 명언 + 성경 한 절 */}
         {(() => { const g = getTodayGuru(username); const v = getTodayVerse(username); return (
+          <div style={{ position: "relative", alignSelf: "stretch" }}>
           <section style={{
-            position: "relative",
+            position: "absolute", left: 0, right: 0, bottom: 0,
             background: "linear-gradient(165deg,#FCF6CC 0%,#F7EEB2 100%)",
             borderRadius: 14,
             padding: "20px 18px 22px",
             boxShadow: "0 14px 30px rgba(168,146,46,0.3), inset 0 1px 0 rgba(255,255,255,0.55)",
-            marginTop: -58,
-            alignSelf: "start",
             fontFamily: "'Gaegu', 'Nanum Pen Script', cursive",
-            overflow: "visible",
           }}>
-            {/* 마스킹 테이프 (위 중앙, 살짝 찢긴 베이지) */}
-            <span style={{ position: "absolute", top: -12, left: "50%", transform: "translateX(-50%)",
-              width: 90, height: 28, background: "linear-gradient(180deg, rgba(233,223,182,0.88), rgba(210,198,148,0.6))",
-              clipPath: "polygon(4% 0, 96% 7%, 100% 95%, 2% 100%)",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }} />
             {/* 선물 ① 투자 그루의 명언 */}
-            <p style={{ margin: "4px 0 0", fontSize: 15, lineHeight: 1.36, color: "#3f3a14" }}>"{g.text}"</p>
-            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9b8a2a", textAlign: "right" }}>— {g.ref}</p>
+            <p style={{ margin: "4px 0 0", fontSize: 16.5, lineHeight: 1.36, color: "#3f3a14" }}>"{g.text}"</p>
+            <p style={{ margin: "3px 0 0", fontSize: 13.5, color: "#9b8a2a", textAlign: "right" }}>— {g.ref}</p>
             <div style={{ height: 1, background: "rgba(155,138,42,0.32)", margin: "9px 2px" }} />
             {/* 선물 ② 성경 한 절 (잠언·시편) */}
-            <p style={{ margin: "0", fontSize: 15, lineHeight: 1.36, color: "#3f3a14" }}>"{v.text}"</p>
-            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9b8a2a", textAlign: "right" }}>— {v.ref}</p>
+            <p style={{ margin: "0", fontSize: 16.5, lineHeight: 1.36, color: "#3f3a14" }}>"{v.text}"</p>
+            <p style={{ margin: "3px 0 0", fontSize: 13.5, color: "#9b8a2a", textAlign: "right" }}>— {v.ref}</p>
             {/* 받는 사람 */}
-            <p style={{ margin: "12px 0 0", fontSize: 17, color: "#1d4ed8", textAlign: "right", lineHeight: 1.1 }}>{username}에게</p>
+            <p style={{ margin: "12px 0 0", fontSize: 18.5, color: "#1d4ed8", textAlign: "right", lineHeight: 1.1 }}>{username}에게</p>
           </section>
+          </div>
         ); })()}
       </div>
 

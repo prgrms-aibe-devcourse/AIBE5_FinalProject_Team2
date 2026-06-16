@@ -25,7 +25,7 @@ export const acctCurrency = (brokerType) => (brokerType === "BINANCE" ? "USDT" :
 // 계좌 표시 라벨: "한국투자증권 · 모의" 등
 export const acctLabel = (a) => `${BROKER_NAME[a.brokerType] || a.brokerType} · ${ENV_LABEL[a.env] || a.env}`;
 
-// 포지션 1건의 파생값 계산(매수금액·수익률 등). 값은 계좌 통화(USD/USDT) 기준.
+// 포지션 1건의 파생값 계산(매수금액·수익률 등). currency 필드 전달 (KRW 국내주식 지원).
 export function derivePosition(p) {
   const qty = Number(p.qtyDecimal ?? p.qty ?? 0);
   const avg = Number(p.avg_price ?? 0);
@@ -36,15 +36,18 @@ export function derivePosition(p) {
   if (!Number.isFinite(mv) || mv === 0) mv = (now > 0 ? now * qty : cost + (Number.isFinite(pnl) ? pnl : 0));
   if (!Number.isFinite(pnl)) pnl = mv - cost;
   const pct = cost > 0 ? (pnl / cost) * 100 : 0;
-  return { ticker: p.ticker, name: p.name || p.ticker, qty, avg, now, mv, cost, pnl, pct };
+  const currency = p.currency || "USD";
+  return { ticker: p.ticker, name: p.name || p.ticker, qty, avg, now, mv, cost, pnl, pct, currency };
 }
 
-// 계좌 잔고 응답 → 총 평가금액(계좌통화) / 총 손익 / 예수금
+// 계좌 잔고 응답 → 총 평가금액(USD 환산) / 총 손익 / 예수금
+// KRW 포지션은 FX_KRW_PER_USD 로 환산해 USD 기준으로 집계 (표시는 AssetsTab에서 통화별 분기)
 export function summarizeBalance(bal, brokerType) {
   const positions = (bal?.positions || []).map(derivePosition).filter((d) => d.qty > 0 || d.mv > 0);
-  const mv = positions.reduce((s, d) => s + d.mv, 0);
-  const pnl = positions.reduce((s, d) => s + d.pnl, 0);
-  const cost = positions.reduce((s, d) => s + d.cost, 0);
+  const toUsd = (d) => d.currency === "KRW" ? 1 / FX_KRW_PER_USD : 1;
+  const mv   = positions.reduce((s, d) => s + d.mv   * toUsd(d), 0);
+  const pnl  = positions.reduce((s, d) => s + d.pnl  * toUsd(d), 0);
+  const cost = positions.reduce((s, d) => s + d.cost * toUsd(d), 0);
   const cashUsd = Number(bal?.cash_usd || 0);
   const cashKrw = Number(bal?.cash_krw || 0);
   const pct = cost > 0 ? (pnl / cost) * 100 : 0;

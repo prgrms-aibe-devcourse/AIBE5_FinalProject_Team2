@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Search, MessageCircle, Home, BarChart3, BrainCircuit, Layers,
   Wallet, ShoppingCart, Code2, Newspaper, Bell, User, CreditCard,
-  Tag, Trello, BookOpen,
+  Tag, Trello, BookOpen, ChevronUp,
 } from "lucide-react";
 
 // ── 검색 인덱스 ───────────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ function searchResults(query) {
  * - 그 옆 보라 그라데이션 AI 토글
  * - 비로그인 시: 우측에 "로그인" 버튼
  */
-export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOffset = 52 }) {
+export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOffset = 52, onCollapse }) {
   const nav = useNavigate();
   const isAuthed = !!localStorage.getItem("dbId");
 
@@ -341,6 +341,24 @@ export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOf
         <MessageCircle size={14} strokeWidth={2.2} />
         <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: 0.2 }}>AI</span>
       </button>
+
+      {/* ── 상단바 접기 — 좌측 사이드바의 펼치기 버튼으로 다시 열 수 있음 ── */}
+      {onCollapse && (
+        <button
+          onClick={onCollapse}
+          title="상단바 접기 (좌측 사이드바에서 다시 펼치기)"
+          style={{
+            width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+            border: "1px solid #E2E8F0", background: "white", color: "#64748B",
+            cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center",
+            transition: "background 0.15s, color 0.15s",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "#F1F5F9"; e.currentTarget.style.color = "#334155"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "white"; e.currentTarget.style.color = "#64748B"; }}
+        >
+          <ChevronUp size={16} />
+        </button>
+      )}
 
       {/* ── 비로그인 시 로그인 버튼 ── */}
       {!isAuthed && (

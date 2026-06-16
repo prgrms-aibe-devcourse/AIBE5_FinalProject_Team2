@@ -3,9 +3,13 @@ import api from "../api/axios";
 
 const TYPE_MAP = {
   BACKTEST_COMPLETE: "backtest",
+  BRIEFING_GENERATED: "briefing",
   SUBSCRIPTION_ACTIVATED: "system",
   SUBSCRIPTION_EXPIRING_SOON: "system",
   SUBSCRIPTION_EXPIRED: "system",
+  ACCOUNT_CREATED: "system",
+  ORDER_FILLED: "order",
+  ORDER_PARTIAL: "order",
 };
 
 function toLocal(n) {

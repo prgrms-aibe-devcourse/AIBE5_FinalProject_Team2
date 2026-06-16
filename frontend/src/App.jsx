@@ -40,6 +40,7 @@ const OAuthGithubCallback   = lazy(() => import("./pages/OAuthGithubCallback"));
 const Mypage                = lazy(() => import("./pages/Mypage"));
 const Loading               = lazy(() => import("./pages/Loading"));
 const FindPassword          = lazy(() => import("./pages/FindPassword"));
+const ForgotPassword        = lazy(() => import("./pages/ForgotPassword"));
 const PrivacyPolicy         = lazy(() => import("./pages/PrivacyPolicy"));
 const TermsOfService        = lazy(() => import("./pages/TermsOfService"));
 const TossPaymentFail       = lazy(() => import("./pages/TossPaymentFail"));
@@ -101,6 +102,7 @@ function App() {
         <Route path="/oauth/github/callback"   element={<OAuthGithubCallback />} />
         <Route path="/loading"                 element={<Loading />} />
         <Route path="/find-password"           element={<FindPassword />} />
+        <Route path="/forgot-password"         element={<ForgotPassword />} />
         <Route path="/pricing"                 element={<Pricing />} />
         <Route path="/subscription/success"    element={<SubscriptionSuccess />} />
         <Route path="/subscription/fail"       element={<SubscriptionFail />} />

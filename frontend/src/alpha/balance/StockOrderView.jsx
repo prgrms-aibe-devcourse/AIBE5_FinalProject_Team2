@@ -47,6 +47,7 @@ export default function StockOrderView({ acct, position, onBack, onReload }) {
       await createProposal({
         brokerAccountId: Number(acct.id),
         ticker: String(ticker).toUpperCase(),
+        stockName: position?.name && position.name !== ticker ? position.name : undefined,
         side,
         qty: String(qty),
         ...(orderType !== "MARKET" && price ? { limitPrice: String(price) } : {}),

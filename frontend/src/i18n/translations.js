@@ -191,7 +191,7 @@ const translations = {
       pwPlaceholder: "Enter your password",
       loginBtn: "Log In",
       signupBtn: "Sign Up with Email",
-      resetPwBtn: "Reset Password",
+      resetPwBtn: "Forgot Password",
       homeBtn: "Main Home",
       snsTitle: "Log in with SNS account",
       githubAlert: "GitHub login API connection coming soon",
@@ -977,6 +977,7 @@ const translations = {
         regime: "Market Regime",
         trust: "Trust",
         briefing: "Briefing",
+        order: "Order Fill",
         system: "System",
       },
       filters: {
@@ -984,6 +985,7 @@ const translations = {
         unread: "Unread",
         backtest: "Backtest",
         briefing: "Briefing",
+        order: "Order Fill",
         system: "System",
       },
       empty: {
@@ -1003,9 +1005,13 @@ const translations = {
           title: "No briefing alerts",
           sub: "Daily briefing notifications will appear here.",
         },
+        order: {
+          title: "No order fill alerts",
+          sub: "Order fill notifications will appear here.",
+        },
         system: {
           title: "No system alerts",
-          sub: "Subscription and payment alerts will appear here.",
+          sub: "Subscription and account alerts will appear here.",
         },
       },
       timeJustNow: "just now",
@@ -1305,7 +1311,7 @@ const translations = {
       pwPlaceholder: "비밀번호를 입력해 주세요",
       loginBtn: "로그인하기",
       signupBtn: "이메일 회원가입",
-      resetPwBtn: "비밀번호 재설정",
+      resetPwBtn: "비밀번호 찾기",
       homeBtn: "메인 홈",
       snsTitle: "SNS 계정으로 간편하게 로그인",
       githubAlert: "GitHub 로그인 API 연결 예정",
@@ -2133,6 +2139,7 @@ const translations = {
         regime: "시장 국면",
         trust: "Trust",
         briefing: "브리핑",
+        order: "주문 체결",
         system: "시스템",
       },
       filters: {
@@ -2140,6 +2147,7 @@ const translations = {
         unread: "읽지 않음",
         backtest: "백테스트",
         briefing: "브리핑",
+        order: "주문 체결",
         system: "시스템",
       },
       empty: {
@@ -2157,11 +2165,15 @@ const translations = {
         },
         briefing: {
           title: "브리핑 알림 없음",
-          sub: "일일 Living Briefing 도착 알림이 표시됩니다.",
+          sub: "Living Briefing 생성 시 알림이 도착합니다.",
+        },
+        order: {
+          title: "주문 체결 알림 없음",
+          sub: "주문이 체결되면 알림이 도착합니다.",
         },
         system: {
           title: "시스템 알림 없음",
-          sub: "구독, 결제, 서비스 알림이 표시됩니다.",
+          sub: "구독 활성화, 계정 생성 등 서비스 알림이 표시됩니다.",
         },
       },
       timeJustNow: "방금 전",
@@ -2458,7 +2470,7 @@ const translations = {
       pwPlaceholder: "请输入密码",
       loginBtn: "登录",
       signupBtn: "邮箱注册",
-      resetPwBtn: "重置密码",
+      resetPwBtn: "找回密码",
       homeBtn: "返回首页",
       snsTitle: "使用SNS账号快速登录",
       githubAlert: "GitHub登录API即将上线",

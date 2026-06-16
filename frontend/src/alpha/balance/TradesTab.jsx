@@ -89,21 +89,38 @@ export default function TradesTab({ accountsData }) {
             <div style={{ overflowX: "auto", border: "1px solid #E2E8F0", borderRadius: 12, background: "white" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
                 <thead><tr style={{ background: "#F8FAFC" }}>
-                  <th style={{ ...th, textAlign: "left" }}>종목코드</th><th style={th}>주문구분</th><th style={th}>주문수량</th><th style={th}>주문단가</th><th style={th}>체결수량</th><th style={th}>체결단가</th><th style={th}>미체결수량</th><th style={th}>주문시간</th>
+                  <th style={{ ...th, textAlign: "left" }}>종목</th><th style={th}>주문구분</th><th style={th}>주문수량</th><th style={th}>주문단가</th><th style={th}>체결수량</th><th style={th}>체결단가</th><th style={th}>미체결수량</th><th style={th}>주문시간</th>
                 </tr></thead>
                 <tbody>{rows.map((p, i) => {
                   const filled = p.status === "EXECUTED" || p.fillStatus === "FILLED";
+                  const partialFilled = p.fillStatus === "PARTIAL";
                   const qty = Number(p.qtyDecimal ?? p.qty ?? 0);
-                  const price = Number(p.limitPrice ?? 0);
+                  const limitPrice = p.limitPrice != null ? Number(p.limitPrice) : null;
+                  const fillAvgPrice = p.fillAvgPrice != null ? Number(p.fillAvgPrice) : null;
+                  const filledQty = p.filledQtyDecimal != null ? Number(p.filledQtyDecimal)
+                                  : p.filledQty != null ? Number(p.filledQty) : null;
+                  const remainQty = filledQty != null ? Math.max(0, qty - filledQty) : (filled ? 0 : qty);
+
+                  // 종목명(코드) — stockName이 있으면 "삼성전자(005930)", 없으면 ticker만
+                  const nameLabel = p.stockName ? `${p.stockName}(${p.ticker})` : p.ticker;
+
+                  // 주문단가: 시장가(limitPrice null)이면 "시장가" 표시
+                  const ordPriceDisplay = limitPrice ? `$${limitPrice.toFixed(2)}` : "시장가";
+
+                  // 체결단가: fillAvgPrice 우선 (KIS queryFill에서 ft_ccld_unpr 파싱), 없으면 limitPrice
+                  const fillPriceDisplay = fillAvgPrice
+                    ? `$${fillAvgPrice.toFixed(2)}`
+                    : (filled && limitPrice ? `$${limitPrice.toFixed(2)}` : "-");
+
                   return (
                     <tr key={i}>
-                      <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{p.ticker}</td>
-                      <td style={{ ...td, color: p.side === "BUY" ? "#dc2626" : "#2563eb", fontWeight: 700 }}>{SIDE_KO[p.side] || p.side}</td>
+                      <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{nameLabel}</td>
+                      <td style={{ ...td, color: p.side === "BUY" ? "#16a34a" : "#dc2626", fontWeight: 700 }}>{SIDE_KO[p.side] || p.side}</td>
                       <td style={td}>{qty}</td>
-                      <td style={td}>{price ? `$${price.toFixed(2)}` : "시장가"}</td>
-                      <td style={td}>{filled ? qty : 0}</td>
-                      <td style={td}>{filled && price ? `$${price.toFixed(2)}` : "-"}</td>
-                      <td style={td}>{filled ? 0 : qty}</td>
+                      <td style={td}>{ordPriceDisplay}</td>
+                      <td style={td}>{filledQty != null ? filledQty : (filled ? qty : 0)}</td>
+                      <td style={{ ...td, fontWeight: fillPriceDisplay !== "-" ? 600 : undefined }}>{fillPriceDisplay}</td>
+                      <td style={td}>{remainQty}</td>
                       <td style={td}>{p.createdAt ? new Date(p.createdAt).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "-"}</td>
                     </tr>
                   );

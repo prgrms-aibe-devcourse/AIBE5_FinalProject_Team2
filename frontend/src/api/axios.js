@@ -92,6 +92,8 @@ const SILENT_401_PATTERNS = [
   /\/chat\/token/,
   /\/profiles?\/me/,
   /\/auth\/me/,
+  /\/alpha\//,         // 비로그인 홈에서 alpha API 401이 강제 리다이렉트되지 않도록
+  /\/notifications/,
 ];
 
 // --- Response 인터셉터: 401 → refresh → retry ---

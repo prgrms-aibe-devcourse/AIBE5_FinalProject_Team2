@@ -6,7 +6,7 @@ import {
   BarChart3, Brain, Zap, Check, Sparkles, Code2,
 } from "lucide-react";
 import bannerVideo from "../assets/배너후보.mp4";
-import { useLanguage } from "../i18n/LanguageContext";
+import { useLanguage } from "../i18n/useLanguage";
 import translations from "../i18n/translations";
 import LoginRequiredModal from "../components/shell/LoginRequiredModal";
 import useTutorialStore from "../store/useTutorialStore";
@@ -484,7 +484,9 @@ export default function Home() {
           <Reveal>
           <div style={{ textAlign: "center", marginBottom: 52 }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", letterSpacing: 2, textTransform: "uppercase", marginBottom: 12 }}>Features</p>
-            <h2 style={{ fontSize: 30, fontWeight: 800, color: "#0f172a", margin: "0 0 12px", fontFamily: BASE_FONT }}>Alpha-Helix가 특별한 이유</h2>
+            <h2 style={{ fontSize: 30, fontWeight: 800, color: "#0f172a", margin: "0 0 12px", fontFamily: BASE_FONT }}>
+              <span style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 500, letterSpacing: -0.3 }}>ALPHA-HELIX</span>가 특별한 이유
+            </h2>
             <p style={{ fontSize: 14, color: "#64748b", maxWidth: 420, margin: "0 auto", lineHeight: 1.8 }}>
               AI 대화부터 실주문까지, 퀀트 투자의 전 과정을 하나의 워크스페이스에서.
             </p>

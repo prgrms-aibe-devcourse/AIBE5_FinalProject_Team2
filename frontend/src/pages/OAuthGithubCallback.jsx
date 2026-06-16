@@ -37,6 +37,15 @@ export default function OAuthGithubCallback() {
 
     authApi.githubLogin({ code, redirectUri })
       .then((data) => {
+        // 미가입 유저 → 회원가입 폼으로 이동 (이메일·username 미리 세팅)
+        if (data.needsSignup) {
+          navigate("/signup", {
+            replace: true,
+            state: { githubEmail: data.email, githubLogin: data.githubLogin },
+          });
+          return;
+        }
+
         localStorage.removeItem("accessToken");
         localStorage.removeItem("alpha.lastWsId");
         if (data.userId != null) {
