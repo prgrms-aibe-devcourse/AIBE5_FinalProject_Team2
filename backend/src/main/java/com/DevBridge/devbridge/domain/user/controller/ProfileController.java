@@ -5,6 +5,7 @@ import com.DevBridge.devbridge.domain.user.dto.UpdateUserBasicInfoRequest;
 import com.DevBridge.devbridge.domain.user.dto.UserProfileDetailRequest;
 import com.DevBridge.devbridge.domain.user.dto.UserProfileDetailResponse;
 import com.DevBridge.devbridge.global.security.AuthContext;
+import com.DevBridge.devbridge.domain.user.service.AuthService;
 import com.DevBridge.devbridge.domain.user.service.ProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -23,6 +24,7 @@ import java.util.Map;
 public class ProfileController {
 
     private final ProfileService profileService;
+    private final AuthService authService;
     private final org.springframework.core.env.Environment springEnv;
 
     /** 현재 로그인 사용자의 프로필 세부 정보 조회. */
@@ -124,6 +126,36 @@ public class ProfileController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    /** [Step-1] 현재 비밀번호 검증만 수행. body: { currentPassword } */
+    @PostMapping("/me/password/verify")
+    public ResponseEntity<?> verifyPassword(@RequestBody Map<String, String> body) {
+        Long userId = AuthContext.currentUserId();
+        if (userId == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "로그인이 필요합니다."));
+        String currentPassword = body.get("currentPassword");
+        if (currentPassword == null || currentPassword.isBlank())
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "message", "비밀번호를 입력해 주세요."));
+        boolean ok = authService.verifyPassword(userId, currentPassword);
+        if (!ok) return ResponseEntity.status(400).body(Map.of("ok", false, "message", "현재 비밀번호가 일치하지 않습니다."));
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
+
+    /** [Step-2] 비밀번호 변경. body: { currentPassword, newPassword } — currentPassword 재검증 후 변경. */
+    @PatchMapping("/me/password")
+    public ResponseEntity<?> changePassword(@RequestBody Map<String, String> body) {
+        Long userId = AuthContext.currentUserId();
+        if (userId == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("message", "로그인이 필요합니다."));
+        String currentPassword = body.get("currentPassword");
+        String newPassword = body.get("newPassword");
+        if (currentPassword == null || newPassword == null || newPassword.isBlank())
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "message", "필수 값이 없습니다."));
+        try {
+            authService.changePassword(userId, currentPassword, newPassword);
+            return ResponseEntity.ok(Map.of("ok", true, "message", "비밀번호가 변경되었습니다."));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("ok", false, "message", e.getMessage()));
         }
     }
 }

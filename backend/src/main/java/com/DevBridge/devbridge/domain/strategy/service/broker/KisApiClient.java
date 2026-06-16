@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.ByteArrayHttpMessageConverter;
 import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.stereotype.Service;
@@ -26,7 +27,10 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 한국투자증권 OpenAPI 미국주식 클라이언트.
@@ -105,8 +109,16 @@ public class KisApiClient {
     private final Map<String, Object> tokenLocks = new ConcurrentHashMap<>();
     private Object tokenLockFor(String key) { return tokenLocks.computeIfAbsent(key, k -> new Object()); }
 
+    /** key = userId + ":" + env, value = 잔고 스냅샷 + 캐시 시각 */
+    private final Map<String, CachedBalance> balanceCache = new ConcurrentHashMap<>();
+
     private record CachedToken(String token, Instant expiresAt) {
         boolean valid() { return Instant.now().isBefore(expiresAt.minus(Duration.ofMinutes(5))); }
+    }
+
+    /** 잔고 응답 120초 캐시 — 동일 계좌의 반복 조회를 즉시 반환. */
+    private record CachedBalance(Map<String, Object> data, Instant cachedAt) {
+        boolean valid() { return Instant.now().isBefore(cachedAt.plus(Duration.ofSeconds(120))); }
     }
 
     private String host(BrokerAccount.Env env) {
@@ -133,6 +145,10 @@ public class KisApiClient {
                     // 없으면 Jackson이 byte[]를 Base64 문자열로 직렬화 → KIS가 JSON 오브젝트 대신 문자열을 받아 500 반환.
                     c.add(new org.springframework.http.converter.ByteArrayHttpMessageConverter());
                     c.add(new StringHttpMessageConverter(StandardCharsets.UTF_8));
+                    // 주문 POST 의 byte[] 본문을 raw 로 전송. 없으면 Jackson 이 byte[] 를 base64 문자열로
+                    // 직렬화해 KIS 가 주문 객체가 아닌 문자열을 받아 500(rt_cd=1, 빈 메시지)로 거부한다.
+                    // (Jackson 보다 먼저 등록해야 byte[] 가 이 컨버터로 처리됨)
+                    c.add(new ByteArrayHttpMessageConverter());
                     c.add(jackson);
                 })
                 .build();
@@ -275,51 +291,96 @@ public class KisApiClient {
         tokenCache.remove(cacheKey(b));
     }
 
+    public void invalidateBalance(BrokerAccount b) {
+        balanceCache.remove(cacheKey(b));
+    }
+
     // ───────────────────────────────────────────── 2. 해외주식 잔고 조회 (연결 검증 겸용)
 
     /**
      * 미국주식 잔고 + 예수금 조회.
      * tr_id: 모의 VTTS3012R, 실전 TTTS3012R
      * 응답 정규화: { cash_usd, positions:[{ticker,qty,avg_price,market_value,unrealized_pnl}], raw }
+     *
+     * 성능 개선:
+     *  - 3개 KIS API(잔고·KRW·USD)를 CompletableFuture로 병렬 호출 → 직렬 대비 ~1/3 시간
+     *  - 45초 캐시: 페이지 재조회·탭 전환 시 즉시 반환
      */
     public Map<String, Object> getOverseasBalance(BrokerAccount b) {
+        String key = cacheKey(b);
+        CachedBalance cached = balanceCache.get(key);
+        if (cached != null && cached.valid()) {
+            log.debug("[KIS] balance cache hit user={} env={}", b.getUser().getId(), b.getEnv());
+            return cached.data;
+        }
+
         String token = getAccessToken(b);
         String trId = b.getEnv() == BrokerAccount.Env.REAL ? "TTTS3012R" : "VTTS3012R";
 
-        JsonNode resp = withRateLimitRetry(() -> http(b.getEnv()).get()
-                .uri(uriBuilder -> uriBuilder.path("/uapi/overseas-stock/v1/trading/inquire-balance")
-                        .queryParam("CANO", b.getCano())
-                        .queryParam("ACNT_PRDT_CD", b.getAcntPrdtCd())
-                        .queryParam("OVRS_EXCG_CD", "NASD") // 잔고는 전체 조회하므로 기본 NASD
-                        .queryParam("TR_CRCY_CD", "USD")
-                        .queryParam("CTX_AREA_FK200", "")
-                        .queryParam("CTX_AREA_NK200", "")
-                        .build())
-                .header("authorization", "Bearer " + token)
-                .header("appkey", b.getAppKey())
-                .header("appsecret", crypto.decrypt(b.getAppSecretEnc()))
-                .header("tr_id", trId)
-                .retrieve()
-                .body(JsonNode.class));
+        // 3개 KIS API 동시 발사 (순차 → 병렬)
+        CompletableFuture<JsonNode> balanceFuture = CompletableFuture.supplyAsync(() ->
+                withRateLimitRetry(() -> http(b.getEnv()).get()
+                        .uri(uriBuilder -> uriBuilder.path("/uapi/overseas-stock/v1/trading/inquire-balance")
+                                .queryParam("CANO", b.getCano())
+                                .queryParam("ACNT_PRDT_CD", b.getAcntPrdtCd())
+                                .queryParam("OVRS_EXCG_CD", "NASD")
+                                .queryParam("TR_CRCY_CD", "USD")
+                                .queryParam("CTX_AREA_FK200", "")
+                                .queryParam("CTX_AREA_NK200", "")
+                                .build())
+                        .header("authorization", "Bearer " + token)
+                        .header("appkey", b.getAppKey())
+                        .header("appsecret", crypto.decrypt(b.getAppSecretEnc()))
+                        .header("tr_id", trId)
+                        .retrieve()
+                        .body(JsonNode.class)));
+
+        CompletableFuture<Map<String, Object>> domesticFuture = CompletableFuture.supplyAsync(() -> {
+            try { return getDomesticBalance(b, token); }
+            catch (Exception e) {
+                log.warn("[KIS] getDomesticBalance failed user={} env={}: {}",
+                        b.getUser().getId(), b.getEnv(), e.getMessage());
+                return Map.of("cash_krw", 0.0, "positions", java.util.List.of());
+            }
+        });
+
+        CompletableFuture<Double> usdFuture = CompletableFuture.supplyAsync(() -> {
+            try { return getOverseasCashUsd(b, token); }
+            catch (Exception e) {
+                log.warn("[KIS] getOverseasCashUsd failed user={} env={}: {}",
+                        b.getUser().getId(), b.getEnv(), e.getMessage());
+                return -1.0; // -1 = 실패 sentinel (cash_usd 덮어쓰기 생략)
+            }
+        });
+
+        JsonNode resp = null;
+        try { resp = balanceFuture.get(15, TimeUnit.SECONDS); }
+        catch (Exception e) {
+            log.warn("[KIS] inquire-balance future failed user={}: {}", b.getUser().getId(), e.getMessage());
+        }
 
         Map<String, Object> out = normalizeBalance(resp);
-        // 추가: 국내 잔고 API로 원화 예수금도 함께 조회 (실패해도 USD 응답은 정상 반환)
+
+        // 국내주식 잔고: cash_krw + 국내 포지션 병합
         try {
-            out.put("cash_krw", getDomesticCashKrw(b, token));
-        } catch (Exception e) {
-            log.warn("[KIS] getDomesticCashKrw failed user={} env={}: {}",
-                    b.getUser().getId(), b.getEnv(), e.getMessage());
-            out.put("cash_krw", 0.0);
-        }
-        // inquire-balance(VTTS3012R) output2 에는 USD 예수금 필드가 없음.
-        // 체결기준현재잔고(VTRP6504R/CTRP6504R) output3 (통화별 배열)에서 CRCY_CD=USD 행의 frcr_dncl_amt_2 사용.
+            Map<String, Object> dom = domesticFuture.get(15, TimeUnit.SECONDS);
+            out.put("cash_krw", dom.getOrDefault("cash_krw", 0.0));
+            @SuppressWarnings("unchecked")
+            java.util.List<Map<String, Object>> domPos = (java.util.List<Map<String, Object>>) dom.get("positions");
+            if (domPos != null && !domPos.isEmpty()) {
+                @SuppressWarnings("unchecked")
+                java.util.List<Map<String, Object>> allPos = new java.util.ArrayList<>((java.util.List<Map<String, Object>>) out.get("positions"));
+                allPos.addAll(domPos);
+                out.put("positions", allPos);
+            }
+        } catch (Exception e) { out.put("cash_krw", 0.0); }
+
         try {
-            double usd = getOverseasCashUsd(b, token);
+            double usd = usdFuture.get(15, TimeUnit.SECONDS);
             if (usd > 0) out.put("cash_usd", usd);
-        } catch (Exception e) {
-            log.warn("[KIS] getOverseasCashUsd failed user={} env={}: {}",
-                    b.getUser().getId(), b.getEnv(), e.getMessage());
-        }
+        } catch (Exception e) { /* normalizeBalance 의 cash_usd 유지 */ }
+
+        balanceCache.put(key, new CachedBalance(Collections.unmodifiableMap(new LinkedHashMap<>(out)), Instant.now()));
         return out;
     }
 
@@ -364,11 +425,11 @@ public class KisApiClient {
     }
 
     /**
-     * 국내주식 잔고 API로 원화 예수금만 추출.
+     * 국내주식 잔고 API — 원화 예수금(cash_krw) + 보유 종목(positions, currency=KRW) 동시 추출.
      * tr_id: 모의 VTTC8434R, 실전 TTTC8434R
-     * output2[0].dnca_tot_amt = 예수금 총금액(원화)
+     * output1 = 보유종목 배열, output2[0].dnca_tot_amt = 예수금 총금액(원화)
      */
-    private double getDomesticCashKrw(BrokerAccount b, String token) {
+    private Map<String, Object> getDomesticBalance(BrokerAccount b, String token) {
         String trId = b.getEnv() == BrokerAccount.Env.REAL ? "TTTC8434R" : "VTTC8434R";
         JsonNode resp = withRateLimitRetry(() -> http(b.getEnv()).get()
                 .uri(uriBuilder -> uriBuilder.path("/uapi/domestic-stock/v1/trading/inquire-balance")
@@ -390,12 +451,46 @@ public class KisApiClient {
                 .header("tr_id", trId)
                 .retrieve()
                 .body(JsonNode.class));
-        if (resp == null) return 0.0;
-        JsonNode out2 = resp.path("output2");
-        if (out2.isArray() && out2.size() > 0) {
-            return out2.get(0).path("dnca_tot_amt").asDouble(0);
+
+        double cashKrw = 0.0;
+        java.util.List<Map<String, Object>> positions = new java.util.ArrayList<>();
+
+        if (resp != null) {
+            String rtCd = resp.path("rt_cd").asText("?");
+            JsonNode out2 = resp.path("output2");
+            JsonNode out2Row = out2.isArray() && out2.size() > 0 ? out2.get(0) : out2;
+            // prsm_deposit_amt(추정예수금) 우선 — 당일 매매 미결제분 포함(dnca_tot_amt는 T+2 결제 완료분만).
+            double prsm = out2Row.path("prsm_deposit_amt").asDouble(0);
+            double dnca = out2Row.path("dnca_tot_amt").asDouble(0);
+            cashKrw = prsm > 0 ? prsm : dnca;
+            if (resp.path("output1").isArray()) {
+                for (JsonNode n : resp.path("output1")) {
+                    double qty = n.path("hldg_qty").asDouble(0);
+                    if (qty <= 0) continue;
+                    Map<String, Object> p = new LinkedHashMap<>();
+                    p.put("ticker", n.path("pdno").asText(""));
+                    p.put("name", n.path("prdt_name").asText(""));
+                    p.put("qty", qty);
+                    p.put("avg_price", n.path("pchs_avg_pric").asDouble(0));
+                    p.put("now_price", n.path("prpr").asDouble(0));
+                    double mvKrw  = n.path("evlu_amt").asDouble(0);
+                    double pnlKrw = n.path("evlu_pfls_amt").asDouble(0);
+                    p.put("market_value",       mvKrw);
+                    p.put("market_value_krw",   mvKrw);
+                    p.put("unrealized_pnl",     pnlKrw);
+                    p.put("unrealized_pnl_krw", pnlKrw);
+                    p.put("currency", "KRW");
+                    positions.add(p);
+                }
+            }
+            log.info("[KIS] domestic balance rt_cd={} user={} env={} prsm={} dnca={} cashKrw={} positions={}",
+                    rtCd, b.getUser().getId(), b.getEnv(), prsm, dnca, cashKrw, positions.size());
         }
-        return out2.path("dnca_tot_amt").asDouble(0);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("cash_krw", cashKrw);
+        result.put("positions", positions);
+        return result;
     }
 
     /**
@@ -446,8 +541,13 @@ public class KisApiClient {
                 p.put("qty", n.path("ovrs_cblc_qty").asDouble(0));
                 p.put("avg_price", n.path("pchs_avg_pric").asDouble(0));
                 p.put("now_price", n.path("now_pric2").asDouble(0));
-                p.put("market_value_usd", n.path("ovrs_stck_evlu_amt").asDouble(0));
-                p.put("unrealized_pnl_usd", n.path("frcr_evlu_pfls_amt").asDouble(0));
+                double mvUsd = n.path("ovrs_stck_evlu_amt").asDouble(0);
+                double pnlUsd = n.path("frcr_evlu_pfls_amt").asDouble(0);
+                // 프론트(AccountPage)는 market_value/unrealized_pnl 키를 읽음 → 별칭 함께 제공(기존 _usd 키 호환 유지).
+                p.put("market_value", mvUsd);
+                p.put("market_value_usd", mvUsd);
+                p.put("unrealized_pnl", pnlUsd);
+                p.put("unrealized_pnl_usd", pnlUsd);
                 positions.add(p);
             }
         }
@@ -556,40 +656,70 @@ public class KisApiClient {
             body.put("PDNO", ticker);
             body.put("ORD_QTY", String.valueOf(quantity));
             body.put("OVRS_ORD_UNPR", limitPrice == null ? "0" : String.format("%.2f", limitPrice));
+            // KIS 공식 해외주문 body 필수 키(누락 시 500 rt_cd=1 빈 메시지로 거부됨) — examples_llm/overseas_stock/order/order.py
+            body.put("CTAC_TLNO", "");                              // 연락전화번호(공란)
+            body.put("MGCO_APTM_ODNO", "");                         // 운용사지정주문번호(공란)
+            body.put("SLL_TYPE", side == Side.SELL ? "00" : "");    // 매도=00 / 매수=공란
             body.put("ORD_SVR_DVSN_CD", "0");
             body.put("ORD_DVSN", ordDvsn == null || ordDvsn.isBlank() ? ORD_DVSN_LIMIT : ordDvsn); // 00:지정가 / 34:LOC
 
+            // 주문 POST — 일시적 오류(EGW00201 초당한도 / 5xx GW)는 백오프 후 재시도(HEAD),
+            // hashkey 헤더 + 4xx/5xx 라도 JSON 본문이면 rt_cd 경로로 처리(alpha/main) 를 결합.
             byte[] bodyBytes = jsonBytes(body);
             log.info("[KIS] order request ticker={} excg={} tr_id={} body={}",
                     ticker, excg, trId, new String(bodyBytes, StandardCharsets.UTF_8));
             String hashkey = getHashkey(b, bodyBytes);
-            try {
-                var req = http(b.getEnv()).post()
-                        .uri("/uapi/overseas-stock/v1/trading/order")
-                        .contentType(APP_JSON_UTF8)
-                        .header("authorization", "Bearer " + token)
-                        .header("appkey", b.getAppKey())
-                        .header("appsecret", crypto.decrypt(b.getAppSecretEnc()))
-                        .header("tr_id", trId)
-                        .header("custtype", "P");
-                if (hashkey != null) req = req.header("hashkey", hashkey);
-                resp = req
-                        // CRITICAL: Map 그대로 보내면 chunked encoding으로 전송되어 KIS GW가 EGW00202로 거부.
-                        // byte[]로 직렬화하여 Content-Length를 명시한다.
-                        .body(bodyBytes)
-                        .retrieve()
-                        .body(JsonNode.class);
-            } catch (RestClientResponseException ex) {
-                lastBody = ex.getResponseBodyAsString();
-                log.warn("[KIS] HTTP {} placeOverseasOrder ticker={} excg={}: {}",
-                        ex.getStatusCode().value(), ticker, excg, lastBody);
-                // KIS가 4xx/5xx를 반환해도 본문이 JSON이면 rt_cd 체크 경로로 처리.
-                try { resp = om.readTree(lastBody); } catch (Exception ignored) { resp = null; }
-                if (resp == null) {
-                    throw new IllegalStateException(
-                            "KIS 주문 거부 [HTTP " + ex.getStatusCode().value() + "]: " + lastBody, ex);
+            RestClientResponseException orderEx = null;
+            for (int attempt = 1; attempt <= 4; attempt++) {
+                orderEx = null;
+                try {
+                    var req = http(b.getEnv()).post()
+                            .uri("/uapi/overseas-stock/v1/trading/order")
+                            .contentType(APP_JSON_UTF8)
+                            .header("authorization", "Bearer " + token)
+                            .header("appkey", b.getAppKey())
+                            .header("appsecret", crypto.decrypt(b.getAppSecretEnc()))
+                            .header("tr_id", trId)
+                            .header("custtype", "P");   // 개인고객 — KIS 공식 주문 호출 필수 헤더
+                    if (hashkey != null) req = req.header("hashkey", hashkey);
+                    // CRITICAL: byte[] 직렬화로 Content-Length 명시(Map 그대로면 chunked → EGW00202 거부).
+                    resp = req.body(bodyBytes).retrieve().body(JsonNode.class);
+                    if (isRateLimited(resp) && attempt < 4) {           // HTTP 200 + EGW00201 → 백오프 재시도
+                        log.warn("[KIS] order EGW00201(200) attempt={}/4 excg={} → 백오프 재시도", attempt, excg);
+                        try { Thread.sleep(1200L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                        continue;
+                    }
+                    break;
+                } catch (RestClientResponseException ex) {
+                    orderEx = ex;
+                    lastBody = ex.getResponseBodyAsString();
+                    String bs = lastBody == null ? "" : lastBody;
+                    // EGW00201(초당한도)·5xx(일시적 GW)면 재시도. EGW00202(라우팅)는 다음 거래소.
+                    boolean retryable = (bs.contains("EGW00201") || ex.getStatusCode().is5xxServerError())
+                            && !bs.contains("EGW00202");
+                    if (retryable && attempt < 4) {
+                        log.warn("[KIS] order transient HTTP {} attempt={}/4 excg={} body={} → 백오프 재시도",
+                                ex.getStatusCode(), attempt, excg, bs);
+                        try { Thread.sleep(1200L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                        continue;
+                    }
+                    // 재시도 소진/비재시도: 본문이 JSON 이면 rt_cd 체크 경로로 처리(EGW00202 제외).
+                    if (!bs.contains("EGW00202")) {
+                        try { resp = om.readTree(lastBody); } catch (Exception ignored) { resp = null; }
+                        if (resp != null) { orderEx = null; break; }
+                    }
+                    break;
                 }
-                break;
+            }
+            if (orderEx != null) {
+                // EGW00202(GW 라우팅)면 다음 거래소 폴백, 그 외는 거부.
+                if (lastBody != null && lastBody.contains("EGW00202")) {
+                    log.warn("[KIS] order EGW00202(HTTP {}) excg={} → 다음 거래소 폴백", orderEx.getStatusCode(), excg);
+                    continue;
+                }
+                log.warn("[KIS] order FAILED ticker={} excg={} qty={} unpr={} ordDvsn={} trId={} status={} body={}",
+                        ticker, excg, quantity, limitPrice, ordDvsn, trId, orderEx.getStatusCode(), lastBody);
+                throw new IllegalStateException("KIS 주문 거부 [HTTP " + orderEx.getStatusCode().value() + "]: " + lastBody, orderEx);
             }
 
             String rtCd = resp == null ? "" : resp.path("rt_cd").asText("");

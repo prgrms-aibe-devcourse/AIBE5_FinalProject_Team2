@@ -49,8 +49,8 @@ public class PerplexityProvider implements LlmProvider {
     /** 검색 결과 1건 (실시간 뉴스 출처). */
     public record Source(String title, String url, String snippet, String date) {}
 
-    /** Perplexity 응답 — 본문 + 웹검색 출처 목록. */
-    public record Answer(String content, List<Source> sources) {}
+    /** Perplexity 응답 — 본문 + 웹검색 출처 목록 + 토큰 사용량. */
+    public record Answer(String content, List<Source> sources, long tokensIn, long tokensOut) {}
 
     @Override
     public String oneShot(String systemInstruction, String userPrompt, String model) {
@@ -88,7 +88,9 @@ public class PerplexityProvider implements LlmProvider {
 
             JsonNode root = mapper.readTree(response);
             String content = root.path("choices").path(0).path("message").path("content").asText("(빈 응답)");
-            return new Answer(content, parseSources(root));
+            long tIn  = root.path("usage").path("prompt_tokens").asLong(0);
+            long tOut = root.path("usage").path("completion_tokens").asLong(0);
+            return new Answer(content, parseSources(root), tIn, tOut);
         } catch (Exception e) {
             log.error("Perplexity 호출 실패", e);
             throw new RuntimeException("Perplexity 호출 실패: " + e.getMessage());

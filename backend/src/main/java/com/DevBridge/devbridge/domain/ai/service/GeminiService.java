@@ -9,9 +9,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 
 // 429 응답 본문에서 추출한 쿼터 정보
@@ -21,6 +25,10 @@ record Quota429Info(boolean isFreeTier, boolean isDailyQuota, boolean isPrepayme
  * Gemini API를 서버에서 직접 호출.
  * API 키는 application.properties → 환경변수(GEMINI_API_KEY)로 주입되며
  * 절대 클라이언트로 나가지 않는다.
+ *
+ * Context Caching: 동일한 system_instruction이 반복될 때 Gemini cachedContents API로
+ * 한 번만 업로드하고 이후 요청에선 cache name만 참조한다. 캐시 불가(토큰 부족) 또는
+ * 생성 실패 시 기존 방식(system_instruction 직접 전송)으로 자동 폴백한다.
  */
 @Service
 public class GeminiService {
@@ -31,7 +39,21 @@ public class GeminiService {
     private final String model;
     private final String fallbackModel;
     private final String baseUrl;
+    private final String cacheBaseUrl;
     private final RestClient restClient;
+
+    // system_instruction 해시 → 캐시 항목 (앱 수명 동안 유지)
+    private final ConcurrentHashMap<String, CachedEntry> promptCache = new ConcurrentHashMap<>();
+    // Gemini Flash 기준 최소 캐시 토큰 1024 → chars/3 환산 최소 문자 수
+    private static final int MIN_CACHE_CHARS = 3072;
+    private static final long CACHE_TTL_SECONDS = 3600; // 1시간
+
+    private record CachedEntry(String name, Instant expiresAt) {
+        boolean isValid() {
+            // 만료 2분 전부터 무효 처리 (갱신 여유)
+            return Instant.now().isBefore(expiresAt.minusSeconds(120));
+        }
+    }
 
     // 레이트리밋 방지(RPM 초과 429 예방): 동시 호출 수 제한 + 호출 간 최소 간격.
     // 모든 Gemini 호출이 postGenerateContent 를 거치므로 여기 한 곳에서 전역 스로틀링된다.
@@ -49,6 +71,10 @@ public class GeminiService {
         this.model = model;
         this.fallbackModel = fallbackModel;
         this.baseUrl = baseUrl;
+        // baseUrl 예: "https://generativelanguage.googleapis.com/v1beta/models"
+        // cacheBaseUrl:  "https://generativelanguage.googleapis.com/v1beta/cachedContents"
+        int modelsIdx = baseUrl.lastIndexOf("/models");
+        this.cacheBaseUrl = (modelsIdx >= 0 ? baseUrl.substring(0, modelsIdx) : baseUrl) + "/cachedContents";
         this.restClient = RestClient.create();
 
         log.info(
@@ -85,15 +111,11 @@ public class GeminiService {
                 })
                 .toList();
 
+        String systemInstruction = request.getSystemInstruction();
+
         Map<String, Object> body = new HashMap<>();
         body.put("contents", contents);
-
-        // 시스템 프롬프트 (페이지별 역할 지시)
-        if (request.getSystemInstruction() != null && !request.getSystemInstruction().trim().isEmpty()) {
-            body.put("system_instruction", Map.of(
-                    "parts", List.of(Map.of("text", request.getSystemInstruction().trim()))
-            ));
-        }
+        applySystemInstruction(body, systemInstruction);
 
         // chat 응답 토큰 한도.
         // 일괄 입력 모드에선 등록폼 JSON + 7가지 협의 마크다운 + contractTerms JSON 모두 한 응답에 출력해야 해서
@@ -104,9 +126,7 @@ public class GeminiService {
                 "maxOutputTokens", 32768
         ));
 
-        Map<String, Object> response = generateContent(body);
-
-        return extractText(response);
+        return extractText(generateContent(body, systemInstruction));
     }
 
     @SuppressWarnings("unchecked")
@@ -160,12 +180,7 @@ public class GeminiService {
                 "role", "user",
                 "parts", List.of(Map.of("text", userPrompt))
         )));
-
-        if (systemInstruction != null && !systemInstruction.trim().isEmpty()) {
-            body.put("system_instruction", Map.of(
-                    "parts", List.of(Map.of("text", systemInstruction.trim()))
-            ));
-        }
+        applySystemInstruction(body, systemInstruction);
 
         Map<String, Object> genConfig = new HashMap<>();
         genConfig.put("temperature", 0.3);
@@ -175,40 +190,42 @@ public class GeminiService {
         }
         body.put("generationConfig", genConfig);
 
-        Map<String, Object> response = generateContent(body);
-
-        return extractText(response);
+        return extractText(generateContent(body, systemInstruction));
     }
 
     public String oneShot(String systemInstruction, String userPrompt) {
         return oneShot(systemInstruction, userPrompt, true);
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> generateContent(Map<String, Object> body) {
-        try {
-            return postGenerateContent(model, body, true);
-        } catch (HttpClientErrorException.TooManyRequests primary429) {
-            if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(model)) {
-                Quota429Info info = parse429Info(primary429);
-                throw new RuntimeException(buildQuotaMessage(info, model), primary429);
-            }
-            log.warn("Gemini 429 on primary model {}. Falling back to {}.", model, fallbackModel);
-            try {
-                return postGenerateContent(fallbackModel, body, false);
-            } catch (HttpClientErrorException.TooManyRequests fallback429) {
-                Quota429Info info = parse429Info(fallback429);
-                throw new RuntimeException(buildQuotaMessage(info, fallbackModel), fallback429);
-            }
-        } catch (HttpClientErrorException e) {
-            // 403(Forbidden) - 모델 접근 불가 시 fallback으로 재시도
-            if (e.getStatusCode().value() == 403
-                    && fallbackModel != null && !fallbackModel.isBlank() && !fallbackModel.equals(model)) {
-                log.warn("Gemini 403 on primary model {}. Falling back to {}.", model, fallbackModel);
-                return postGenerateContent(fallbackModel, body, false);
-            }
-            throw e;
+    /**
+     * body에 system_instruction 또는 cachedContent 중 하나를 설정한다.
+     * 캐시 가능한 경우(토큰 충분 + 생성 성공) cachedContent를, 아니면 system_instruction을 직접 넣는다.
+     */
+    private void applySystemInstruction(Map<String, Object> body, String systemInstruction) {
+        if (systemInstruction == null || systemInstruction.isBlank()) return;
+        CachedEntry cache = getOrCreateCache(systemInstruction);
+        if (cache != null) {
+            body.put("cachedContent", cache.name());
+        } else {
+            body.put("system_instruction", Map.of(
+                    "parts", List.of(Map.of("text", systemInstruction.trim()))
+            ));
         }
+    }
+
+    /**
+     * 캐시를 사용한 body에서 폴백 모델용 body를 재구성한다.
+     * cachedContent는 모델에 종속적이므로 폴백 모델에는 사용 불가 → system_instruction으로 대체.
+     */
+    private Map<String, Object> buildFallbackBody(Map<String, Object> body, String systemInstruction) {
+        Map<String, Object> fb = new HashMap<>(body);
+        fb.remove("cachedContent");
+        if (systemInstruction != null && !systemInstruction.isBlank()) {
+            fb.put("system_instruction", Map.of(
+                    "parts", List.of(Map.of("text", systemInstruction.trim()))
+            ));
+        }
+        return fb;
     }
 
     /** 429 원인에 따른 사용자 친화적 메시지 생성 */
@@ -298,6 +315,38 @@ public class GeminiService {
     }
 
     @SuppressWarnings("unchecked")
+    private Map<String, Object> generateContent(Map<String, Object> body, String systemInstruction) {
+        try {
+            return postGenerateContent(model, body, true);
+        } catch (HttpClientErrorException.TooManyRequests primary429) {
+            if (fallbackModel == null || fallbackModel.isBlank() || fallbackModel.equals(model)) {
+                Quota429Info info = parse429Info(primary429);
+                throw new RuntimeException(buildQuotaMessage(info, model), primary429);
+            }
+            log.warn("Gemini 429 on primary model {}. Falling back to {}.", model, fallbackModel);
+            try {
+                // 캐시는 기본 모델에 묶여있으므로 폴백 모델엔 system_instruction 직접 전송
+                return postGenerateContent(fallbackModel, buildFallbackBody(body, systemInstruction), false);
+            } catch (HttpClientErrorException.TooManyRequests fallback429) {
+                Quota429Info info = parse429Info(fallback429);
+                throw new RuntimeException(buildQuotaMessage(info, fallbackModel), fallback429);
+            }
+        } catch (HttpClientErrorException e) {
+            int status = e.getStatusCode().value();
+            // 403(Forbidden) 또는 503(Unavailable) — fallback 모델로 재시도
+            if ((status == 403 || status == 503)
+                    && fallbackModel != null && !fallbackModel.isBlank() && !fallbackModel.equals(model)) {
+                log.warn("Gemini HTTP {} on primary model {}. Falling back to {}.", status, model, fallbackModel);
+                return postGenerateContent(fallbackModel, buildFallbackBody(body, systemInstruction), false);
+            }
+            if (status == 503) {
+                throw new RuntimeException("Gemini 서비스가 일시적으로 혼잡합니다. 잠시 후 다시 시도해 주세요.", e);
+            }
+            throw e;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
     private Map<String, Object> postGenerateContent(String targetModel, Map<String, Object> body, boolean allowRetry) {
         String url = baseUrl + "/" + targetModel + ":generateContent?key=" + apiKey;
         int maxAttempts = allowRetry ? 2 : 1;
@@ -333,6 +382,74 @@ public class GeminiService {
         }
 
         throw new IllegalStateException("Gemini API 호출이 비정상 종료되었습니다.");
+    }
+
+    /**
+     * system_instruction을 Gemini cachedContents API로 캐시하거나 기존 캐시를 반환한다.
+     * 캐시 불가(토큰 부족) 또는 API 오류 시 null을 반환하며, 호출부에서 직접 전송으로 폴백한다.
+     */
+    @SuppressWarnings("unchecked")
+    private CachedEntry getOrCreateCache(String systemInstruction) {
+        if (systemInstruction == null || systemInstruction.length() < MIN_CACHE_CHARS) return null;
+
+        String hash = sha256(systemInstruction);
+        CachedEntry existing = promptCache.get(hash);
+        if (existing != null && existing.isValid()) return existing;
+
+        try {
+            String modelWithPrefix = model.startsWith("models/") ? model : "models/" + model;
+            Map<String, Object> cacheBody = new HashMap<>();
+            cacheBody.put("model", modelWithPrefix);
+            cacheBody.put("system_instruction", Map.of(
+                    "parts", List.of(Map.of("text", systemInstruction.trim()))
+            ));
+            cacheBody.put("contents", List.of());
+            cacheBody.put("ttl", CACHE_TTL_SECONDS + "s");
+
+            Map<String, Object> resp = restClient.post()
+                    .uri(cacheBaseUrl + "?key=" + apiKey)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(cacheBody)
+                    .retrieve()
+                    .onStatus(status -> status.isError(), (req, res) -> {
+                        String errBody = new String(res.getBody().readAllBytes());
+                        log.warn("Gemini cache creation failed: status={}, body={}", res.getStatusCode(), errBody);
+                        throw new HttpClientErrorException(res.getStatusCode(), res.getStatusText(), res.getHeaders(), errBody.getBytes(), null);
+                    })
+                    .body(Map.class);
+
+            if (resp == null || resp.get("name") == null) {
+                log.warn("Gemini cache creation returned empty response, falling back to direct system_instruction");
+                return null;
+            }
+
+            String name = (String) resp.get("name");
+            String expireTimeStr = (String) resp.get("expireTime");
+            Instant expiresAt = expireTimeStr != null
+                    ? Instant.parse(expireTimeStr)
+                    : Instant.now().plusSeconds(CACHE_TTL_SECONDS);
+
+            CachedEntry entry = new CachedEntry(name, expiresAt);
+            promptCache.put(hash, entry);
+            log.info("Gemini context cache created: name={}, expiresAt={}, promptChars={}",
+                    name, expiresAt, systemInstruction.length());
+            return entry;
+        } catch (Exception e) {
+            log.warn("Gemini cache creation failed, using direct system_instruction: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static String sha256(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = md.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : bytes) sb.append(String.format("%02x", b));
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     private void sleepMs(long ms) {

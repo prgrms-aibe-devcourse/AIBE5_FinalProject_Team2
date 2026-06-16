@@ -8,10 +8,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
-/**
- * In-app system notifications.
- * Covers both chat events (NEW_MESSAGE) and non-chat events (milestones, contracts, etc.).
- */
+/** In-app system notifications: backtest, briefing, subscription, account, and order fill events. */
 @Entity
 @Table(name = "NOTIFICATION")
 @Getter
@@ -55,21 +52,13 @@ public class Notification {
     private LocalDateTime createdAt;
 
     public enum NotificationType {
-        NEW_MESSAGE,
-        APPLICATION_ACCEPTED,
-        APPLICATION_REJECTED,
-        MILESTONE_SUBMITTED,
-        MILESTONE_APPROVED,
-        MILESTONE_REVISION_REQUESTED,
-        CONTRACT_ITEM_PROPOSED,
-        CONTRACT_ITEM_AGREED,
-        PROJECT_COMPLETED,
-        REVIEW_RECEIVED,
-        DEPOSIT_RECEIVED,
-        PROJECT_UPDATED,
         BACKTEST_COMPLETE,
+        BRIEFING_GENERATED,
         SUBSCRIPTION_ACTIVATED,
         SUBSCRIPTION_EXPIRING_SOON,
-        SUBSCRIPTION_EXPIRED
+        SUBSCRIPTION_EXPIRED,
+        ACCOUNT_CREATED,
+        ORDER_FILLED,
+        ORDER_PARTIAL
     }
 }

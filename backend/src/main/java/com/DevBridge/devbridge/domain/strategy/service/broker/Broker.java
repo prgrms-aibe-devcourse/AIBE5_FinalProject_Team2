@@ -72,4 +72,7 @@ public interface Broker {
 
     /** 현재가. 반환 맵은 {@code last_price}(USD/USDT) 키를 포함한다. */
     Map<String, Object> getQuote(BrokerAccount account, String symbol);
+
+    /** 잔고 캐시 무효화 — 체결 직후 호출하면 다음 getBalance()가 반드시 실시간 조회함. 기본 no-op. */
+    default void invalidateBalanceCache(BrokerAccount account) {}
 }

@@ -7,6 +7,7 @@ import com.DevBridge.devbridge.domain.user.entity.RefreshToken;
 import com.DevBridge.devbridge.domain.user.entity.User;
 import com.DevBridge.devbridge.domain.user.repository.RefreshTokenRepository;
 import com.DevBridge.devbridge.domain.user.repository.UserRepository;
+import com.DevBridge.devbridge.global.security.AuthContext;
 import com.DevBridge.devbridge.global.security.JwtUtil;
 import com.DevBridge.devbridge.domain.user.service.AuthService;
 import lombok.RequiredArgsConstructor;
@@ -256,7 +257,7 @@ public class AuthController {
      * GitHub OAuth 로그인.
      */
     @PostMapping("/github")
-    public ResponseEntity<AuthResponse> githubLogin(@RequestBody Map<String, String> request) {
+    public ResponseEntity<?> githubLogin(@RequestBody Map<String, String> request) {
         String code        = request.get("code");
         String redirectUri = request.get("redirectUri");
 
@@ -329,9 +330,18 @@ public class AuthController {
             String githubLogin = ghUser != null && ghUser.get("login") != null
                     ? (String) ghUser.get("login") : email.split("@")[0];
 
-            // 4. 기존 계정 조회 → 없으면 자동 생성
-            User user = authService.findOrCreateGithubUser(email, githubLogin, accessToken);
+            // 4. 기존 계정 조회 — 없으면 회원가입 안내 (자동 생성 X)
+            java.util.Optional<User> userOpt = authService.githubLoginOrMark(email, githubLogin, accessToken);
+            if (userOpt.isEmpty()) {
+                // 미가입 유저 → 프론트가 회원가입 폼으로 유도
+                return ResponseEntity.ok(Map.of(
+                        "needsSignup", true,
+                        "email", email,
+                        "githubLogin", githubLogin
+                ));
+            }
 
+            User user = userOpt.get();
             String userType  = user.getUserType() != null ? user.getUserType().name() : "GUEST";
             String jwtAccess = jwtUtil.issue(user.getId(), user.getEmail(), userType);
             String refresh   = issueRefreshToken(user.getId());
@@ -353,6 +363,29 @@ public class AuthController {
         }
     }
 
+    @DeleteMapping("/me")
+    @org.springframework.transaction.annotation.Transactional
+    public ResponseEntity<?> withdraw(HttpServletRequest request) {
+        Long userId = AuthContext.currentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(401).body(Map.of("message", "로그인이 필요합니다."));
+        }
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(404).body(Map.of("message", "사용자를 찾을 수 없습니다."));
+        }
+        user.setDeleted(true);
+        user.setDeletedAt(java.time.LocalDateTime.now());
+        userRepository.save(user);
+
+        refreshTokenRepository.deleteByUserId(userId);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, buildClearCookie(AUTH_COOKIE_NAME, "/").toString())
+                .header(HttpHeaders.SET_COOKIE, buildClearCookie(REFRESH_COOKIE_NAME, "/api/auth").toString())
+                .body(Map.of("message", "회원 탈퇴가 완료되었습니다."));
+    }
+
     @PostMapping("/logout")
     public ResponseEntity<Map<String, String>> logout(HttpServletRequest request) {
         String rawToken = extractCookie(request, REFRESH_COOKIE_NAME);
@@ -363,6 +396,35 @@ public class AuthController {
                 .header(HttpHeaders.SET_COOKIE, buildClearCookie(AUTH_COOKIE_NAME, "/").toString())
                 .header(HttpHeaders.SET_COOKIE, buildClearCookie(REFRESH_COOKIE_NAME, "/api/auth").toString())
                 .body(Map.of("message", "로그아웃 되었습니다."));
+    }
+
+    /** 비밀번호 찾기 Step-1: email로 사용자 조회 후 인증코드 발송. body: { email } */
+    @PostMapping("/password/find")
+    public ResponseEntity<?> findPassword(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        if (email == null || email.isBlank())
+            return ResponseEntity.badRequest().body(Map.of("message", "이메일을 입력해 주세요."));
+        try {
+            var result = authService.sendPasswordResetCode(email);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    /** 비밀번호 찾기 Step-3: 이메일 인증 완료 상태에서 비밀번호 재설정. body: { email, newPassword } */
+    @PostMapping("/password/reset")
+    public ResponseEntity<?> resetPassword(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        String newPassword = body.get("newPassword");
+        if (email == null || newPassword == null || newPassword.isBlank())
+            return ResponseEntity.badRequest().body(Map.of("message", "필수 값이 없습니다."));
+        try {
+            authService.resetPassword(email, newPassword);
+            return ResponseEntity.ok(Map.of("ok", true, "message", "비밀번호가 변경되었습니다."));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
     }
 
     // ───── 유틸 ─────
