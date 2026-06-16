@@ -52,6 +52,12 @@ class LeanBacktestResult:
     raw_json_path: Optional[str] = None    # 디버깅용
     error: Optional[str] = None
     elapsed_seconds: Optional[float] = None
+    extra_charts: Optional[Dict[str, List[Dict[str, Any]]]] = None  # benchmark/margin/exposure/turnover
+
+
+def _extract_series(charts: dict, chart_name: str, series_name: str) -> List[Dict[str, Any]]:
+    pts = charts.get(chart_name, {}).get("series", {}).get(series_name, {}).get("values", [])
+    return [{"date": str(p[0]), "value": p[1]} for p in pts if isinstance(p, list) and len(p) >= 2]
 
 
 def _fetch_ohlcv(symbol: str, start: str, end: str, market: str) -> pd.DataFrame:
@@ -211,6 +217,14 @@ def run_lean_backtest(req: LeanBacktestRequest, progress_cb=None) -> LeanBacktes
         equity = result_obj.get("equity_curve", [])
         trades = result_obj.get("trades", [])
 
+        raw_charts = lean_run.load_result().get("charts", {})
+        extra_charts = {
+            "benchmark": _extract_series(raw_charts, "Strategy Equity", "Benchmark"),
+            "margin":    _extract_series(raw_charts, "Portfolio Margin", "Total Portfolio Margin"),
+            "exposure":  _extract_series(raw_charts, "Exposure", "Long Ratio"),
+            "turnover":  _extract_series(raw_charts, "Portfolio Turnover", "Portfolio Turnover"),
+        }
+
         elapsed = (datetime.now() - started_at).total_seconds()
         logger.info(f"[Lean] backtest done run_id={run_id} elapsed={elapsed:.1f}s")
         return LeanBacktestResult(
@@ -221,6 +235,7 @@ def run_lean_backtest(req: LeanBacktestRequest, progress_cb=None) -> LeanBacktes
             trades_count=len(trades),
             raw_json_path=str(lean_run.result_json) if lean_run.result_json else None,
             elapsed_seconds=elapsed,
+            extra_charts=extra_charts,
         )
 
     except Exception as e:

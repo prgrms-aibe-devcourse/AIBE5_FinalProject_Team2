@@ -48,8 +48,28 @@ DEFAULT_WEIGHTS: Dict[str, float] = {
 
 # 점수 매핑 스케일(매직넘버의 명명·문서화 — 값은 기존과 동일, 회귀 방지).
 RISK_MDD_SPAN = 50.0       # risk_control: 목표 MDD 초과 50%p 에서 0점 도달(3x ETF MDD 분포 꼬리 근거)
-REGIME_SR_FLOOR, REGIME_SR_SPAN = 1.0, 3.0   # regime_robust=(worst_SR+1)/3 → Sharpe −1~+2 를 0~1 로 사상
+REGIME_SR_FLOOR, REGIME_SR_SPAN = 1.0, 3.0   # regime_robust 기본값(1x ETF): Sharpe −1~+2 → 0~1
 GEN_RATIO_OFFSET, GEN_RATIO_SPAN = 0.5, 2.0  # generalization=(OOS/IS+0.5)/2 → 비율 −0.5~+1.5 를 0~1 로 사상
+
+
+def _leverage_regime_scale(leverage: int) -> tuple[float, float]:
+    """
+    레버리지별 레짐 견고성 스케일 (floor, span).
+
+    3x ETF(TQQQ/SOXL)는 하락장 Sharpe가 -3 ~ -5까지 떨어질 수 있어
+    기본 floor=-1 적용 시 항상 0점 → 전체 Trust Score 왜곡.
+    레버리지에 비례해 허용 바닥(floor)을 낮추고 스팬을 넓힌다.
+
+    결과: worst_eff_sharpe ≥ floor → 0점 이상, ≥ floor+span → 100점
+      1x: Sharpe [-1, +2]  → [0, 1]
+      2x: Sharpe [-2, +3]  → [0, 1]
+      3x: Sharpe [-3, +4]  → [0, 1]
+    """
+    if leverage >= 3:
+        return 3.0, 7.0   # floor=-3, span=7  (−3~+4 → 0~1)
+    if leverage >= 2:
+        return 2.0, 5.0   # floor=-2, span=5  (−2~+3 → 0~1)
+    return REGIME_SR_FLOOR, REGIME_SR_SPAN  # 1x 기본값
 
 # 워크포워드 재최적화 소그리드 — 전략별 "핵심 1축"을 ±0/±20% 로 흔든다(_perturb 와 동일 축 재사용).
 # 근거: 과최적화의 OOS 붕괴 탐지엔 핵심축 소그리드로 충분(López de Prado 2018, CPCV 정신).
@@ -266,7 +286,9 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
                         asset_class: str = "auto",
                         leverage: Optional[int] = None,
                         regime_method: str = "rule",
-                        regime_causal: bool = False) -> Dict[str, Any]:
+                        regime_causal: bool = True) -> Dict[str, Any]:
+    # regime_causal=True (ai_opt): HMM 사용 시 룩어헤드 제거 (전체표본 fit 금지).
+    # rule-based(기본)는 이미 인과적이므로 이 플래그는 HMM 모드일 때만 효과 있음.
     weights = _normalize_weights(weights or DEFAULT_WEIGHTS)
     overfit_penalty_max = max(0, int(overfit_penalty_max))
 
@@ -330,13 +352,20 @@ def compute_trust_score(close: pd.Series, params: BacktestParams,
         best_k, best_v = items[-1]
         worst = worst_v["effective_sharpe"]
         best = best_v["effective_sharpe"]
-        regime_robust = _clip01((worst + REGIME_SR_FLOOR) / REGIME_SR_SPAN)
+        # 레버리지 인식 스케일: 3x ETF는 하락장 Sharpe -3~-5가 정상 범위 → floor 확장
+        _sr_floor, _sr_span = _leverage_regime_scale(eff_leverage)
+        regime_robust = _clip01((worst + _sr_floor) / _sr_span)
 
         skipped = f" · 제외: {', '.join(insufficient_regimes)}" if insufficient_regimes else ""
+        lev_scale_note = (
+            f" · {eff_leverage}x 레버리지 스케일 적용(floor={-_sr_floor:+.0f}, span={_sr_span:.0f})"
+            if eff_leverage > 1 else ""
+        )
         reasons["regime_robustness"] = (
             f"최악 {worst_k} 보정 Sharpe={worst:+.2f} "
             f"(원본 {worst_v['sharpe']:+.2f} × 표본가중치 {worst_v['sample_weight']:.2f}, {worst_v['days']}일) · "
-            f"최고 {best_k} 보정 Sharpe={best:+.2f}{skipped} · "
+            f"최고 {best_k} 보정 Sharpe={best:+.2f}{skipped}"
+            f"{lev_scale_note} · "
             f"Bayesian shrinkage SR×T/(T+60) 적용 — 짧은 표본 극단값 완화"
         )
     elif len(valid_regimes) == 1:
