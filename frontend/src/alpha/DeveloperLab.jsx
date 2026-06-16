@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import SettingsModal from "../components/shell/SettingsModal";
 import { useTheme } from "./ThemeContext";
-import claudeBotImg from "../assets/claude_bot.png";
+import claudeBotImg from "../assets/claudecode-color.svg";
 import {
   getWorkspace, listWorkspaces, createWorkspace, selectStrategyCandidate, runBacktest, runRegime, runTrust, saveCode, queueOrders,
   getDataStatus, getDataPreview, getDatasetsCatalog, getDatasetPreview, leanBacktestStart, leanBacktestStatus, leanListStrategies, getLeanHealth,
@@ -23,7 +23,7 @@ import GitPanel from "./GitPanel";
 import TerminalTabs from "./TerminalTabs";
 import { TrendLineChart, SubIndicatorChart, calcSMA, calcEMA, calcBollinger } from "./tabs/helpers";
 import RepoExplorer from "./RepoExplorer";
-import claudeBot from "../assets/claude_bot.png";
+import claudeBot from "../assets/claudecode-color.svg";
 import { ClaudeKeyBadge } from "./ClaudeKeyConnect";
 
 // ── 언어 감지 ─────────────────────────────────────────────────────────────────
@@ -3777,12 +3777,6 @@ export default function DeveloperLab() {
             background:"rgba(16,185,129,0.15)",color:"#10B981",fontWeight:600}}>{queueMsg}</span>
         )}
         <span style={{fontSize:10,color:"#cbd5e1",fontFamily:"monospace"}}>{activeTab?.name||""}</span>
-        <button onClick={() => setClaudeOpen(o => !o)} title="Claude Code 에이전트로 코드 편집"
-          style={{display:"flex",alignItems:"center",gap:4,padding:"4px 9px",borderRadius:5,
-            background: claudeOpen ? "rgba(217,119,87,0.16)" : "transparent",
-            border:"1px solid rgba(217,119,87,0.4)",color:"#d97757",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-          <ClaudePixelMascot size={16} /> Claude
-        </button>
         <button onClick={handleSave}
           style={{display:"flex",alignItems:"center",gap:4,padding:"4px 9px",borderRadius:5,
             background:"transparent",border:"1px solid rgba(255,255,255,0.1)",
