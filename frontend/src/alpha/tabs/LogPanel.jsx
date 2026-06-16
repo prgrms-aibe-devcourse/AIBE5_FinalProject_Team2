@@ -10,7 +10,7 @@ const DEMO_ROWS = [
     category: "국내 주식 포트폴리오",
     status: "ACCEPTED", statusLabel: "수락",
     actor: "AI",
-    aiReason: "최근 30일 변동성이 18%로 상승하여 MDD 한계(−15%)에 근접. 방어형 자산 비중 확대를 통해 리스크 완충이 필요한 시점입니다.",
+    aiReason: "최근 30일 변동성이 18.2%로 상승하여 목표 MDD 한계(−15%)에 근접 중(현재 −14.8%). SPY 대비 상관계수 0.91로 분산 효과 약화. 방어형 자산(채권·현금) 비중을 현재 12%→25%로 확대 시 MDD −9.4%, 변동성 13.5%로 개선 예상. 추세 지속 시 추가 하락 여지 있어 선제 조정 권고.",
     options: [
       { label: "기존 유지",   key: "keep",       metrics: { return_pct: 12.3, mdd_pct: -14.8, vol_pct: 18.2 } },
       { label: "안정형 조정", key: "stable",     metrics: { return_pct: 10.1, mdd_pct:  -9.4, vol_pct: 13.5 } },
@@ -26,7 +26,7 @@ const DEMO_ROWS = [
     category: "글로벌 분산 전략",
     status: "HOLD", statusLabel: "보류",
     actor: "AI",
-    aiReason: "국내 시장 집중도 87%로 분산 효과 부족. 미국·유럽 ETF 30% 편입 시 상관계수 0.62 → 0.41로 낮아져 변동성 완화 기대.",
+    aiReason: "국내 시장 집중도 87%로 분산 효과 부족 (헝커리 지수 0.78). 미국 S&P500·유럽 STOXX50 ETF 30% 편입 시 포트폴리오 상관계수 0.62 → 0.41로 낮아져 동일 기대수익 대비 변동성 −18% 완화 기대. 환율 헤지 비용(연 0.8%) 감안해도 샤프 비율 +0.12 개선 전망.",
     options: [],
     userChoice: "보류",
     userNote: "환율 리스크 추가 검토 후 결정",
@@ -133,10 +133,13 @@ function DecisionCard({ row }) {
   return (
     <div style={{
       background: "#FFFFFF",
-      border: "1px solid #E2E8F0",
+      border: `1.5px solid ${row.status === "ACCEPTED" ? "#86EFAC" : row.status === "HOLD" ? "#FDE68A" : "#E2E8F0"}`,
       borderRadius: 14,
-      padding: "16px 20px",
-      boxShadow: "0 2px 12px rgba(15,23,42,0.04)",
+      padding: "18px 22px",
+      boxShadow: row.status === "ACCEPTED"
+        ? "0 2px 16px rgba(16,185,129,0.10)"
+        : "0 2px 12px rgba(15,23,42,0.04)",
+      background: row.status === "ACCEPTED" ? "linear-gradient(145deg,#f0fdf4,#ffffff)" : "#FFFFFF",
     }}>
       {/* 카드 헤더 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
@@ -274,10 +277,18 @@ export default function LogPanel({ id }) {
     <div style={{ maxWidth: 860, fontFamily: "'Pretendard', 'Inter', sans-serif" }}>
       {/* ── 헤더 ── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, gap: 16, flexWrap: "wrap" }}>
-        <div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: "#0F172A" }}>디시전 로그</div>
-          <div style={{ marginTop: 3, fontSize: 13, color: "#94A3B8", fontWeight: 500 }}>
-            전략 변경 이력 · 총 {totalCount}건 {rows.length !== totalCount && `(필터 ${rows.length}건)`}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h2 style={{
+            margin: 0, fontSize: 26, fontWeight: 900, lineHeight: 1.25, letterSpacing: -0.5,
+            background: "linear-gradient(90deg, #1d4ed8, #4338ca, #6d28d9)",
+            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
+            display: "inline-flex", alignItems: "center", gap: 8,
+          }}>
+            <span style={{ WebkitTextFillColor: "initial" }}>📜</span>
+            Decision Log
+          </h2>
+          <p style={{ margin: "5px 0 0", fontSize: 14, color: "#64748B", lineHeight: 1.55 }}>
+            전략 변경 이력 · 총 {totalCount}건{rows.length !== totalCount && ` (필터 ${rows.length}건)`} — AI 추천·사용자 결정·백테스트 실행을 타임라인으로 기록합니다.
             {isDemo && (
               <span style={{
                 marginLeft: 8, fontSize: 11, fontWeight: 700,
@@ -285,7 +296,7 @@ export default function LogPanel({ id }) {
                 borderRadius: 99, padding: "2px 8px",
               }}>예시</span>
             )}
-          </div>
+          </p>
         </div>
 
         {/* ── 날짜 필터 ── */}
