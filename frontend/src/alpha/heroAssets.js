@@ -1,6 +1,6 @@
 // Alpha-Helix 사용자 아바타(Hero) 자산 인덱스
 // LeftSidebar 드롭다운/ChatPanel 어시스턴트 아바타에서 공통 사용
-import heliSleep   from "../assets/heli_sleep.png";
+import heliLovely  from "../assets/lovely_heli.png";
 import heliStar    from "../assets/heli_star.png";
 import heliCoffee  from "../assets/heli_coffee.png";
 import heliNight   from "../assets/heli_night.png";
@@ -17,7 +17,7 @@ export const HEROES = [
   { key: "map",     label: "지도",   src: heliMap    },
   { key: "forest",  label: "숲",     src: heliForest },
   { key: "night",   label: "야간",   src: heliNight  },
-  { key: "sleep",   label: "수면",   src: heliSleep  },
+  { key: "sleep",   label: "러블리", src: heliLovely },
 ];
 
 const LS_KEY = "alpha.heroKey";
