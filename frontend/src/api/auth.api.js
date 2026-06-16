@@ -38,5 +38,16 @@ export const authApi = {
    * @param {{code: string, redirectUri: string}} payload
    */
   githubLogin: (payload) => api.post('/auth/github', payload).then((r) => r.data),
+
+  sendVerificationCode: (email) => api.post('/verify/send-code', { email }).then((r) => r.data),
+  checkVerificationCode: (email, code) => api.post('/verify/check-code', { email, code }).then((r) => r.data),
+  googleVerifyEmail: (googleToken) => api.post('/verify/google-verify', { googleToken }).then((r) => r.data),
+
+  verifyPassword: (currentPassword) => api.post('/profile/me/password/verify', { currentPassword }).then((r) => r.data),
+  changePassword: (currentPassword, newPassword) => api.patch('/profile/me/password', { currentPassword, newPassword }).then((r) => r.data),
+
+  findPassword: (email) => api.post('/auth/password/find', { email }).then((r) => r.data),
+  resetPassword: (email, newPassword) => api.post('/auth/password/reset', { email, newPassword }).then((r) => r.data),
+  withdraw: () => api.delete('/auth/me').then((r) => r.data).catch(() => null),
 };
 
