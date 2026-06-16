@@ -164,7 +164,7 @@ export default function OrderAmendModal({ open, proposal, loading, canceling, er
             <div style={{ fontSize: 18, fontWeight: 900, color: theme.text, letterSpacing: -0.3 }}>{proposal.ticker}</div>
           </div>
           <div style={{ fontSize: 11, color: theme.textMuted, textAlign: "right", lineHeight: 1.5 }}>
-            broker#{proposal.brokerAccountId}<br />
+            계좌 #{proposal.brokerAccountId}<br />
             {isCrypto ? "Binance · 분수수량" : "KIS · 정수주"}
           </div>
         </div>
@@ -174,8 +174,8 @@ export default function OrderAmendModal({ open, proposal, loading, canceling, er
           <label style={labelStyle}>주문 방향</label>
           <div style={{ display: "flex", gap: 8 }}>
             {[
-              { v: "BUY",  label: "매수 BUY",  color: "#15803D", soft: "#DCFCE7" },
-              { v: "SELL", label: "매도 SELL", color: "#B91C1C", soft: "#FEE2E2" },
+              { v: "BUY",  label: "매수",  color: "#15803D", soft: "#DCFCE7" },
+              { v: "SELL", label: "매도", color: "#B91C1C", soft: "#FEE2E2" },
             ].map(({ v, label, color, soft }) => {
               const act = side === v;
               return (

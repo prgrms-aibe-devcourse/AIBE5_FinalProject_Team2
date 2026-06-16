@@ -110,6 +110,7 @@ export const upsertBrokerAccount = (body) => api.post("/broker/account", body).t
 export const deleteBrokerAccount = (env, brokerType = "KIS") => api.delete("/broker/account", { params: { env, brokerType } });
 export const testBrokerAccount   = (env) => api.post("/broker/account/test", null, { params: { env } }).then(r => r.data);
 export const setBrokerTrading    = (env, enabled, brokerType) => api.patch("/broker/account/trading-enabled", { enabled }, { params: { env, ...(brokerType ? { brokerType } : {}) } }).then(r => r.data);
+export const ackRealRisk         = (env, brokerType = "KIS") => api.patch("/broker/account/ack-risk", null, { params: { env, brokerType } }).then(r => r.data);
 /** 자동 체결 ON/OFF. REAL 은 MOCK 졸업 게이트(2주+20회) 통과 필요 — 미충족 시 412 + summary 반환. */
 export const setBrokerAutoExecute = (env, enabled, brokerType = "KIS") => api.patch("/broker/account/auto-execute", { enabled }, { params: { env, brokerType } }).then(r => r.data);
 /** 한도(maxOrderUsd / dailyOrderUsd) 만 부분 수정. body 예: { maxOrderUsd: 200000 }.

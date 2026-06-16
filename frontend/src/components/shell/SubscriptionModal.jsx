@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   X, Crown, Check, Zap, TrendingUp, Code2, Infinity,
-  Bot, Wallet, ShieldCheck, Star,
+  Bot, Wallet, ShieldCheck, Star, Calendar,
 } from "lucide-react";
 import { fetchSubscription } from "../../lib/aiClient";
 
@@ -94,6 +94,12 @@ function priceLabel(p) {
   return "₩" + p.toLocaleString("ko-KR");
 }
 
+function fmtDate(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`;
+}
+
 /* ─────────────────────── 서브 컴포넌트 ─────────────────────── */
 function PlanCard({ plan, isCurrent, onSelect, busy }) {
   const [hover, setHover] = useState(false);
@@ -116,16 +122,16 @@ function PlanCard({ plan, isCurrent, onSelect, busy }) {
     cursor: plan.comingSoon || isCurrent || plan.free ? "default" : "pointer",
     transition: "opacity 0.15s",
     opacity: busy ? 0.7 : 1,
-    background: isCurrent
-      ? plan.free ? "#F1F5F9" : "#E0F2FE"
-      : plan.comingSoon
-        ? "#F3F4F6"
-        : plan.free
-          ? "#F1F5F9"
-          : `linear-gradient(135deg, ${plan.color}, ${plan.id === "PREMIUM" ? "#8B5CF6" : plan.color + "CC"})`,
-    color: isCurrent
-      ? plan.free ? "#64748B" : "#0369A1"
-      : plan.comingSoon || plan.free ? "#9CA3AF" : "white",
+    background: isCurrent && !plan.free
+      ? `linear-gradient(135deg, ${plan.color}, ${plan.id === "PREMIUM" ? "#8B5CF6" : plan.color + "CC"})`
+      : isCurrent && plan.free
+        ? "#F1F5F9"
+        : plan.comingSoon
+          ? "#F3F4F6"
+          : plan.free
+            ? "#F1F5F9"
+            : `linear-gradient(135deg, ${plan.color}, ${plan.id === "PREMIUM" ? "#8B5CF6" : plan.color + "CC"})`,
+    color: isCurrent && !plan.free ? "white" : isCurrent && plan.free ? "#64748B" : plan.comingSoon || plan.free ? "#9CA3AF" : "white",
   };
 
   return (
@@ -133,22 +139,29 @@ function PlanCard({ plan, isCurrent, onSelect, busy }) {
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        background: plan.grad,
-        border: `2px solid ${isCurrent || hover ? plan.color : plan.border}`,
+        background: isCurrent
+          ? `linear-gradient(160deg, ${plan.color}18 0%, ${plan.color}08 100%)`
+          : plan.grad,
+        border: isCurrent
+          ? `2.5px solid ${plan.color}`
+          : `2px solid ${hover ? plan.color : plan.border}`,
         borderRadius: 16,
         padding: "24px 20px",
         display: "flex",
         flexDirection: "column",
         gap: 0,
-        transition: "border-color 0.15s, box-shadow 0.15s",
-        boxShadow: hover && !plan.comingSoon ? `0 8px 24px ${plan.color}22` : "none",
+        transition: "border-color 0.15s, box-shadow 0.15s, transform 0.15s",
+        boxShadow: isCurrent
+          ? `0 0 0 4px ${plan.color}22, 0 12px 32px ${plan.color}33`
+          : hover && !plan.comingSoon ? `0 8px 24px ${plan.color}22` : "none",
+        transform: isCurrent ? "translateY(-4px)" : "none",
         position: "relative",
         flex: 1,
         minWidth: 0,
       }}
     >
       {/* 배지 — 오버레이보다 위에 (zIndex 4) */}
-      {plan.badge && (
+      {plan.badge && !isCurrent && (
         <span style={{
           position: "absolute", top: -13, left: "50%", transform: "translateX(-50%)",
           background: plan.comingSoon
@@ -163,13 +176,15 @@ function PlanCard({ plan, isCurrent, onSelect, busy }) {
         </span>
       )}
 
-      {/* 현재 구독 표시 */}
+      {/* 현재 구독 배지 */}
       {isCurrent && (
         <span style={{
-          position: "absolute", top: 12, right: 12,
-          background: "#0EA5E9", color: "white",
-          fontSize: 10, fontWeight: 800,
-          padding: "2px 8px", borderRadius: 999, fontFamily: FONT,
+          position: "absolute", top: -13, left: "50%", transform: "translateX(-50%)",
+          background: `linear-gradient(135deg, ${plan.color}, ${plan.id === "PREMIUM" ? "#8B5CF6" : plan.color + "CC"})`,
+          color: "white", fontSize: 11, fontWeight: 800,
+          padding: "4px 14px", borderRadius: 999, whiteSpace: "nowrap",
+          fontFamily: FONT, letterSpacing: 0.3, zIndex: 4,
+          boxShadow: `0 2px 8px ${plan.color}55`,
         }}>
           ✓ 구독 중
         </span>
@@ -392,12 +407,28 @@ export default function SubscriptionModal({ open, onClose }) {
             </div>
             <p style={{ fontSize: 13, color: "#64748B", margin: 0 }}>
               나에게 맞는 플랜을 선택하고 AI 자동 투자를 시작하세요.
-              {currentTier !== "FREE" && (
-                <span style={{ marginLeft: 8, fontWeight: 700, color: "#6366F1" }}>
-                  현재: {currentTier} 구독 중
-                </span>
-              )}
             </p>
+            {currentTier !== "FREE" && (sub.startedAt || sub.expiresAt) && (
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 10, marginTop: 8,
+                background: "#F0F9FF", border: "1px solid #BAE6FD",
+                borderRadius: 10, padding: "7px 14px", flexWrap: "wrap",
+              }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, color: "#0369A1" }}>
+                  <Calendar size={13} /> 현재: {currentTier}
+                </span>
+                {sub.startedAt && (
+                  <span style={{ fontSize: 12, color: "#475569" }}>
+                    결제일 <b style={{ color: "#0F172A" }}>{fmtDate(sub.startedAt)}</b>
+                  </span>
+                )}
+                {sub.expiresAt && (
+                  <span style={{ fontSize: 12, color: "#475569" }}>
+                    유효기간 <b style={{ color: "#6366F1" }}>{fmtDate(sub.expiresAt)}</b>까지
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}

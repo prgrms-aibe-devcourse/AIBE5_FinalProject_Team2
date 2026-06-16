@@ -5,7 +5,7 @@ import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import { useLanguage } from "../i18n/useLanguage";
 import {
   listBrokerAccounts, upsertBrokerAccount, deleteBrokerAccount,
-  testBrokerAccount, setBrokerTrading, setBrokerAutoExecute, getPromotionGate,
+  testBrokerAccount, setBrokerTrading, ackRealRisk, setBrokerAutoExecute, getPromotionGate,
   getBrokerBalance, getBrokerOrdersToday,
   previewBrokerOrder, placeBrokerOrder, getBrokerQuote,
   testBinanceAccount, getBinanceBalance,
@@ -200,11 +200,11 @@ export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
       {loading ? <div style={{ color: theme.subtle }}>불러오는 중…</div>
         : acct
           ? (brokerType === "BINANCE"
-              ? <BinanceActive theme={theme} env={env} acct={acct} reload={reload} setMsg={setMsg} />
-              : <AccountActive theme={theme} env={env} acct={acct} reload={reload} setMsg={setMsg} />)
+              ? <BinanceActive key={`${brokerType}-${env}`} theme={theme} env={env} acct={acct} reload={reload} setMsg={setMsg} />
+              : <AccountActive key={`${brokerType}-${env}`} theme={theme} env={env} acct={acct} reload={reload} setMsg={setMsg} />)
           : (brokerType === "BINANCE"
-              ? <BinanceRegister theme={theme} env={env} reload={reload} setMsg={setMsg} />
-              : <AccountRegister theme={theme} env={env} accounts={accounts} reload={reload} setMsg={setMsg} />)}
+              ? <BinanceRegister key={`${brokerType}-${env}-reg`} theme={theme} env={env} reload={reload} setMsg={setMsg} />
+              : <AccountRegister key={`${brokerType}-${env}-reg`} theme={theme} env={env} accounts={accounts} reload={reload} setMsg={setMsg} />)}
       </>)}
       </div>
     </div>
@@ -419,6 +419,28 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
       reload();
     } catch (e) {
       const data = e?.response?.data;
+      // 책임고지 동의 필요 → confirm 후 /ack-risk 호출 → 재시도
+      if (data?.needAck) {
+        setBusy(false);
+        const agreed = window.confirm(
+          "⚠️ 실전 자동매매 책임고지\n\n" +
+          "• 투자 판단과 손익 책임은 본인에게 있습니다.\n" +
+          "• 본 서비스는 투자 자문이 아닙니다.\n" +
+          "• 레버리지 ETF 등 고위험 상품은 원금 손실이 발생할 수 있습니다.\n\n" +
+          "위 내용에 동의하고 실전 자동매매를 시작하시겠습니까?"
+        );
+        if (!agreed) return;
+        setBusy(true);
+        try {
+          await ackRealRisk(env);
+          await setBrokerTrading(env, true);
+          reload();
+        } catch (e2) {
+          const d2 = e2?.response?.data;
+          setMsg({ type: "err", text: "스위치 변경 실패: " + (d2?.error || e2.message) });
+        } finally { setBusy(false); }
+        return;
+      }
       // 승격 게이트 실패 → 체크리스트 패널로 대체
       if (data?.checks) {
         setGate({ passed: false, summary: data.summary, checks: data.checks });

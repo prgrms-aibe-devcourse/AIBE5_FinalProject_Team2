@@ -292,7 +292,7 @@ export default function Home() {
     if (videoRef.current) videoRef.current.playbackRate = 0.55;
   }, []);
 
-  const handleBriefing    = () => { if (!isAuthed) { setShowLogin(true); return; } navigate("/workhome"); };
+  const handleBriefing    = () => { if (!isAuthed) { setShowLogin(true); return; } navigate("/briefing"); };
   const handleNewStrategy = () => { if (!isAuthed) { setShowLogin(true); return; } setNewWsName(""); setNewWsOpen(true); };
   const confirmNewWs      = () => { if (!newWsName.trim()) return; setNewWsOpen(false); navigate(`/alpha?new=${encodeURIComponent(newWsName.trim())}`); };
 

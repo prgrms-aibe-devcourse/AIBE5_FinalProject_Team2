@@ -302,7 +302,8 @@ export default function ProposalsPage() {
               <div style={{
                 background: meta.bg, color: meta.color,
                 padding: "4px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
-                display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap",
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4,
+                whiteSpace: "nowrap", minWidth: 90, flexShrink: 0,
               }}>
                 <SideIcon size={12} />{t(`proposals.status.${p.status}`) || p.status}
               </div>
@@ -321,7 +322,7 @@ export default function ProposalsPage() {
                   {p.rationale || t("proposals.noReason")}
                 </div>
                 <div style={{ fontSize: 11, color: theme.textMuted, opacity: 0.8 }}>
-                  source={p.source}
+                  {p.source === "MANUAL" ? "수동 주문" : p.source === "SIGNAL" ? "시그널" : p.source}
                   {p.sourceSignalId && ` · signal#${p.sourceSignalId}`}
                   {" · "}broker#{p.brokerAccountId}
                   {" · "}{new Date(p.createdAt).toLocaleString("ko-KR")}

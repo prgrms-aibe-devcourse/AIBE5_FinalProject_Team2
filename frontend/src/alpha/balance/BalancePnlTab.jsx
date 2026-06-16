@@ -1,21 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
 import { listProposals } from "../alphaApi";
-import { pnlColor, fmtPct, FX_KRW_PER_USD, acctLabel, BROKER_NAME, ENV_LABEL } from "./util";
+import { pnlColor, fmtPct, FX_KRW_PER_USD, acctLabel } from "./util";
 
 const todayStr = (d = new Date()) => d.toISOString().slice(0, 10);
 const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
 
-/** 이미지6 — 잔고·손익: 국내/해외 + 계좌 드롭다운 + (잔고/실현손익/실현손익추이) + 기간·원화/외화 */
+/** 잔고·손익: 국내/해외 + 계좌 드롭다운 + (잔고/실현손익/실현손익추이) + 기간·원화/외화 */
 export default function BalancePnlTab({ accountsData }) {
-  const [region, setRegion] = useState("해외");           // 국내 | 해외 (우리 자산은 대부분 해외)
+  const [region, setRegion] = useState("해외");
   const [acctId, setAcctId] = useState("");
-  const [sub, setSub] = useState("실현손익");             // 잔고 | 실현손익 | 실현손익추이
-  const [curMode, setCurMode] = useState("외화");          // 외화 | 원화
+  const [sub, setSub] = useState("실현손익");
+  const [curMode, setCurMode] = useState("원화");         // 기본값 원화
   const [from, setFrom] = useState(daysAgoStr(30));
   const [to, setTo] = useState(todayStr());
   const [orders, setOrders] = useState(null);
 
-  // region 필터: 국내=(없음/KIS국내), 해외=KIS해외+Binance. 현재 시스템은 전부 해외.
   const accts = accountsData.map((d) => d.acct);
   useEffect(() => { if (!acctId && accts.length) setAcctId(String(accts[0].id)); }, [accts, acctId]);
 
@@ -31,7 +30,6 @@ export default function BalancePnlTab({ accountsData }) {
   const unit = curMode === "원화" ? "₩" : "$";
   const fmtMoney = (v) => `${v < 0 ? "-" : ""}${unit}${Math.abs((Number(v) || 0) * fx).toLocaleString(undefined, { maximumFractionDigits: curMode === "원화" ? 0 : 2 })}`;
 
-  // 선택 계좌의 체결 주문 → FIFO 청산 + 기간 필터
   const realized = useMemo(() => {
     if (!orders || !acct) return { total: 0, byTicker: [], closed: [] };
     const list = orders
@@ -87,41 +85,64 @@ export default function BalancePnlTab({ accountsData }) {
         ))}
       </div>
 
-      {/* 필터: 외화/원화 + 기간 */}
-      {sub !== "잔고" && (
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap", background: "#F8FAFC", padding: "10px 12px", borderRadius: 10 }}>
-          {seg(curMode, setCurMode, ["외화", "원화"])}
-          <span style={{ fontSize: 12, color: "#64748b" }}>기간</span>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={dateInput} />
-          <span style={{ color: "#94a3b8" }}>~</span>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={dateInput} />
-        </div>
-      )}
+      {/* 필터: 원화/외화 항상 표시 + 기간은 실현손익/추이에만 */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap", background: "#F8FAFC", padding: "10px 12px", borderRadius: 10 }}>
+        {seg(curMode, setCurMode, ["원화", "외화"])}
+        {sub !== "잔고" && (
+          <>
+            <span style={{ fontSize: 12, color: "#64748b" }}>기간</span>
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={dateInput} />
+            <span style={{ color: "#94a3b8" }}>~</span>
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={dateInput} />
+          </>
+        )}
+      </div>
 
       {!data ? <div style={{ color: "#64748b", padding: 20 }}>계좌를 선택하세요.</div>
-        : sub === "잔고" ? <BalanceSub data={data} />
+        : sub === "잔고" ? <BalanceSub data={data} curMode={curMode} />
           : sub === "실현손익" ? <RealizedSub realized={realized} fmtMoney={fmtMoney} />
             : <TrendSub realized={realized} fmtMoney={fmtMoney} />}
     </div>
   );
 }
 
-function BalanceSub({ data }) {
+function BalanceSub({ data, curMode }) {
   const td = { padding: "10px", fontSize: 12.5, textAlign: "right", borderTop: "1px solid #F1F5F9" };
   const th = { padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "right" };
+
   if (!data.sum.positions.length) return <div style={{ color: "#64748b", padding: 24, textAlign: "center" }}>보유 종목이 없습니다.</div>;
+
+  // 포지션 단가/금액 포맷: 통화 기준으로 변환
+  const fmt = (v, isKrw) => {
+    if (curMode === "원화") {
+      const krw = isKrw ? v : v * FX_KRW_PER_USD;
+      return `₩${Math.round(krw).toLocaleString("ko-KR")}`;
+    }
+    const usd = isKrw ? v / FX_KRW_PER_USD : v;
+    return `$${Number(usd).toFixed(2)}`;
+  };
+
+  const fmtPnlV = (v, isKrw) => {
+    const val = curMode === "원화"
+      ? (isKrw ? v : v * FX_KRW_PER_USD)
+      : (isKrw ? v / FX_KRW_PER_USD : v);
+    const sym = curMode === "원화" ? "₩" : "$";
+    return `${val >= 0 ? "+" : "-"}${sym}${Math.abs(val).toLocaleString(undefined, { maximumFractionDigits: curMode === "원화" ? 0 : 2 })}`;
+  };
+
   return (
     <div style={{ overflowX: "auto", border: "1px solid #E2E8F0", borderRadius: 12, background: "white" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
-        <thead><tr style={{ background: "#F8FAFC" }}><th style={{ ...th, textAlign: "left" }}>종목명</th><th style={th}>보유수량</th><th style={th}>매수단가</th><th style={th}>현재가</th><th style={th}>평가금액</th><th style={th}>평가손익</th></tr></thead>
+        <thead><tr style={{ background: "#F8FAFC" }}>
+          <th style={{ ...th, textAlign: "left" }}>종목명</th>
+          <th style={th}>보유수량</th>
+          <th style={th}>매수단가</th>
+          <th style={th}>현재가</th>
+          <th style={th}>평가금액</th>
+          <th style={th}>평가손익</th>
+        </tr></thead>
         <tbody>{data.sum.positions.map((p, i) => {
           const isKrw = p.currency === "KRW";
-          const f = (v) => isKrw
-            ? `₩${Math.round(v).toLocaleString("ko-KR")}`
-            : `$${Number(v).toFixed(2)}`;
-          const fPnl = (v) => isKrw
-            ? `${v >= 0 ? "+" : "-"}₩${Math.abs(Math.round(v)).toLocaleString("ko-KR")}`
-            : `${v >= 0 ? "+" : ""}$${Number(v).toFixed(2)}`;
           const nameLabel = p.name && p.name !== p.ticker ? p.name : p.ticker;
           const codeLabel = p.name && p.name !== p.ticker ? ` (${p.ticker})` : "";
           return (
@@ -131,11 +152,11 @@ function BalanceSub({ data }) {
                 {isKrw && <span style={{ fontSize: 10, marginLeft: 4, color: "#6366f1", fontWeight: 600 }}>KRW</span>}
               </td>
               <td style={td}>{p.qty}</td>
-              <td style={td}>{f(p.avg)}</td>
-              <td style={td}>{f(p.now)}</td>
-              <td style={{ ...td, fontWeight: 700 }}>{f(p.mv)}</td>
+              <td style={td}>{fmt(p.avg, isKrw)}</td>
+              <td style={td}>{fmt(p.now, isKrw)}</td>
+              <td style={{ ...td, fontWeight: 700 }}>{fmt(p.mv, isKrw)}</td>
               <td style={{ ...td, color: pnlColor(p.pnl), fontWeight: 700 }}>
-                {fPnl(p.pnl)}<br /><span style={{ fontSize: 11 }}>({fmtPct(p.pct)})</span>
+                {fmtPnlV(p.pnl, isKrw)}<br /><span style={{ fontSize: 11 }}>({fmtPct(p.pct)})</span>
               </td>
             </tr>
           );
@@ -153,33 +174,41 @@ function RealizedSub({ realized, fmtMoney }) {
         <span style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>실현손익</span>
         <span style={{ fontSize: 22, fontWeight: 800, color: pnlColor(realized.total) }}>{fmtMoney(realized.total)}</span>
       </div>
-      {realized.byTicker.length === 0 ? <div style={{ color: "#64748b", padding: 24, textAlign: "center" }}>해당 기간 실현손익 내역이 없습니다.</div> : (
-        <div style={{ overflowX: "auto", border: "1px solid #E2E8F0", borderRadius: 12, background: "white" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
-            <thead><tr style={{ background: "#F8FAFC" }}><th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "left" }}>종목명</th><th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "right" }}>순손익금액(수익률)</th><th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "right" }}>매도평균가</th><th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "right" }}>매수평균가</th></tr></thead>
-            <tbody>{realized.byTicker.map((r, i) => {
-              const nameLabel = r.stockName ? r.stockName : r.ticker;
-              const codeLabel = r.stockName ? ` (${r.ticker})` : "";
-              return (
-                <tr key={i}>
-                  <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>
-                    {nameLabel}<span style={{ fontSize: 10, color: "#64748B", fontWeight: 500 }}>{codeLabel}</span>
-                  </td>
-                  <td style={{ ...td, color: pnlColor(r.pnl), fontWeight: 700 }}>{fmtMoney(r.pnl)}<br /><span style={{ fontSize: 11 }}>({fmtPct(r.pct)})</span></td>
-                  <td style={td}>${r.sellAvg.toFixed(2)}</td>
-                  <td style={td}>${r.buyAvg.toFixed(2)}</td>
-                </tr>
-              );
-            })}</tbody>
-          </table>
-        </div>
-      )}
+      {realized.byTicker.length === 0
+        ? <div style={{ color: "#64748b", padding: 24, textAlign: "center" }}>해당 기간 실현손익 내역이 없습니다.</div>
+        : (
+          <div style={{ overflowX: "auto", border: "1px solid #E2E8F0", borderRadius: 12, background: "white" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
+              <thead><tr style={{ background: "#F8FAFC" }}>
+                <th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "left" }}>종목명</th>
+                <th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "right" }}>순손익금액(수익률)</th>
+                <th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "right" }}>매도평균가</th>
+                <th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "right" }}>매수평균가</th>
+              </tr></thead>
+              <tbody>{realized.byTicker.map((r, i) => {
+                const nameLabel = r.stockName ? r.stockName : r.ticker;
+                const codeLabel = r.stockName ? ` (${r.ticker})` : "";
+                return (
+                  <tr key={i}>
+                    <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>
+                      {nameLabel}<span style={{ fontSize: 10, color: "#64748B", fontWeight: 500 }}>{codeLabel}</span>
+                    </td>
+                    <td style={{ ...td, color: pnlColor(r.pnl), fontWeight: 700 }}>
+                      {fmtMoney(r.pnl)}<br /><span style={{ fontSize: 11 }}>({fmtPct(r.pct)})</span>
+                    </td>
+                    <td style={td}>{fmtMoney(r.sellAvg)}</td>
+                    <td style={td}>{fmtMoney(r.buyAvg)}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
+        )}
     </div>
   );
 }
 
 function TrendSub({ realized, fmtMoney }) {
-  // 청산 내역을 일자순 누적 → 막대 추이
   const sorted = [...realized.closed].sort((a, b) => (a.date < b.date ? -1 : 1));
   let acc = 0; const pts = sorted.map((c) => { acc += c.pnl; return { date: c.date, cum: acc, pnl: c.pnl }; });
   if (pts.length === 0) return <div style={{ color: "#64748b", padding: 24, textAlign: "center" }}>해당 기간 실현손익 추이가 없습니다.</div>;

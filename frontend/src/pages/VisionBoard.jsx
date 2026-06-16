@@ -151,7 +151,7 @@ export default function VisionBoard() {
   const updateCaption = (id, caption) => setItems(prev => prev.map(x => x.id === id ? { ...x, caption } : x));
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 44px)", fontFamily: F, overflow: "hidden" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - var(--alpha-top-h, 0px) - 44px)", fontFamily: F, overflow: "hidden" }}>
 
       {/* ── 툴바 ── */}
       <div style={{

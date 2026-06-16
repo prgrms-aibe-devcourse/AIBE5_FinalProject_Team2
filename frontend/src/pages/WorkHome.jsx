@@ -491,13 +491,13 @@ export default function WorkHome() {
       </div>
 
       {/* 상단: Freedom Goal · Living Briefing(높이 맞춤) + 오늘의 말씀 포스트잇(붙여준 느낌) */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr", gap: 20, marginBottom: 36, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr", gap: 20, marginBottom: 36, alignItems: "stretch" }}>
         {/* Freedom Goal Card */}
         <section style={{
           background: "white", border: "1px solid #E2E8F0",
           borderRadius: 14, padding: "22px 22px 20px",
           display: "flex", flexDirection: "column", position: "relative", overflow: "hidden",
-          boxSizing: "border-box",
+          boxSizing: "border-box", height: "100%",
         }}>
           <Target size={96} style={{ position: "absolute", right: -12, bottom: -12, color: "#6366F1", opacity: 0.1, pointerEvents: "none" }} />
           {/* 헤더 */}
