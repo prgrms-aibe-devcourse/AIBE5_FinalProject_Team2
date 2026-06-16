@@ -49,10 +49,14 @@ public class SubscriptionController {
             return ResponseEntity.ok(Map.of("tier", "FREE"));
         }
         String tierDisplay = SubscriptionService.deriveTierDisplay(sub);
-        return ResponseEntity.ok(Map.of(
-                "tier", tierDisplay,
-                "expiresAt", sub.getExpiresAt().toString()
-        ));
+        java.util.Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("tier", tierDisplay);
+        resp.put("expiresAt", sub.getExpiresAt().toString());
+        java.time.LocalDateTime startedAt = sub.getStartedAt() != null
+                ? sub.getStartedAt()
+                : (sub.getExpiresAt() != null ? sub.getExpiresAt().minusDays(30) : null);
+        if (startedAt != null) resp.put("startedAt", startedAt.toString());
+        return ResponseEntity.ok(resp);
     }
 
     /**

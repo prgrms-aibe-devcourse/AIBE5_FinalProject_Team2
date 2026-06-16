@@ -88,6 +88,9 @@ public class AnalyticsClient {
                     .header("Accept", "application/json")
                     .header("X-Internal-Token", token)
                     .timeout(Duration.ofSeconds(timeoutSeconds));
+            // 상관관계 ID 전파 — Python 사이드카 로그가 같은 reqId 로 이어지게 한다(DDIA 8장 부분실패 추적).
+            String reqId = org.slf4j.MDC.get("reqId");
+            if (reqId != null) b.header("X-Request-Id", reqId);
             HttpRequest req = switch (method) {
                 case "GET" -> b.GET().build();
                 case "POST" -> b.POST(HttpRequest.BodyPublishers.ofByteArray(payloadBytes)).build();

@@ -53,6 +53,10 @@ public class DailySignalGenerator {
     @Value("${app.exchange.usd-krw-fallback:1350}")
     private double usdKrw;
 
+    /** 멱등 가드에서 "이미 살아있는 제안"으로 치지 않는 종료 상태(이 상태뿐이면 같은 시그널로 새 제안 허용). */
+    private static final java.util.List<String> TERMINAL_PROPOSAL_STATUSES =
+            java.util.List.of("REJECTED", "EXPIRED", "EXEC_FAILED");
+
     /** 매 평일 22:30 KST (월~금) */
     @Scheduled(cron = "0 30 22 * * MON-FRI", zone = "Asia/Seoul")
     public void runDaily() {
@@ -158,13 +162,20 @@ public class DailySignalGenerator {
                 qtyInt = parseFirstBuyShares(strategy.getParamsJson());
             }
 
-            // 중복 체크: 이 sourceSignalId로 이미 PENDING/APPROVED/EXECUTED 가 있으면 skip
-            boolean dup = proposalRepo.findByUserIdOrderByCreatedAtDesc(userId).stream()
-                    .anyMatch(p -> sig.getId().equals(p.getSourceSignalId())
-                            && !"REJECTED".equals(p.getStatus())
-                            && !"EXPIRED".equals(p.getStatus())
-                            && !"EXEC_FAILED".equals(p.getStatus()));
-            if (dup) continue;
+            // 멱등 가드: 같은 시그널로 아직 살아있는(종료상태 아님) 제안이 있으면 skip.
+            // [개선] 사용자 전체 제안을 메모리에 로드해 stream 으로 거르던 것을 → DB EXISTS 단일 쿼리로.
+            //        (DDIA 3장: 필터는 DB에서. source_signal_id 인덱스 → O(전체로딩)이 사라짐)
+            if (proposalRepo.existsByUserIdAndSourceSignalIdAndStatusNotIn(
+                    userId, sig.getId(), TERMINAL_PROPOSAL_STATUSES)) {
+                continue;
+            }
+
+            // 주식(KIS) 제안은 현재가를 limitPrice 로 저장 — 실현손익/T+2 계산의 fallback 가격
+            java.math.BigDecimal stockLimitPrice = null;
+            if (!crypto) {
+                double sp = stockPrice(target, strategy.getTicker());
+                if (sp > 0) stockLimitPrice = java.math.BigDecimal.valueOf(sp);
+            }
 
             OrderProposal saved = proposalRepo.save(OrderProposal.builder()
                     .userId(userId)
@@ -174,6 +185,7 @@ public class DailySignalGenerator {
                     .side("BUY")
                     .qty(qtyInt)
                     .qtyDecimal(qtyDec)
+                    .limitPrice(stockLimitPrice)
                     .source("SIGNAL")
                     .sourceSignalId(sig.getId())
                     .rationale("[" + strategy.getCode() + "] " + safe(sig.getTitle()))
@@ -241,6 +253,18 @@ public class DailySignalGenerator {
             Object lp = q.get("last_price");
             return lp instanceof Number num ? num.doubleValue() : Double.parseDouble(String.valueOf(lp));
         } catch (Exception e) {
+            return 0.0;
+        }
+    }
+
+    /** KIS 주식 현재가(last_price) — KIS 어댑터 quote. 실패 시 0. */
+    private double stockPrice(BrokerAccount acct, String ticker) {
+        try {
+            var q = brokerRouter.forAccount(acct).getQuote(acct, ticker);
+            Object lp = q.get("last_price");
+            return lp instanceof Number num ? num.doubleValue() : Double.parseDouble(String.valueOf(lp));
+        } catch (Exception e) {
+            log.warn("[auto-proposal] {} 현재가 조회 실패(limitPrice null로 저장): {}", ticker, e.getMessage());
             return 0.0;
         }
     }

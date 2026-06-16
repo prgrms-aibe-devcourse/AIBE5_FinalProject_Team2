@@ -813,7 +813,7 @@ public class AlphaHelixService {
             }
 
             JsonNode ib = analytics.infiniteBuying(tickers, ibExtra);
-            ws.setLastBacktestJson(ib.toString());
+            ws.setLastBacktestJson(stampGeneratedAt(ib.toString()));
             ws.setCodeJson(null); // 백테스트 후 DeveloperLab이 최신 strategyConfig로 코드 재생성하도록 초기화
             if (!"LIVE".equals(ws.getStatus())) ws.setStatus("TESTED"); // LIVE 운용 중이면 강등 금지
             workspaceRepo.save(ws);
@@ -869,7 +869,7 @@ public class AlphaHelixService {
             }
 
             JsonNode vr = analytics.valueRebalancing(tickers, vrExtra);
-            ws.setLastBacktestJson(vr.toString());
+            ws.setLastBacktestJson(stampGeneratedAt(vr.toString()));
             ws.setCodeJson(null);
             if (!"LIVE".equals(ws.getStatus())) ws.setStatus("TESTED");
             workspaceRepo.save(ws);
@@ -925,7 +925,7 @@ public class AlphaHelixService {
             }
 
             JsonNode mom = analytics.momentumRotation(tickers, momExtra);
-            ws.setLastBacktestJson(mom.toString());
+            ws.setLastBacktestJson(stampGeneratedAt(mom.toString()));
             ws.setCodeJson(null);
             if (!"LIVE".equals(ws.getStatus())) ws.setStatus("TESTED");
             workspaceRepo.save(ws);
@@ -981,7 +981,7 @@ public class AlphaHelixService {
         }
 
         JsonNode bt = analytics.backtest(ticker, pyStrategy, extra);
-        ws.setLastBacktestJson(bt.toString());
+        ws.setLastBacktestJson(stampGeneratedAt(bt.toString()));
         ws.setCodeJson(null); // 백테스트 후 DeveloperLab이 최신 strategyConfig로 코드 재생성하도록 초기화
         if (!"LIVE".equals(ws.getStatus())) ws.setStatus("TESTED"); // LIVE 운용 중이면 강등 금지
         workspaceRepo.save(ws);
@@ -1414,7 +1414,7 @@ public class AlphaHelixService {
         opts.put("strategy", pyStrategyOf(stype));     // per_regime 백테스트가 진짜 전략(IB/VR 포함)으로
         putStrategyParams(opts, stype, cfg);
         JsonNode out = analytics.regime(ticker, opts);
-        ws.setLastRegimeJson(out.toString());
+        ws.setLastRegimeJson(stampGeneratedAt(out.toString()));
         workspaceRepo.save(ws);
         String method = options == null ? "rule" : String.valueOf(options.getOrDefault("method", "rule"));
         recordLog(ws.getId(), "SYSTEM", "REGIME_ANALYZED", "Regime 분석 완료 (method=" + method + ")", null);
@@ -1442,11 +1442,31 @@ public class AlphaHelixService {
         Map<String, Object> opts = options == null ? new HashMap<>() : new HashMap<>(options);
         putStrategyParams(opts, stype, cfg);           // IB/VR 이면 진짜 전략 파라미터 전달 → SMA 대용 제거
         JsonNode trust = analytics.trustScore(ticker, pyStrategy, opts);
-        ws.setLastTrustJson(trust.toString());
+        ws.setLastTrustJson(stampGeneratedAt(trust.toString()));
         workspaceRepo.save(ws);
         recordLog(ws.getId(), "SYSTEM", "TRUST_COMPUTED",
                 "Trust Score = " + trust.path("trust_score").asInt(0), trust.toString());
         return trust.toString();
+    }
+
+    /**
+     * 파생 데이터 신선도 스탬프 — 캐시 결과(백테스트/Regime/Trust/Report) JSON 에 생성 시각을 박는다.
+     * 구체화된 파생 데이터는 stale 될 수 있으므로 "언제 만들어졌나"를 데이터 자신이 들고 있게 한다(DDIA 12장).
+     * 조회/FE 측은 _generated_at 으로 신선도("N분 전 계산")·staleness 를 판단한다. best-effort: 실패 시 원본 보존.
+     */
+    private String stampGeneratedAt(String resultJson) {
+        if (resultJson == null || resultJson.isBlank()) return resultJson;
+        try {
+            JsonNode n = om.readTree(resultJson);
+            if (n instanceof com.fasterxml.jackson.databind.node.ObjectNode obj) {
+                obj.put("_generated_at", java.time.Instant.now().toString());  // ISO-8601 UTC
+                return obj.toString();
+            }
+            return resultJson;  // 현재 결과는 전부 JSON object — 비객체면 그대로 둠
+        } catch (Exception e) {
+            log.warn("[stamp] _generated_at 주입 실패, 원본 유지: {}", e.getMessage());
+            return resultJson;
+        }
     }
 
     // ═══════════════════════════════════════════ Queue Orders ════════════════
@@ -1881,7 +1901,7 @@ public class AlphaHelixService {
 
     private Map<String, Object> saveReport(AlphaWorkspace ws, Map<String, Object> report) {
         try {
-            ws.setLastReportJson(om.writeValueAsString(report));
+            ws.setLastReportJson(stampGeneratedAt(om.writeValueAsString(report)));
             workspaceRepo.save(ws);
         } catch (Exception e) {
             log.warn("saveReport failed: {}", e.getMessage());

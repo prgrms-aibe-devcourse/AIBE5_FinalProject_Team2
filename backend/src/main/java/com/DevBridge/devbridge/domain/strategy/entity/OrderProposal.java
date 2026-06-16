@@ -26,6 +26,9 @@ import java.time.LocalDateTime;
         @Index(name = "idx_op_user_status", columnList = "user_id, status"),
         @Index(name = "idx_op_workspace", columnList = "workspace_id"),
         @Index(name = "idx_op_expires", columnList = "expires_at"),
+        // 멱등 가드용 — existsByUserIdAndSourceSignalIdAndStatusNotIn 의 source_signal_id 조회를 빠르게.
+        // 로컬(ddl-auto=update)은 비유니크 인덱스로 두고, 운영은 V29 가 UNIQUE(uq_op_source_signal)로 강제한다.
+        @Index(name = "idx_op_source_signal", columnList = "source_signal_id"),
 })
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class OrderProposal {

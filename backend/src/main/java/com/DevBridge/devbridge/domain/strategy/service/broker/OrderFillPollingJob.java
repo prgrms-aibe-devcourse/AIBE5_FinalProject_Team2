@@ -1,40 +1,27 @@
 package com.DevBridge.devbridge.domain.strategy.service.broker;
 
-import com.DevBridge.devbridge.domain.strategy.entity.OrderProposal;
-import com.DevBridge.devbridge.domain.strategy.repository.OrderProposalRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
-import java.util.List;
-
 /**
  * B1: EXECUTED 주문의 실제 체결 상태를 주기적으로 폴링해 fill_status 갱신.
- * 3분마다, 최근 36시간 내 실행 + 체결 미확정 건만 (KIS rate limit 부담 최소화).
+ *
+ * <p>실시간 체결통보 WS({@link KisFillWebSocketService})가 도입된 뒤에도 이 폴링은 <b>안전망(fallback)</b>으로
+ * 남는다 — 스트림이 끊기거나(재연결 지연) 푸시를 놓쳐도 3분 주기로 빠짐없이 메운다(DDIA 11장: 스트림+배치 병행).
+ * 실제 재조정 로직은 {@link FillReconciler} 한 곳에 모여 폴링과 스트림이 공유한다.
  */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class OrderFillPollingJob {
 
-    private final OrderProposalRepository repo;
-    private final OrderFillService fillService;
+    private final FillReconciler reconciler;
 
     @Scheduled(fixedDelay = 3 * 60 * 1000L, initialDelay = 90 * 1000L)
     public void pollFills() {
-        List<OrderProposal> candidates = repo.findFillCheckCandidates(LocalDateTime.now().minusHours(36));
-        if (candidates.isEmpty()) return;
-        int ok = 0;
-        for (OrderProposal p : candidates) {
-            try {
-                fillService.pollFill(p);
-                ok++;
-            } catch (Exception e) {
-                log.debug("[OrderFillPollingJob] poll 실패 id={}: {}", p.getId(), e.getMessage());
-            }
-        }
-        log.info("[OrderFillPollingJob] 체결 폴링 {}/{}건", ok, candidates.size());
+        int ok = reconciler.reconcileOpenFills(null);   // 전체 사용자 — 안전망
+        if (ok > 0) log.info("[OrderFillPollingJob] 체결 폴링 재조정 {}건", ok);
     }
 }

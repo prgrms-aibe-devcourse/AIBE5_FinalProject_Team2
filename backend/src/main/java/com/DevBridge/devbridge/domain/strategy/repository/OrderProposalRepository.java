@@ -19,6 +19,17 @@ public interface OrderProposalRepository extends JpaRepository<OrderProposal, Lo
 
     long countByUserIdAndStatus(Long userId, String status);
 
+    /**
+     * 멱등 가드(자동 제안 중복 방지): 같은 시그널(sourceSignalId)로 아직 살아있는(=종료상태 아님)
+     * 제안이 이미 존재하는가. 사용자 전체 제안을 메모리에 로드해 stream 으로 거르던 것을
+     * DB EXISTS 단일 쿼리로 대체한다(source_signal_id 인덱스 사용). DDIA 3장(필터는 DB에서).
+     *
+     * @param terminalStatuses 살아있는 제안으로 치지 않는 종료 상태들(REJECTED/EXPIRED/EXEC_FAILED).
+     *                         이 상태뿐이면 같은 시그널로 새 제안을 허용한다.
+     */
+    boolean existsByUserIdAndSourceSignalIdAndStatusNotIn(Long userId, Long sourceSignalId,
+                                                          java.util.Collection<String> terminalStatuses);
+
     /** 만료 처리 잡용: PENDING 상태 + expires_at < now */
     List<OrderProposal> findByStatusAndExpiresAtBefore(String status, LocalDateTime cutoff);
 
@@ -57,4 +68,10 @@ public interface OrderProposalRepository extends JpaRepository<OrderProposal, Lo
            "and (p.fillStatus is null or p.fillStatus in ('UNKNOWN','OPEN','PARTIAL')) " +
            "and p.executedAt >= :since")
     List<OrderProposal> findFillCheckCandidates(@Param("since") LocalDateTime since);
+
+    /** 위와 동일하되 특정 사용자만 — 실시간 체결통보(WS)가 그 사용자의 미확정 주문만 즉시 재조정할 때 사용. */
+    @Query("select p from OrderProposal p where p.userId = :uid and p.status = 'EXECUTED' and p.kisOrderNo is not null " +
+           "and (p.fillStatus is null or p.fillStatus in ('UNKNOWN','OPEN','PARTIAL')) " +
+           "and p.executedAt >= :since")
+    List<OrderProposal> findFillCheckCandidatesByUser(@Param("uid") Long userId, @Param("since") LocalDateTime since);
 }

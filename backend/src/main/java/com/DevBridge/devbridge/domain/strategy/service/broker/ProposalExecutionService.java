@@ -129,6 +129,18 @@ public class ProposalExecutionService {
             p.setStatus("EXECUTED");
             p.setExecutedAt(LocalDateTime.now());
             p.setKisOrderNo(res.orderNo());
+            // KIS는 체결평균가를 반환하지 않으므로, limitPrice가 없는 주문(시장가/가격미설정)에 한해
+            // 실행 시점의 현재가를 fillAvgPrice로 저장 — 실현손익 계산의 fallback 가격
+            if (p.getLimitPrice() == null && p.getFillAvgPrice() == null) {
+                try {
+                    Map<String, Object> q = broker.getQuote(ba, p.getTicker());
+                    Object lp = q.get("last_price");
+                    double mktPrice = lp instanceof Number n ? n.doubleValue() : Double.parseDouble(String.valueOf(lp));
+                    if (mktPrice > 0) p.setFillAvgPrice(BigDecimal.valueOf(mktPrice));
+                } catch (Exception e) {
+                    log.warn("[exec] fillAvgPrice 캡처 실패 proposal={}: {}", p.getId(), e.getMessage());
+                }
+            }
             proposalRepo.save(p);
             recordLog(p, auto, "ORDER_EXECUTED",
                     (auto ? "[자동] " : "") + "주문 체결 접수: " + p.getSide() + " " + qtyEff.toPlainString() + " " + p.getTicker()

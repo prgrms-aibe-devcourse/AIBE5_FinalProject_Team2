@@ -9,6 +9,7 @@ import com.DevBridge.devbridge.domain.strategy.repository.BrokerAccountRepositor
 import com.DevBridge.devbridge.domain.strategy.repository.OrderExecutionAuditRepository;
 import com.DevBridge.devbridge.domain.strategy.repository.OrderProposalRepository;
 import com.DevBridge.devbridge.global.security.AuthContext;
+import com.DevBridge.devbridge.domain.strategy.service.broker.BrokerRouter;
 import com.DevBridge.devbridge.domain.strategy.service.broker.KisApiClient;
 import com.DevBridge.devbridge.domain.strategy.service.broker.OrderFillService;
 import com.DevBridge.devbridge.domain.strategy.service.broker.ProposalExecutionService;
@@ -46,6 +47,7 @@ public class OrderProposalController {
     private final ProposalExecutionService exec;
     private final OrderFillService fill;
     private final OrderExecutionAuditRepository auditRepo;
+    private final BrokerRouter brokerRouter;
 
     @GetMapping
     public ResponseEntity<?> list(@RequestParam(required = false) String status) {
@@ -271,6 +273,42 @@ public class OrderProposalController {
         Long uid = AuthContext.currentUserId();
         if (uid == null) return unauth();
         return ResponseEntity.ok(auditRepo.findByUserIdOrderByCreatedAtDesc(uid).stream().map(this::auditDto).toList());
+    }
+
+    /**
+     * 가격 없는 EXECUTED 제안에 현재가를 fillAvgPrice로 소급 채움.
+     * limitPrice도 null인 기존 레코드를 현재 시세로 근사 보정 (정확한 체결가가 아니므로 PnL은 근삿값).
+     * POST /api/proposals/backfill-prices
+     */
+    @PostMapping("/backfill-prices")
+    @Transactional
+    public ResponseEntity<?> backfillPrices() {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauth();
+
+        List<OrderProposal> targets = proposalRepo.findByUserIdOrderByCreatedAtDesc(uid).stream()
+                .filter(p -> "EXECUTED".equals(p.getStatus()))
+                .filter(p -> p.getFillAvgPrice() == null && p.getLimitPrice() == null)
+                .toList();
+
+        int filled = 0, skipped = 0;
+        for (OrderProposal p : targets) {
+            BrokerAccount ba = brokerAccountRepo.findByIdAndUserId(p.getBrokerAccountId(), uid).orElse(null);
+            if (ba == null) { skipped++; continue; }
+            try {
+                var q = brokerRouter.forAccount(ba).getQuote(ba, p.getTicker());
+                Object lp = q.get("last_price");
+                double price = lp instanceof Number n ? n.doubleValue() : Double.parseDouble(String.valueOf(lp));
+                if (price <= 0) { skipped++; continue; }
+                p.setFillAvgPrice(BigDecimal.valueOf(price));
+                proposalRepo.save(p);
+                filled++;
+            } catch (Exception e) {
+                log.warn("[backfill] proposal {} ({}) 현재가 조회 실패: {}", p.getId(), p.getTicker(), e.getMessage());
+                skipped++;
+            }
+        }
+        return ResponseEntity.ok(Map.of("filled", filled, "skipped", skipped, "total", targets.size()));
     }
 
     // ─────────────────────────────────────────── helpers
