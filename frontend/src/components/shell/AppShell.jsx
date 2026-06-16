@@ -24,9 +24,7 @@ export default function AppShell({ children, hideChat = false }) {
     if (window.location.pathname.startsWith("/alpha/developer")) return false;
     try { return localStorage.getItem("alpha.sidebar.expanded") !== "false"; } catch { return true; }
   });
-  // 상단 글로벌 바(검색+AI) 접힘 상태 — 개발자 IDE에선 기본 접힘(IDE 툴바 가림 방지)
-  const [topCollapsed, setTopCollapsed] = useState(isDeveloper);
-  useEffect(() => { setTopCollapsed(isDeveloper); }, [isDeveloper]);
+  const [topCollapsed, setTopCollapsed] = useState(false);
 
   const toggleSidebar = () => setSidebarExpanded(o => {
     const next = !o;
@@ -79,7 +77,7 @@ export default function AppShell({ children, hideChat = false }) {
         onExpandTop={() => setTopCollapsed(false)}
       />
       <GuideDock open={guideOpen} onClose={() => setGuideOpen(false)} width={guideWidth} sidebarWidth={sidebarW} />
-      {!isDeveloper && !topCollapsed && (
+      {!topCollapsed && (
         <TopBar
           onToggleChat={() => setChatOpen(o => !o)}
           chatOpen={chatOpen}
@@ -90,8 +88,8 @@ export default function AppShell({ children, hideChat = false }) {
       )}
       <main style={{
         marginLeft: leftOffset,
-        paddingTop: (isDeveloper || topCollapsed) ? 0 : 44,
-        "--alpha-top-h": (isDeveloper || topCollapsed) ? "0px" : "44px",
+        paddingTop: topCollapsed ? 0 : 44,
+        "--alpha-top-h": topCollapsed ? "0px" : "44px",
         boxSizing: "border-box",
         marginRight: rightOffset,
         ...(isWorkspace || isDeveloper ? { height: "calc(100vh / var(--app-zoom, 1.1))", overflow: "hidden" } : { minHeight: "calc(100vh / var(--app-zoom, 1.1))" }),

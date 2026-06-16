@@ -279,14 +279,13 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
       </div>
       <MenuItem icon={<Settings size={15} />} label="설정" hint="Ctrl+,"
         onClick={() => { setGearOpen(false); setSettingsOpen(true); }} />
-      <MenuItem icon={<CreditCard size={15} />} label="구독 관리"
-        onClick={() => { setGearOpen(false); setSubOpen(true); }} />
     </>
   );
 
   const HeroFlyoutContent = ({ onClose, flyLeft = false }) => (
     <>
       <MenuItem icon={<Wallet size={15} />} label="계좌 관리" onClick={() => { onClose(); nav("/alpha/account"); }} />
+      <MenuItem icon={<CreditCard size={15} />} label="구독 관리" onClick={() => { onClose(); setSubOpen(true); }} />
       <MenuItem icon={<UserCircle size={15} />} label="마이페이지 이동" onClick={() => { onClose(); nav("/mypage"); }} />
       <div style={{ padding: "6px 10px 4px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 4, borderTop: "1px solid #F1F5F9" }}>
         Hero 이미지 변경
@@ -566,11 +565,26 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           {workspaces.length === 0 ? (
             <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", padding: "4px 8px" }}>전략 없음</div>
           ) : (
-            workspaces.slice(0, 10).map(ws => (
-              <WideBtn key={ws.id} label={ws.name || `전략 #${ws.id}`} small bullet
-                active={loc.pathname === `/alpha/w/${ws.id}`}
-                onClick={() => nav(`/alpha/w/${ws.id}`)} />
-            ))
+            <>
+              {workspaces.slice(0, 5).map(ws => (
+                <WideBtn key={ws.id} label={ws.name || `전략 #${ws.id}`} small bullet
+                  active={loc.pathname === `/alpha/w/${ws.id}`}
+                  onClick={() => nav(`/alpha/w/${ws.id}`)} />
+              ))}
+              {workspaces.length > 5 && (
+                <button onClick={() => nav("/alpha")} style={{
+                  width: "100%", padding: "5px 8px", background: "transparent", border: "none",
+                  color: "rgba(255,255,255,0.5)", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  textAlign: "left", display: "flex", alignItems: "center", gap: 4,
+                  borderRadius: 6,
+                }}
+                  onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,0.85)"}
+                  onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.5)"}
+                >
+                  ··· 더보기 ({workspaces.length - 5}개)
+                </button>
+              )}
+            </>
           )}
         </div>
 
@@ -827,6 +841,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
 /* ─── NavItem: unified icon + sliding text ──────────── */
 function NavItem({ icon, label, active = false, expanded, onClick, tutorialId }) {
   const [hover, setHover] = useState(false);
+  const { theme } = useTheme();
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onClick?.(); }}
@@ -841,9 +856,9 @@ function NavItem({ icon, label, active = false, expanded, onClick, tutorialId })
         gap: expanded ? 9 : 0,
         borderRadius: 8, border: "none",
         background: active
-          ? "rgba(255,255,255,0.22)"
+          ? "white"
           : hover ? "rgba(255,255,255,0.13)" : "transparent",
-        color: "white",
+        color: active ? theme.accent : "white",
         cursor: "pointer",
         position: "relative",
         transition: `background 0.15s, padding 0.26s ${EASE}`,
@@ -870,7 +885,7 @@ function NavItem({ icon, label, active = false, expanded, onClick, tutorialId })
         maxWidth: expanded ? 160 : 0,
         opacity: expanded ? 1 : 0,
         fontSize: 13.5,
-        fontWeight: active ? 600 : 450,
+        fontWeight: active ? 700 : 450,
         transition: `max-width 0.26s ${EASE}, opacity 0.2s`,
         letterSpacing: -0.1,
       }}>

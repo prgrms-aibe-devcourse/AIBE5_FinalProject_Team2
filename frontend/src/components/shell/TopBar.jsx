@@ -188,8 +188,7 @@ export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOf
       transition: "right 0.18s ease, left 0.18s ease",
       display: "flex", alignItems: "center", justifyContent: "flex-start",
       gap: 8, padding: "0 12px",
-      background: "rgba(255,255,255,0.85)",
-      backdropFilter: "blur(8px)",
+      background: "#ffffff",
       borderBottom: "1px solid rgba(15, 23, 42, 0.06)",
       zIndex: 900,
     }}>
