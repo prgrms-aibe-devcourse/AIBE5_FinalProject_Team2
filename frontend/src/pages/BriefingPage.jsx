@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   BookOpenText, RefreshCw, ShieldCheck, Activity, ArrowRight,
   AlertCircle, Clock, Globe, ChevronDown, ChevronUp,
-  TrendingUp, TrendingDown, Minus, Radio, Square, Newspaper, Layers, Briefcase,
+  TrendingUp, TrendingDown, Minus, Radio, Square, Newspaper, Layers, Briefcase, Volume2,
 } from "lucide-react";
 import { listWorkspaces, getWorkspace, runBriefing } from "../alpha/alphaApi";
 import { useTheme } from "../alpha/ThemeContext";
@@ -194,7 +194,7 @@ function useRadio(script) {
     const u = new SpeechSynthesisUtterance(ctrl.chunks[ctrl.idx]);
     const v = resolveVoice(pref);
     if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = pref.lang || "ko-KR"; }
-    u.rate = pref.rate || 1.02; u.pitch = pref.pitch || 1.0;
+    u.rate = pref.rate || 1.02; u.pitch = pref.pitch || 1.0; u.volume = pref.volume ?? 1.0;
     u.onend = () => { if (currentRadio !== ctrl) return; ctrl.idx++; speakNext(); };
     u.onerror = () => { ctrl.setPlaying(false); if (currentRadio === ctrl) currentRadio = null; };
     window.speechSynthesis.speak(u);
@@ -230,7 +230,13 @@ function useRadio(script) {
     if (!pickVoice()) setTimeout(speakNext, 120); else speakNext();
   };
 
-  return { supported, playing, play, stop };
+  const setVolume = (v) => {
+    const p = loadVoicePref();
+    saveVoicePref({ ...p, volume: v });
+    // 현재 청크는 그대로 두고 다음 청크부터 새 볼륨 적용 (cancel 없이)
+  };
+
+  return { supported, playing, play, stop, setVolume };
 }
 
 // 카운트다운 타이머
@@ -286,7 +292,7 @@ function RadioSettingsPopup({ onClose }) {
   const [voices, setVoices] = useState(allVoices());
   const [pref, setPref] = useState({
     voiceURI: initPref.voiceURI || "", lang: initPref.lang || "ko",
-    rate: initPref.rate || 1.02, pitch: initPref.pitch || 1.0,
+    rate: initPref.rate || 1.02, pitch: initPref.pitch || 1.0, volume: initPref.volume ?? 1.0,
   });
   const [langFilter, setLangFilter] = useState(
     (initPref.lang || "ko").startsWith("en") ? "en" : "ko"
@@ -342,7 +348,7 @@ function RadioSettingsPopup({ onClose }) {
       ? "Hello, this is your personal market radio briefing."
       : "안녕하세요, 오늘의 라디오 브리핑입니다. 이 음성으로 들려드릴게요.");
     if (v) { u.voice = v; u.lang = v.lang; }
-    u.rate = pref.rate; u.pitch = pref.pitch;
+    u.rate = pref.rate; u.pitch = pref.pitch; u.volume = pref.volume ?? 1.0;
     window.speechSynthesis.speak(u);
   };
 
@@ -420,7 +426,7 @@ function RadioSettingsPopup({ onClose }) {
           })}
         </div>
 
-        {/* 속도 / 톤 */}
+        {/* 속도 / 톤 / 볼륨 */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
           <label style={{ fontSize: 12, color: "#475569", fontWeight: 600 }}>
             말하기 속도 — {pref.rate.toFixed(2)}x
@@ -429,6 +435,10 @@ function RadioSettingsPopup({ onClose }) {
           <label style={{ fontSize: 12, color: "#475569", fontWeight: 600 }}>
             톤(피치) — {pref.pitch.toFixed(2)}
             <input type="range" min="0.6" max="1.4" step="0.02" value={pref.pitch} onChange={e => apply({ pitch: parseFloat(e.target.value) })} style={{ width: "100%", accentColor: "#7C3AED" }} />
+          </label>
+          <label style={{ fontSize: 12, color: "#475569", fontWeight: 600 }}>
+            볼륨 — {Math.round((pref.volume ?? 1.0) * 100)}%
+            <input type="range" min="0" max="1" step="0.05" value={pref.volume ?? 1.0} onChange={e => apply({ volume: parseFloat(e.target.value) })} style={{ width: "100%", accentColor: "#7C3AED" }} />
           </label>
         </div>
 
@@ -450,6 +460,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
   const [showVoiceCfg, setShowVoiceCfg] = useState(false);
   const [radioHover, setRadioHover] = useState(false);
   const [showScript, setShowScript] = useState(false);
+  const [volume, setVolumeState] = useState(() => loadVoicePref().volume ?? 1.0);
   // 대표(representative)는 항상 펼침. 그 외 LIVE 는 기본 접힘(배너만) — 클릭으로 펼침.
   const [expanded, setExpanded] = useState(isPrimary);
   useEffect(() => { if (isPrimary) setExpanded(true); }, [isPrimary]);
@@ -550,6 +561,25 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
                 </span>
               )}
               {showVoiceCfg && <RadioSettingsPopup onClose={() => setShowVoiceCfg(false)} />}
+            </div>
+          )}
+          {sections?.radioScript && radio.supported && radio.playing && (
+            <div style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              animation: "fadeInVol 0.2s ease",
+            }}
+              title={`볼륨 ${Math.round(volume * 100)}%`}>
+              <Volume2 size={12} color={volume === 0 ? "#EF4444" : "rgba(255,255,255,0.55)"} />
+              <input
+                type="range" min="0" max="1" step="0.05"
+                value={volume}
+                onChange={e => {
+                  const v = parseFloat(e.target.value);
+                  setVolumeState(v);
+                  radio.setVolume(v);
+                }}
+                style={{ width: 64, accentColor: "#fde047", cursor: "pointer" }}
+              />
             </div>
           )}
           <button onClick={onRefresh} disabled={busy} style={{
@@ -873,6 +903,7 @@ export default function BriefingPage() {
   const { t } = useLanguage();
   const username = (typeof window !== "undefined" &&
     (localStorage.getItem("username") || localStorage.getItem("dbName"))) || "trader";
+  const loadedRef = useRef(false);
 
   const [strategies, setStrategies] = useState([]);
   const [briefings, setBriefings] = useState({});
@@ -965,7 +996,11 @@ export default function BriefingPage() {
     generateOne(wsId);
   };
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    loadAll();
+  }, []);
 
   const liveOnly = strategies.filter(s => s.status === "LIVE");
   const baseList = liveOnly.length > 0 ? liveOnly : strategies;
@@ -974,11 +1009,13 @@ export default function BriefingPage() {
     (b.id === primaryId ? 1 : 0) - (a.id === primaryId ? 1 : 0));
 
   return (
-    <div style={{ padding: "36px 40px 80px", background: "#F1F5F9", minHeight: "calc(100vh - 44px)", fontFamily: F, color: "#0F172A" }}>
+    <div style={{ padding: "36px 40px 80px", background: "#F1F5F9", minHeight: "calc(100vh - 44px)", fontFamily: F, color: "#0F172A", animation: "alphaPageIn 0.22s cubic-bezier(0.22,1,0.36,1)" }}>
       <style>{`
+        @keyframes alphaPageIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes briefSpin { to { transform: rotate(360deg); } }
         @keyframes briefPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.45); } 60% { box-shadow: 0 0 0 7px rgba(34,197,94,0); } }
         @keyframes briefBar { from { transform: translateX(-30%); } to { transform: translateX(80%); } }
+        @keyframes fadeInVol { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: translateX(0); } }
       `}</style>
 
       {/* ── 쿨다운 모달 ── */}
