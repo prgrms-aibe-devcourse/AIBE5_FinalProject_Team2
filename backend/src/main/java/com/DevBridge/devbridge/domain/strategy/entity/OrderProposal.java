@@ -50,6 +50,10 @@ public class OrderProposal {
     @Column(nullable = false, length = 16)
     private String ticker;
 
+    /** 종목 표시명 (예: 삼성전자, Apple Inc.) — UI 표기용, null이면 ticker로 대체 */
+    @Column(name = "stock_name", length = 100)
+    private String stockName;
+
     /** BUY | SELL */
     @Column(nullable = false, length = 8)
     private String side;

@@ -172,8 +172,8 @@ public class ProfileService {
                 throw new RuntimeException("잘못된 성별 값입니다. MALE, FEMALE, OTHER 중 하나를 사용해주세요.");
             }
         }
-        if (req.getProfileImageUrl() != null && !req.getProfileImageUrl().isBlank()) {
-            user.setProfileImageUrl(req.getProfileImageUrl());
+        if (req.getProfileImageUrl() != null) {
+            user.setProfileImageUrl(req.getProfileImageUrl().isBlank() ? null : req.getProfileImageUrl());
         }
         if (req.getGithubNickname() != null) {
             String trimmed = req.getGithubNickname().trim();

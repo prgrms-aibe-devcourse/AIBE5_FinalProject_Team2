@@ -239,6 +239,23 @@ public class AnalyticsClient {
         return call(p.toString(), "GET", null);
     }
 
+    /** GET /datasets/catalog — 오픈소스 데이터셋 카탈로그(QC Datasets 스타일). */
+    public JsonNode datasetsCatalog() {
+        return call("/datasets/catalog", "GET", null);
+    }
+
+    /** GET /datasets/preview — 카탈로그 데이터셋 실데이터 미리보기(yfinance/Binance/FRED). */
+    public JsonNode datasetPreview(String id, String symbol, String period, String interval, int limit) {
+        StringBuilder p = new StringBuilder("/datasets/preview?id=")
+                .append(java.net.URLEncoder.encode(id, java.nio.charset.StandardCharsets.UTF_8))
+                .append("&limit=").append(limit);
+        if (symbol != null && !symbol.isBlank())
+            p.append("&symbol=").append(java.net.URLEncoder.encode(symbol, java.nio.charset.StandardCharsets.UTF_8));
+        if (period != null && !period.isBlank()) p.append("&period=").append(period);
+        if (interval != null && !interval.isBlank()) p.append("&interval=").append(interval);
+        return call(p.toString(), "GET", null);
+    }
+
     /** POST /signals/today — daily signal batch (used by 22:30 KST scheduler). */
     public JsonNode todaySignals(List<String> tickers, String strategy, boolean includeMl) {
         return call("/signals/today", "POST", Map.of(
@@ -351,6 +368,15 @@ public class AnalyticsClient {
         body.put("period", "10y");
         if (extra != null) body.putAll(extra);
         return call("/backtest/value-rebalancing", "POST", body);
+    }
+
+    /** POST /backtest/momentum-rotation — 멀티자산 모멘텀 로테이션 백테스트. */
+    public JsonNode momentumRotation(List<String> tickers, Map<String, Object> extra) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("tickers", tickers);
+        body.put("period", "10y");
+        if (extra != null) body.putAll(extra);
+        return call("/backtest/momentum-rotation", "POST", body);
     }
 
     /** POST /orders/infinite-buying/plan — 다음 거래일 주문 계획. */

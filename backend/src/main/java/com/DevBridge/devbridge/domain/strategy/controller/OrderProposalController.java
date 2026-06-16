@@ -101,11 +101,14 @@ public class OrderProposalController {
         String orderType = (orderTypeRaw != null && (orderTypeRaw.equals("LIMIT") || orderTypeRaw.equals("MARKET") || orderTypeRaw.equals("LOC")))
                 ? orderTypeRaw : "LIMIT";
 
+        String stockName = asString(body.get("stockName"));
+
         OrderProposal p = proposalRepo.save(OrderProposal.builder()
                 .userId(uid)
                 .workspaceId(asLong(body.get("workspaceId")))
                 .brokerAccountId(brokerAccountId)
                 .ticker(ticker.toUpperCase())
+                .stockName(stockName)
                 .side(side.toUpperCase())
                 .qty(qtyInt)
                 .qtyDecimal(crypto ? qtyDec : null)
@@ -166,6 +169,84 @@ public class OrderProposalController {
         return ResponseEntity.ok(toJson(p));
     }
 
+    /**
+     * 주문 정정 — PENDING 제안의 수량/단가/주문유형/방향/사유를 수정.
+     * PENDING 상태만 정정 가능(이미 승인·체결·거절된 건은 불가).
+     * body 에 들어온 키만 갱신(부분 수정). 종목(ticker)은 정정 대상이 아니다(취소 후 재등록).
+     */
+    @PatchMapping("/{id}")
+    @Transactional
+    public ResponseEntity<?> amend(@PathVariable Long id, @RequestBody Map<String, Object> body) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauth();
+
+        OrderProposal p = proposalRepo.findByIdAndUserId(id, uid).orElse(null);
+        if (p == null) return ResponseEntity.notFound().build();
+        if (!"PENDING".equals(p.getStatus())) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "PENDING 상태만 정정 가능 (현재=" + p.getStatus() + ")"));
+        }
+
+        BrokerAccount ba = brokerAccountRepo.findByIdAndUserId(p.getBrokerAccountId(), uid).orElse(null);
+        if (ba == null) return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "BrokerAccount 권한 없음"));
+        boolean crypto = ba.getBrokerType() == BrokerAccount.BrokerType.BINANCE;
+
+        // 방향(BUY/SELL)
+        if (body.containsKey("side")) {
+            String side = asString(body.get("side"));
+            if (side == null || (!"BUY".equalsIgnoreCase(side) && !"SELL".equalsIgnoreCase(side))) {
+                return ResponseEntity.badRequest().body(Map.of("error", "side는 BUY 또는 SELL"));
+            }
+            p.setSide(side.toUpperCase());
+        }
+
+        // 수량 — 크립토는 분수(qtyDecimal), 주식은 정수(qty). create 와 동일 규칙.
+        if (body.containsKey("qty")) {
+            BigDecimal qtyDec = asBigDecimal(body.get("qty"));
+            if (qtyDec == null || qtyDec.signum() <= 0) {
+                return ResponseEntity.badRequest().body(Map.of("error", "수량은 0보다 커야 합니다"));
+            }
+            int qtyInt = crypto
+                    ? Math.max(1, qtyDec.setScale(0, java.math.RoundingMode.CEILING).intValue())
+                    : qtyDec.setScale(0, java.math.RoundingMode.DOWN).intValue();
+            if (!crypto && qtyInt <= 0) {
+                return ResponseEntity.badRequest().body(Map.of("error", "주식 수량은 1 이상 정수여야 합니다"));
+            }
+            p.setQty(qtyInt);
+            p.setQtyDecimal(crypto ? qtyDec : null);
+        }
+
+        // 주문유형 (LIMIT/MARKET/LOC)
+        String orderType = p.getOrderType();
+        if (body.containsKey("orderType")) {
+            String otRaw = asString(body.get("orderType"));
+            if (otRaw != null && (otRaw.equals("LIMIT") || otRaw.equals("MARKET") || otRaw.equals("LOC"))) {
+                orderType = otRaw;
+                p.setOrderType(orderType);
+            }
+        }
+
+        // 단가 — MARKET 이면 무조건 null, 그 외에는 들어온 값으로 갱신
+        if ("MARKET".equals(orderType)) {
+            p.setLimitPrice(null);
+        } else if (body.containsKey("limitPrice")) {
+            p.setLimitPrice(asBigDecimal(body.get("limitPrice")));
+        }
+
+        // 사유
+        if (body.containsKey("rationale")) {
+            p.setRationale(asString(body.get("rationale")));
+        }
+
+        proposalRepo.save(p);
+
+        String qtyLabel = p.getQtyDecimal() != null ? p.getQtyDecimal().toPlainString() : String.valueOf(p.getQty());
+        recordWorkspaceLog(p.getWorkspaceId(), "USER", "PROPOSAL_AMENDED",
+                "주문 제안 정정: " + p.getSide() + " " + qtyLabel + " " + p.getTicker(), null);
+        return ResponseEntity.ok(toJson(p));
+    }
+
     /** B1: 이 주문의 실제 체결 상태를 KIS 에서 즉시 폴링해 갱신 (수동 트리거 — 스케줄잡과 동일 로직). */
     @PostMapping("/{id}/poll-fill")
     @Transactional
@@ -219,6 +300,7 @@ public class OrderProposalController {
         m.put("workspaceId", p.getWorkspaceId());
         m.put("brokerAccountId", p.getBrokerAccountId());
         m.put("ticker", p.getTicker());
+        m.put("stockName", p.getStockName());
         m.put("side", p.getSide());
         m.put("qty", p.getQty());
         m.put("qtyDecimal", p.getQtyDecimal());

@@ -25,6 +25,8 @@ public class EmailVerificationService {
     private final JavaMailSender mailSender;
     private final SecureRandom random = new SecureRandom();
     private final ConcurrentHashMap<String, CodeEntry> store = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> verifiedStore = new ConcurrentHashMap<>();
+    private static final long VERIFIED_TTL_SECONDS = 30 * 60L;
 
     @Value("${spring.mail.username:}")
     private String fromAddress;
@@ -50,20 +52,20 @@ public class EmailVerificationService {
         SimpleMailMessage msg = new SimpleMailMessage();
         msg.setFrom(fromAddress);
         msg.setTo(toEmail);
-        msg.setSubject("[DevBridge] 이메일 인증번호 안내");
+        msg.setSubject("[Alpha-Helix] 이메일 인증번호 안내");
         msg.setText(
-                "안녕하세요, DevBridge 입니다.\n\n" +
+                "안녕하세요, Alpha-Helix 입니다.\n\n" +
                 "요청하신 이메일 인증번호는 아래와 같습니다.\n\n" +
                 "  ▶ 인증번호: " + code + "\n\n" +
                 "이 코드는 " + ttlMinutes + "분 동안 유효합니다.\n" +
                 "본인이 요청하지 않았다면 이 메일을 무시해주세요.\n\n" +
-                "— DevBridge 팀"
+                "— Alpha-Helix 팀"
         );
         mailSender.send(msg);
         log.info("[EmailVerification] {} 로 인증코드 발송 완료", toEmail);
     }
 
-    /** 코드 검증. 일치하면 store 에서 제거 후 true. */
+    /** 코드 검증. 일치하면 store에서 제거하고 verifiedStore에 30분 등록 후 true. */
     public boolean verifyCode(String email, String code) {
         if (email == null || code == null) return false;
         CodeEntry entry = store.get(email.toLowerCase());
@@ -73,8 +75,24 @@ public class EmailVerificationService {
             return false;
         }
         boolean ok = entry.code.equals(code);
-        if (ok) store.remove(email.toLowerCase());
+        if (ok) {
+            store.remove(email.toLowerCase());
+            verifiedStore.put(email.toLowerCase(), Instant.now().getEpochSecond() + VERIFIED_TTL_SECONDS);
+        }
         return ok;
+    }
+
+    /** Google OAuth 등 외부 인증으로 이미 검증된 이메일을 30분간 인증 완료 상태로 등록. */
+    public void markVerified(String email) {
+        verifiedStore.put(email.toLowerCase(), Instant.now().getEpochSecond() + VERIFIED_TTL_SECONDS);
+    }
+
+    /** 인증 완료 여부 확인 후 소비(1회용). 미인증·만료 시 false. */
+    public boolean consumeVerified(String email) {
+        if (email == null) return false;
+        Long expiresAt = verifiedStore.remove(email.toLowerCase());
+        if (expiresAt == null) return false;
+        return Instant.now().getEpochSecond() <= expiresAt;
     }
 
     private record CodeEntry(String code, long expiresAt) {}

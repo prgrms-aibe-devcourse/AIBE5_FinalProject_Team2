@@ -43,8 +43,7 @@ public class BrokerAccountController {
     private final KisApiClient kis;
     private final BinanceApiClient binance;
 
-    /** REAL 자동체결 졸업 게이트 기준: MOCK 자동매매 최소 일수 / 최소 횟수. */
-    private static final int AUTO_REAL_MIN_DAYS = 14;
+    /** REAL 자동체결 졸업 게이트 기준: MOCK 자동매매 최소 횟수. */
     private static final int AUTO_REAL_MIN_TRADES = 20;
 
     /**
@@ -202,8 +201,7 @@ public class BrokerAccountController {
      * 자동 체결(auto-execute) ON/OFF.
      * 전제: tradingEnabled=true.
      * REAL 계정은 추가로 "MOCK 졸업 게이트"를 통과해야 한다 —
-     * 같은 KIS MOCK 계좌에서 자동매매(자동 체결)를 최소 {@value #AUTO_REAL_MIN_DAYS}일 동안
-     * 최소 {@value #AUTO_REAL_MIN_TRADES}회 이상 수행한 이력이 있어야 실거래 자동체결을 켤 수 있다.
+     * 같은 KIS MOCK 계좌에서 자동매매(자동 체결)를 최소 {@value #AUTO_REAL_MIN_TRADES}회 이상 수행한 이력이 있어야 실거래 자동체결을 켤 수 있다.
      */
     @PatchMapping("/auto-execute")
     @Transactional
@@ -233,18 +231,13 @@ public class BrokerAccountController {
                             "error", "REAL 자동체결을 켜려면 먼저 MOCK 계좌로 자동매매 이력이 필요합니다 (MOCK 계좌가 없음)."));
                 }
                 long trades = proposalRepo.countByBrokerAccountIdAndStatusAndAutoExecutedTrue(mock.getId(), "EXECUTED");
-                java.time.LocalDateTime firstAt = proposalRepo.firstAutoExecutedAt(mock.getId());
-                long days = firstAt == null ? 0
-                        : java.time.Duration.between(firstAt, java.time.LocalDateTime.now()).toDays();
-                boolean passed = trades >= AUTO_REAL_MIN_TRADES && firstAt != null && days >= AUTO_REAL_MIN_DAYS;
+                boolean passed = trades >= AUTO_REAL_MIN_TRADES;
                 if (!passed) {
                     return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED).body(Map.of(
                             "error", "REAL 자동체결 졸업 게이트 미충족",
-                            "summary", String.format("MOCK 자동매매 %d일/%d회 진행 (필요: %d일 + %d회)",
-                                    days, trades, AUTO_REAL_MIN_DAYS, AUTO_REAL_MIN_TRADES),
+                            "summary", String.format("MOCK 자동매매 %d회 진행 (필요: %d회)",
+                                    trades, AUTO_REAL_MIN_TRADES),
                             "mockAutoTrades", trades,
-                            "mockAutoDays", days,
-                            "requiredDays", AUTO_REAL_MIN_DAYS,
                             "requiredTrades", AUTO_REAL_MIN_TRADES));
                 }
             }
@@ -337,10 +330,9 @@ public class BrokerAccountController {
             Map<String, Object> bal;
             String balanceWarn = null;
             try {
-                // KIS Gateway 초당 제한 회피용 대기 (토큰 발급 직후 4종 잔고 호출 → EGW00201 빈발).
-                // 모의는 throttle 이 빡빡해서 1.5초 필요. KisApiClient.withRateLimitRetry 가 1회 더 재시도하지만
-                // 토큰 직후 첫 호출에서 깨지면 그 한 번이 KRW 잔고를 0 으로 만들어버려서 사용자가 5억이 안 보임.
-                Thread.sleep(1500);
+                // KIS Gateway 초당 제한 회피용 대기 (토큰 발급 직후 잔고 호출 → EGW00201 빈발).
+                // getOverseasBalance 가 병렬 호출로 개선되어 800ms 로 단축해도 throttle 시 withRateLimitRetry 가 처리.
+                Thread.sleep(800);
                 bal = kis.getOverseasBalance(b);
             } catch (Exception be) {
                 balanceWarn = be.getMessage() == null ? "balance lookup failed" : be.getMessage();

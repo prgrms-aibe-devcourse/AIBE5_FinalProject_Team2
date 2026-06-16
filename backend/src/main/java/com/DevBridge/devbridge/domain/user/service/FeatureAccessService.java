@@ -51,7 +51,7 @@ public class FeatureAccessService {
         if (u == null) return false;
         if (inAllowlist(u)) return true;
         User.UserType t = u.getUserType();
-        return t == User.UserType.STANDARD || t == User.UserType.PREMIUM;
+        return t == User.UserType.STANDARD || t == User.UserType.PREMIUM || t == User.UserType.EXPERT;
     }
 
     /** 프론트 게이팅 UI 용 — 접근 가능 여부 + 사유 + 등급. (키/이메일 등 민감정보 미포함) */
@@ -60,7 +60,7 @@ public class FeatureAccessService {
         User u = uid == null ? null : userRepository.findById(uid).orElse(null);
         boolean byAllow = inAllowlist(u);
         User.UserType t = u == null ? null : u.getUserType();
-        boolean allowed = byAllow || t == User.UserType.STANDARD || t == User.UserType.PREMIUM;
+        boolean allowed = byAllow || t == User.UserType.STANDARD || t == User.UserType.PREMIUM || t == User.UserType.EXPERT;
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("developer", allowed);
         m.put("reason", allowed ? (byAllow ? "allowlist" : "subscription") : "locked");

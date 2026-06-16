@@ -47,6 +47,10 @@ public class AiUsageLog {
     @Column(name = "error_message", length = 500)
     private String errorMessage;
 
+    /** 호출 기능 식별자 (helix_chat / briefing_fallback / improve_proposal / workspace_chat / ai_extract 등) */
+    @Column(name = "feature", length = 100)
+    private String feature;
+
     @Column(name = "created_at", updatable = false, nullable = false)
     private LocalDateTime createdAt;
 

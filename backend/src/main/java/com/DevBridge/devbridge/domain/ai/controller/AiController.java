@@ -33,7 +33,7 @@ public class AiController {
             } else {
                 String model = request.getModel() == null || request.getModel().isBlank()
                         ? DEFAULT_MODEL : request.getModel();
-                reply = gateway.chat(uid, model, request);
+                reply = gateway.chat(uid, model, request, "helix_chat");
             }
             return ResponseEntity.ok(AiChatResponse.builder().reply(reply).build());
         } catch (HttpClientErrorException e) {
@@ -62,7 +62,7 @@ public class AiController {
             if (uid == null) {
                 reply = geminiService.oneShot(systemInstruction, text);
             } else {
-                reply = gateway.oneShot(uid, model, systemInstruction, text, true);
+                reply = gateway.oneShot(uid, model, systemInstruction, text, true, "ai_extract");
             }
             return ResponseEntity.ok(AiChatResponse.builder().reply(reply).build());
         } catch (HttpClientErrorException e) {

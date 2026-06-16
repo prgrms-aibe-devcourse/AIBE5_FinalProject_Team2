@@ -83,6 +83,12 @@ public class User {
     @Column(name = "github_connected_at")
     private LocalDateTime githubConnectedAt;
 
+    @Column(name = "is_deleted", nullable = false)
+    private boolean deleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

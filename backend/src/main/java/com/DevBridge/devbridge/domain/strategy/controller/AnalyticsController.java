@@ -97,4 +97,21 @@ public class AnalyticsController {
             @RequestParam(defaultValue = "30") int limit) {
         return ResponseEntity.ok(analytics.dataOhlcv(symbol, tf, source, limit));
     }
+
+    /** 오픈소스 데이터셋 카탈로그 (QC Datasets 스타일 브라우저). */
+    @GetMapping("/datasets/catalog")
+    public ResponseEntity<JsonNode> datasetsCatalog() {
+        return ResponseEntity.ok(analytics.datasetsCatalog());
+    }
+
+    /** 카탈로그 데이터셋 실데이터 미리보기 (yfinance/Binance/FRED 실호출). */
+    @GetMapping("/datasets/preview")
+    public ResponseEntity<JsonNode> datasetPreview(
+            @RequestParam String id,
+            @RequestParam(required = false) String symbol,
+            @RequestParam(defaultValue = "1y") String period,
+            @RequestParam(defaultValue = "1d") String interval,
+            @RequestParam(defaultValue = "30") int limit) {
+        return ResponseEntity.ok(analytics.datasetPreview(id, symbol, period, interval, limit));
+    }
 }

@@ -1,0 +1,16 @@
+-- Remove legacy notification types that are no longer part of Alpha-Helix domain
+DELETE FROM NOTIFICATION
+WHERE notification_type IN (
+    'NEW_MESSAGE',
+    'APPLICATION_ACCEPTED',
+    'APPLICATION_REJECTED',
+    'MILESTONE_SUBMITTED',
+    'MILESTONE_APPROVED',
+    'MILESTONE_REVISION_REQUESTED',
+    'CONTRACT_ITEM_PROPOSED',
+    'CONTRACT_ITEM_AGREED',
+    'PROJECT_COMPLETED',
+    'REVIEW_RECEIVED',
+    'DEPOSIT_RECEIVED',
+    'PROJECT_UPDATED'
+);

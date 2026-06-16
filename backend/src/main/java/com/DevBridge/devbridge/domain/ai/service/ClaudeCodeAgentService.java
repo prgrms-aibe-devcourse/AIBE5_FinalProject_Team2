@@ -60,6 +60,9 @@ public class ClaudeCodeAgentService {
     @Value("${anthropic.api.key:}")
     private String apiKey;
 
+    @Value("${app.claude.cli.model:claude-opus-4-8}")
+    private String cliModel;
+
     private static final Set<String> CODE_EXT = Set.of(
             "py", "js", "jsx", "ts", "tsx", "json", "txt", "md", "yaml", "yml", "csv", "ipynb", "java");
 
@@ -249,6 +252,7 @@ public class ClaudeCodeAgentService {
                 "--allowedTools", "Read,Edit,Write,Glob,Grep",
                 "--disallowedTools", "Bash,WebFetch,WebSearch",   // 보안: 임의 명령/네트워크 차단
                 "--max-budget-usd", "1"));
+        if (cliModel != null && !cliModel.isBlank()) { cmd.add("--model"); cmd.add(cliModel); }  // 기본 Opus 4.8
         // 멀티세션: 첫 턴은 --session-id 로 생성, 이후 턴은 --resume 로 대화 맥락 이어감(VSCode 동일).
         if (sessionId != null && !sessionId.isBlank()) {
             if (resume) { cmd.add("--resume"); cmd.add(sessionId); }

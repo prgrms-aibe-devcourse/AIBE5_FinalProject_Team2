@@ -83,8 +83,12 @@ public class AlphaHelixService {
      * AlphaHelix 엔드포인트는 항상 인증 필수이므로 uid == null 은 오지 않는다.
      */
     public String callAi(Long uid, String systemInstruction, String userInput) {
+        return callAi(uid, systemInstruction, userInput, null);
+    }
+
+    public String callAi(Long uid, String systemInstruction, String userInput, String feature) {
         if (uid != null) {
-            return gateway.oneShot(uid, DEFAULT_MODEL, systemInstruction, userInput, false);
+            return gateway.oneShot(uid, DEFAULT_MODEL, systemInstruction, userInput, false, feature);
         }
         return gemini.oneShot(systemInstruction, userInput);
     }
@@ -542,7 +546,7 @@ public class AlphaHelixService {
 
         String reply;
         try {
-            reply = callAi(uid, system, ctx.toString());
+            reply = callAi(uid, system, ctx.toString(), "workspace_chat");
         } catch (Exception e) {
             log.error("AI chat fail", e);
             reply = "(AI 응답 실패: " + e.getMessage() + ")";
@@ -659,83 +663,29 @@ public class AlphaHelixService {
      */
     @Transactional
     public Map<String, Object> doFormalize(AlphaWorkspace ws, Long uid) throws Exception {
-        String system = """
-            너는 사용자 목표(JSON)를 받아 **deterministic 백테스트가 가능한** 전략 config 후보 3개를 제시한다.
-            각 후보는 아래 7개 템플릿 중 서로 다른 strategy_type을 고른 보수/중립/공격 톤으로 다양하게 구성하라:
-              - buy_hold
-              - moving_average_timing
-              - momentum_rotation
-              - vix_risk_off
-              - trend_volatility_control
-              - dividend_tilt
-              - infinite_buying    // 라오어식 무한매수법. 사용자가 '무한매수','라오어','LOC','분할매수','평단' 언급 or 레버리지ETF+월현금흐름 → 반드시 후보에 포함.
+        // ── ver1 MVP: AI 자유선택 → '고정 3전략 큐레이션 + goal profile→파라미터 결정론 매핑' ──
+        // strategy_type·assets 는 코드 고정(전부 실엔진: infinite_buying·momentum_rotation(MACD)·value_rebalancing),
+        // parameters 만 goal profile 로 가변. (과거: LLM 이 strategy_type/assets/params 자유선택 →
+        //  유령타입(trend_volatility_control 등)이 조용히 SMA/SPY 로 강등 · value_rebalancing 누락 · 같은 goal 에도 비결정)
+        JsonNode g;
+        try { g = om.readTree(ws.getGoalProfileJson() == null ? "{}" : ws.getGoalProfileJson()); }
+        catch (Exception e) { g = om.createObjectNode(); }
 
-            infinite_buying 선택 시 parameters:
-              {"split": 40, "take_profit_pct": 10, "loc_offset_pct": 15, "initial_capital": <원금 KRW>}
-            assets는 반드시 2개 이상 (예: ["TQQQ","SOXL"]).
-
-            반드시 코드블록 없이 **순수 JSON 배열만** 출력하라. 길이는 정확히 3.
-            각 원소:
-            {
-              "strategy_name": "...",
-              "strategy_type": "...",
-              "assets": ["..."],
-              "rules": { ... },
-              "parameters": {
-                "ma_window": 120,
-                "vix_threshold": 25,
-                "rebalance_frequency": "monthly|weekly|daily",
-                "max_drawdown_target": 20
-              },
-              "rationale": "한국어 1~2문장",
-              "risk_tone": "보수|중립|공격"
-            }
-
-            assets 미명시 시 risk_tolerance 기준: 보수→SPY+SCHD+SHY, 중립→QQQ+SCHD, 공격→TQQQ+SOXL+QLD.
-            암호화폐: "BTC-USD" / "ETH-USD" 형식.
-            """;
-
-        String result;
-        try {
-            result = callAi(uid, system, ws.getGoalProfileJson());
-        } catch (RuntimeException e) {
-            // GeminiService가 무료 티어 소진 등 구체적 메시지를 담아 RuntimeException으로 전달
-            log.warn("Gemini call failed on doFormalize. userId={}, msg={}", uid, e.getMessage());
-            throw new RuntimeException("정형화 실패: " + e.getMessage(), e);
-        } catch (Exception e) {
-            throw new RuntimeException("LLM 호출 실패: " + e.getMessage(), e);
-        }
-
-        String arrayJson = extractFirstJsonArray(result);
         List<Map<String, Object>> candidates = new ArrayList<>();
-        try {
-            if (arrayJson != null) {
-                JsonNode arr = om.readTree(arrayJson);
-                for (int i = 0; i < arr.size() && i < 3; i++) {
-                    Map<String, Object> cand = om.convertValue(arr.get(i), Map.class);
-                    cand.put("id", "cand-" + (i + 1));
-                    candidates.add(cand);
-                }
-            }
-            if (candidates.isEmpty()) {
-                String obj = extractFirstJson(result);
-                if (obj != null) {
-                    Map<String, Object> cand = om.readValue(obj, Map.class);
-                    cand.put("id", "cand-1");
-                    candidates.add(cand);
-                }
-            }
-        } catch (Exception e) {
-            log.error("formalize parse fail", e);
-        }
-
-        if (candidates.isEmpty()) {
-            throw new RuntimeException("LLM 응답을 파싱하지 못했습니다: " + result);
-        }
+        candidates.add(buildFixedCandidate("cand-1", "TQQQ·SOXL 무한매수법", "infinite_buying",
+                List.of("TQQQ", "SOXL"), "공격",
+                "레버리지 ETF(나스닥100 3x·반도체 3x) 라오어식 LOC 분할매수 — 떨어질수록 분할매수, 평단 +익절% 도달 시 전량익절·복리 재투자.", g));
+        candidates.add(buildFixedCandidate("cand-2", "섹터 모멘텀 로테이션", "momentum_rotation",
+                List.of("QQQ", "XLK", "XLF", "XLE", "XLV", "XLY", "TLT", "GLD", "SCHD", "BIL"), "중립",
+                "멀티자산 상대강도 랭킹 로테이션 — 매월 12-1 모멘텀 상위 N개를 동일가중 보유, 약세장은 현금성 자산으로 대피.", g));
+        candidates.add(buildFixedCandidate("cand-3", "QLD 밸류 리밸런싱", "value_rebalancing",
+                List.of("QLD"), "보수",
+                "목표가치 밴드 이탈 시 비중을 복원하는 변동성 통제형 — 하락 시 저가매수, 상승 시 차익실현.", g));
+        String selectedId = pickSelectedCandidate(g);
 
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("candidates", candidates);
-        envelope.put("selectedId", candidates.get(0).get("id"));
+        envelope.put("selectedId", selectedId);
         String envelopeJson = om.writeValueAsString(envelope);
 
         ws.setStrategyConfigJson(envelopeJson);
@@ -745,6 +695,83 @@ public class AlphaHelixService {
                 "Strategy 후보 " + candidates.size() + "개 생성", envelopeJson);
 
         return Map.of("strategyConfig", envelopeJson, "candidates", candidates);
+    }
+
+    /** 고정 전략 후보 1개 생성(strategy_type·assets 고정, parameters 는 goal profile 결정론 매핑). */
+    private Map<String, Object> buildFixedCandidate(String id, String name, String strategyType,
+                                                    List<String> assets, String riskTone, String rationale, JsonNode g) {
+        Map<String, Object> c = new LinkedHashMap<>();
+        c.put("id", id);
+        c.put("strategy_name", name);
+        c.put("strategy_type", strategyType);
+        c.put("assets", assets);
+        c.put("parameters", deriveParams(strategyType, g));
+        c.put("rationale", rationale);
+        c.put("risk_tone", riskTone);
+        return c;
+    }
+
+    /** risk_tolerance → 공격성 인덱스(보수 0 · 중립 1 · 공격 2). */
+    private int aggrIndex(JsonNode g) {
+        String rt = g.path("risk_tolerance").asText("중립");
+        if (rt.contains("공격") || rt.toLowerCase().contains("aggress")) return 2;
+        if (rt.contains("보수") || rt.toLowerCase().contains("conserv")) return 0;
+        return 1;
+    }
+
+    /** goal profile → 전략별 parameters 결정론 매핑. strategy_type 은 절대 불변. */
+    private Map<String, Object> deriveParams(String strategyType, JsonNode g) {
+        int a = aggrIndex(g);
+        Map<String, Object> p = new LinkedHashMap<>();
+        double initCap = g.path("initial_capital_krw").asDouble(
+                g.path("monthly_contribution_krw").asDouble(0) * 12);
+        switch (strategyType) {
+            case "infinite_buying" -> {
+                int[] split = {40, 30, 20};
+                double[] tp = {8.0, 10.0, 12.0};
+                double[] loc = {15.0, 12.0, 10.0};
+                p.put("split", g.path("split_count").asInt(split[a]));
+                p.put("take_profit_pct", g.path("take_profit_pct").asDouble(tp[a]));
+                p.put("loc_offset_pct", g.path("big_buy_premium_pct").asDouble(loc[a]));
+                if (initCap > 0) p.put("initial_capital", initCap);
+            }
+            case "momentum_rotation" -> {
+                int[] lookback = {252, 252, 126};   // 보수 길게 / 공격 짧게
+                int[] topn = {4, 3, 2};             // 공격일수록 집중
+                int[] reb = {63, 21, 21};           // 보수 분기 / 중립·공격 월간
+                String[] cash = {"SHY", "BIL", "BIL"};
+                p.put("lookback_days", lookback[a]);
+                p.put("skip_recent_days", 21);
+                p.put("top_n", topn[a]);
+                p.put("rebalance_days", reb[a]);
+                p.put("abs_momentum_gate", a <= 1);  // 보수·중립 게이트 ON, 공격 OFF(풀노출)
+                p.put("cash_asset", cash[a]);
+            }
+            case "value_rebalancing" -> {
+                int[] rd = {20, 10, 5};
+                double[] band = {0.25, 0.20, 0.15};
+                double[] er = {0.01, 0.02, 0.03};
+                double[] pool = {0.40, 0.50, 0.60};
+                p.put("rebalance_days", rd[a]);
+                p.put("band_pct", band[a]);
+                p.put("expected_return", er[a]);
+                p.put("pool_target_pct", pool[a]);
+                p.put("initial_pool_pct", pool[a]);
+                if (initCap > 0) p.put("initial_capital", initCap);
+            }
+            default -> { /* 화이트리스트 밖: 파라미터 없음(하위호환) */ }
+        }
+        return p;
+    }
+
+    /** initial_strategy_direction / risk_tolerance 로 기본 선택 후보 결정. */
+    private String pickSelectedCandidate(JsonNode g) {
+        String dir = g.path("initial_strategy_direction").asText("");
+        if (dir.contains("무한매수") || dir.toLowerCase().contains("infinite")) return "cand-1";
+        if (dir.contains("모멘텀") || dir.toLowerCase().contains("momentum")) return "cand-2";
+        if (dir.contains("변동성") || dir.contains("평균회귀") || dir.contains("리밸런싱")) return "cand-3";
+        int a = aggrIndex(g);
+        return a == 2 ? "cand-1" : (a == 0 ? "cand-3" : "cand-2");
     }
 
     // ═══════════════════════════════════════════ Backtest ════════════════════
@@ -780,6 +807,10 @@ public class AlphaHelixService {
             // 직접 지정(달력) 기간 — customParams 로 전달되면 [start,end] 구간만 백테스트
             if (customParams.get("start") != null) ibExtra.put("start", String.valueOf(customParams.get("start")));
             if (customParams.get("end") != null) ibExtra.put("end", String.valueOf(customParams.get("end")));
+            // 최적화/코드 편집 파라미터 오버라이드(스윕 가능) — cfg.parameters 보다 우선
+            for (String k : new String[]{"split", "take_profit_pct", "loc_offset_pct", "initial_capital"}) {
+                if (customParams.get(k) != null) ibExtra.put(k, customParams.get(k));
+            }
 
             JsonNode ib = analytics.infiniteBuying(tickers, ibExtra);
             ws.setLastBacktestJson(ib.toString());
@@ -832,6 +863,10 @@ public class AlphaHelixService {
             if (pms.path("initial_capital").isNumber()) vrExtra.put("initial_capital", pms.path("initial_capital").asDouble());
             if (customParams.get("start") != null) vrExtra.put("start", String.valueOf(customParams.get("start")));
             if (customParams.get("end") != null)   vrExtra.put("end",   String.valueOf(customParams.get("end")));
+            // 최적화/코드 편집 파라미터 오버라이드(스윕 가능) — cfg.parameters 보다 우선
+            for (String k : new String[]{"rebalance_days", "expected_return", "band_pct", "pool_target_pct", "initial_pool_pct", "initial_capital"}) {
+                if (customParams.get(k) != null) vrExtra.put(k, customParams.get(k));
+            }
 
             JsonNode vr = analytics.valueRebalancing(tickers, vrExtra);
             ws.setLastBacktestJson(vr.toString());
@@ -866,10 +901,64 @@ public class AlphaHelixService {
             return vr.toString();
         }
 
+        if ("momentum_rotation".equals(stype)) {
+            List<String> tickers = new ArrayList<>();
+            if (cfg.path("assets").isArray()) {
+                for (JsonNode a : cfg.path("assets")) tickers.add(normalizeTicker(a.asText()));
+            }
+            if (tickers.size() < 2) tickers = List.of("QQQ","XLK","XLF","XLE","XLV","XLY","TLT","GLD","SCHD","BIL");
+
+            Map<String, Object> momExtra = new HashMap<>();
+            momExtra.put("period", pickedPeriod);
+            JsonNode pms = cfg.path("parameters");
+            if (pms.path("lookback_days").isNumber())      momExtra.put("lookback_days",     pms.path("lookback_days").asInt());
+            if (pms.path("skip_recent_days").isNumber())   momExtra.put("skip_recent_days",  pms.path("skip_recent_days").asInt());
+            if (pms.path("top_n").isNumber())              momExtra.put("top_n",             pms.path("top_n").asInt());
+            if (pms.path("rebalance_days").isNumber())     momExtra.put("rebalance_days",    pms.path("rebalance_days").asInt());
+            if (pms.path("abs_momentum_gate").isBoolean()) momExtra.put("abs_momentum_gate", pms.path("abs_momentum_gate").asBoolean());
+            if (pms.path("cash_asset").isTextual())        momExtra.put("cash_asset",        pms.path("cash_asset").asText());
+            if (pms.path("initial_capital").isNumber())    momExtra.put("initial_capital",   pms.path("initial_capital").asDouble());
+            if (customParams.get("start") != null) momExtra.put("start", String.valueOf(customParams.get("start")));
+            if (customParams.get("end") != null)   momExtra.put("end",   String.valueOf(customParams.get("end")));
+            for (String k : new String[]{"lookback_days", "skip_recent_days", "top_n", "rebalance_days", "initial_capital"}) {
+                if (customParams.get(k) != null) momExtra.put(k, customParams.get(k));
+            }
+
+            JsonNode mom = analytics.momentumRotation(tickers, momExtra);
+            ws.setLastBacktestJson(mom.toString());
+            ws.setCodeJson(null);
+            if (!"LIVE".equals(ws.getStatus())) ws.setStatus("TESTED");
+            workspaceRepo.save(ws);
+            {
+                Map<String, Object> momPayload = new LinkedHashMap<>();
+                String momTitle = "섹터 모멘텀 로테이션 백테스트 완료";
+                momPayload.put("title", momTitle);
+                momPayload.put("strategy", "momentum_rotation");
+                JsonNode momRm = mom.path("risk_metrics");
+                if (!momRm.isMissingNode() && momRm.isObject()) {
+                    Map<String, Object> mmmap = new LinkedHashMap<>();
+                    for (String mk : List.of("return_pct","mdd_pct","vol_pct","sharpe","win_rate_pct","trades")) {
+                        if (momRm.has(mk)) mmmap.put(mk, momRm.get(mk).asDouble());
+                    }
+                    momPayload.put("metrics", mmmap);
+                }
+                String momPayloadJson = null;
+                try { momPayloadJson = om.writeValueAsString(momPayload); } catch (Exception ignored) {}
+                recordLog(ws.getId(), "SYSTEM", "BACKTEST_RUN", momTitle, momPayloadJson);
+            }
+            try {
+                notificationService.create(ws.getUser(), Notification.NotificationType.BACKTEST_COMPLETE,
+                        "백테스트 완료", "섹터 모멘텀 로테이션 백테스트가 완료되었습니다.",
+                        "WORKSPACE", ws.getId());
+            } catch (Exception e) {
+                log.warn("[Backtest] 알림 전송 실패 (무시): {}", e.getMessage());
+            }
+            return mom.toString();
+        }
+
         String ticker = cfg.path("assets").isArray() && cfg.path("assets").size() > 0
                 ? normalizeTicker(cfg.path("assets").get(0).asText("SPY")) : "SPY";
         String pyStrategy = switch (stype) {
-            case "momentum_rotation" -> "macd";
             default -> "sma_cross";
         };
 
@@ -1098,7 +1187,7 @@ public class AlphaHelixService {
         }
         String ticker = cfg.path("assets").isArray() && cfg.path("assets").size() > 0
                 ? normalizeTicker(cfg.path("assets").get(0).asText("SPY")) : "SPY";
-        String pyStrategy = "momentum_rotation".equals(stype) ? "macd" : "sma_cross";
+        String pyStrategy = "momentum_rotation".equals(stype) ? "momentum_rotation" : "sma_cross";
         Map<String, Object> extra = new HashMap<>();
         extra.put("period", period);
         for (String k : List.of("sma_fast", "sma_slow", "rsi_period", "rsi_low", "rsi_high",
@@ -1194,7 +1283,7 @@ public class AlphaHelixService {
                 + "\n목표: " + (goalJson == null ? "{}" : tail(goalJson, 600))
                 + "\n신뢰도(Trust): " + (trustJson == null ? "{}" : tail(trustJson, 400));
         try {
-            String raw = gateway.oneShot(uid, DEFAULT_MODEL, sys, user, true);
+            String raw = gateway.oneShot(uid, DEFAULT_MODEL, sys, user, true, "improve_proposal");
             JsonNode n = parseLlmJson(raw);
             if (n != null && n.isObject()) return n;
         } catch (Exception e) {
@@ -1243,6 +1332,42 @@ public class AlphaHelixService {
     private int num(Object o, int dflt) { return o instanceof Number ? ((Number) o).intValue() : dflt; }
     private static String tail(String s, int n) { return s == null ? "" : (s.length() > n ? s.substring(s.length() - n) : s); }
 
+    /** 백테스트 JSON에서 핵심 지표만 추출 (equity_curve·ticker_series 등 대용량 필드 제외). */
+    private String summarizeBacktestJson(String json) {
+        if (json == null || json.isBlank()) return "없음";
+        try {
+            JsonNode root = om.readTree(json);
+            java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+            for (String key : new String[]{"stats", "risk_metrics"}) {
+                JsonNode node = root.path(key);
+                if (node.isObject()) { out.put(key, node); break; }
+            }
+            for (String key : new String[]{"strategy", "ticker", "period", "sessions"}) {
+                JsonNode node = root.path(key);
+                if (!node.isMissingNode() && !node.isNull()) out.put(key, node);
+            }
+            return om.writeValueAsString(out);
+        } catch (Exception e) {
+            return tail(json, 500);
+        }
+    }
+
+    /** Trust JSON에서 score·component 요약만 추출. */
+    private String summarizeTrustJson(String json) {
+        if (json == null || json.isBlank()) return "없음";
+        try {
+            JsonNode root = om.readTree(json);
+            java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+            for (String key : new String[]{"trust_score", "score", "overall", "grade", "components", "reasons", "summary"}) {
+                JsonNode node = root.path(key);
+                if (!node.isMissingNode() && !node.isNull()) out.put(key, node);
+            }
+            return om.writeValueAsString(out);
+        } catch (Exception e) {
+            return tail(json, 500);
+        }
+    }
+
     // ═══════════════════════════════════════════ Regime ══════════════════════
 
     @Transactional
@@ -1251,7 +1376,7 @@ public class AlphaHelixService {
         return switch (stype) {
             case "infinite_buying"   -> "infinite_buying";
             case "value_rebalancing" -> "value_rebalancing";
-            case "momentum_rotation" -> "macd";
+            case "momentum_rotation" -> "momentum_rotation";
             default                  -> "sma_cross";
         };
     }
@@ -1431,6 +1556,7 @@ public class AlphaHelixService {
                         briefingUserPrompt(ws, tickers, sessionKind, sessionLabel),
                         "sonar-pro");
 
+                gateway.logExternalUsage(uid, "sonar-pro", ans.tokensIn(), ans.tokensOut(), true, null, "briefing_perplexity");
                 Map<String, Object> sections = parseSections(ans.content());
                 if (sections != null && !sections.isEmpty()) {
                     sections.put("sessionLabel", sessionLabel);
@@ -1441,9 +1567,18 @@ public class AlphaHelixService {
                 }
                 resp.put("liveNews", toLiveNews(ans.sources()));
                 recordLog(ws.getId(), "AI", "BRIEFING", "Living Briefing 생성 (Perplexity·" + sessionKind + ")", null);
+                try {
+                    notificationService.create(ws.getUser(), Notification.NotificationType.BRIEFING_GENERATED,
+                            "Living Briefing 도착",
+                            sessionLabel + " 브리핑이 생성되었습니다. 지금 확인해보세요.",
+                            "WORKSPACE", ws.getId());
+                } catch (Exception e) {
+                    log.warn("[Briefing] 알림 전송 실패 (무시): {}", e.getMessage());
+                }
                 return resp;
             } catch (Exception e) {
                 log.warn("Perplexity 브리핑 실패 → Gemini 폴백: {}", e.getMessage());
+                gateway.logExternalUsage(uid, "sonar-pro", 0, 0, false, e.getMessage(), "briefing_perplexity");
             }
         }
 
@@ -1460,12 +1595,20 @@ public class AlphaHelixService {
             - 권장 체크 1가지
             - 면책 한 줄("교육 목적, 투자 권유 아님")
             """;
-        String input = "Goal Profile:\n" + ws.getGoalProfileJson()
-                + "\n\nStrategy Config:\n" + ws.getStrategyConfigJson()
-                + "\n\nLast Backtest:\n" + ws.getLastBacktestJson()
-                + "\n\nLast Trust:\n" + ws.getLastTrustJson();
-        String text = callAi(uid, system, input);
+        String input = "Goal Profile:\n" + tail(ws.getGoalProfileJson(), 800)
+                + "\n\nStrategy Config:\n" + tail(ws.getStrategyConfigJson(), 800)
+                + "\n\nLast Backtest:\n" + summarizeBacktestJson(ws.getLastBacktestJson())
+                + "\n\nLast Trust:\n" + summarizeTrustJson(ws.getLastTrustJson());
+        String text = callAi(uid, system, input, "briefing_fallback");
         recordLog(ws.getId(), "AI", "BRIEFING", "Living Briefing 생성 (fallback)", null);
+        try {
+            notificationService.create(ws.getUser(), Notification.NotificationType.BRIEFING_GENERATED,
+                    "Living Briefing 도착",
+                    sessionLabel + " 브리핑이 생성되었습니다. 지금 확인해보세요.",
+                    "WORKSPACE", ws.getId());
+        } catch (Exception e) {
+            log.warn("[Briefing] 알림 전송 실패 (무시): {}", e.getMessage());
+        }
         resp.put("briefing", text);
         return resp;
     }
@@ -1561,10 +1704,10 @@ public class AlphaHelixService {
         return "세션: " + sessionLabel + "\n" + focus
                 + "\n\n사용자 포트폴리오 종목: " + tk
                 + "\n\n[전략 컨텍스트]"
-                + "\nGoal Profile: " + nz(ws.getGoalProfileJson())
-                + "\nStrategy Config: " + nz(ws.getStrategyConfigJson())
-                + "\nLast Backtest: " + nz(ws.getLastBacktestJson())
-                + "\nLast Trust: " + nz(ws.getLastTrustJson())
+                + "\nGoal Profile: " + tail(ws.getGoalProfileJson(), 800)
+                + "\nStrategy Config: " + tail(ws.getStrategyConfigJson(), 800)
+                + "\nLast Backtest: " + summarizeBacktestJson(ws.getLastBacktestJson())
+                + "\nLast Trust: " + summarizeTrustJson(ws.getLastTrustJson())
                 + "\n\n위 종목들과 미국 증시 전반의 '가장 최신' 이슈를 신뢰소스에서 검색해 스키마대로 JSON만 출력하라.";
     }
     private String nz(String s) { return (s == null || s.isBlank()) ? "(없음)" : s; }

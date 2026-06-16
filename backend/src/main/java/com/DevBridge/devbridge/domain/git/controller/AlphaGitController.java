@@ -125,6 +125,19 @@ public class AlphaGitController {
         }
     }
 
+    /** GitHub 예외 → 사용자 친화 메시지(원문 JSON 본문·개행 노출 방지, 401=PAT 재연결 안내). */
+    private String friendlyGitError(Exception ex) {
+        String m = (ex == null || ex.getMessage() == null) ? "" : ex.getMessage();
+        if (m.contains("401") || m.contains("Bad credentials"))
+            return "GitHub 인증 실패 (401) — 토큰이 만료되었거나 잘못되었습니다. Git 패널에서 PAT를 다시 연결하세요.";
+        if (m.contains("403")) return "GitHub 권한 부족 (403) — 토큰의 repo 권한을 확인하세요.";
+        if (m.contains("404")) return "GitHub 리소스를 찾을 수 없습니다 (404).";
+        if (m.contains("409") || m.toLowerCase().contains("conflict"))
+            return "변경 충돌 (409) — Pull 후 다시 시도하세요.";
+        String first = m.split("\\r?\\n")[0].replaceAll("\"\\{.*", "").trim();
+        return "GitHub 오류: " + (first.isEmpty() ? "요청을 처리하지 못했습니다." : first);
+    }
+
     // ─────────────────────────── 3. Workspace ↔ repo 매핑
 
     @PostMapping("/workspaces/{wsId}/git/link")
@@ -189,7 +202,7 @@ public class AlphaGitController {
         } catch (Exception ex) {
             log.warn("커밋 목록 조회 실패: {}", ex.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "GitHub API 오류: " + ex.getMessage()));
+                    .body(Map.of("error", friendlyGitError(ex)));
         }
     }
 
@@ -205,7 +218,7 @@ public class AlphaGitController {
         } catch (Exception ex) {
             log.warn("커밋 상세 조회 실패: {}", ex.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "GitHub API 오류: " + ex.getMessage()));
+                    .body(Map.of("error", friendlyGitError(ex)));
         }
     }
 
@@ -223,7 +236,7 @@ public class AlphaGitController {
         } catch (Exception ex) {
             log.warn("compare 조회 실패: {}", ex.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "GitHub API 오류: " + ex.getMessage()));
+                    .body(Map.of("error", friendlyGitError(ex)));
         }
     }
 
@@ -243,7 +256,7 @@ public class AlphaGitController {
         } catch (Exception ex) {
             log.warn("파일 트리 조회 실패: {}", ex.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "GitHub API 오류: " + ex.getMessage()));
+                    .body(Map.of("error", friendlyGitError(ex)));
         }
     }
 
@@ -263,7 +276,7 @@ public class AlphaGitController {
         } catch (Exception ex) {
             log.warn("파일 삭제 실패 {}: {}", path, ex.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "GitHub API 오류: " + ex.getMessage()));
+                    .body(Map.of("error", friendlyGitError(ex)));
         }
     }
 
@@ -286,7 +299,7 @@ public class AlphaGitController {
         } catch (Exception ex) {
             log.warn("파일 내용 조회 실패: {}", ex.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "GitHub API 오류: " + ex.getMessage()));
+                    .body(Map.of("error", friendlyGitError(ex)));
         }
     }
 

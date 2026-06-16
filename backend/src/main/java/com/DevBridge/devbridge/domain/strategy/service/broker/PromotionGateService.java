@@ -7,7 +7,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,10 +16,9 @@ import java.util.Map;
  *
  * REAL 계정의 tradingEnabled=true 전환을 허용하기 전 다음 조건을 강제한다:
  *   1) 같은 user에 MOCK 계정이 존재하고 tradingEnabled=true 였던 적 있음
- *   2) MOCK 계정 등록 후 14일 이상 경과 (mockVerifiedDays)
- *   3) MOCK으로 EXECUTED 상태 OrderProposal이 5건 이상
- *   4) MOCK EXEC_FAILED 비율 < 30%
- *   5) REAL 계정 자체 /test 통과 (lastVerifiedAt 존재)
+ *   2) MOCK으로 EXECUTED 상태 OrderProposal이 5건 이상
+ *   3) MOCK EXEC_FAILED 비율 < 30%
+ *   4) REAL 계정 자체 /test 통과 (lastVerifiedAt 존재)
  *
  * 모든 조건을 만족해야 REAL 거래 활성화 가능. 한 항목이라도 실패하면
  * 어떤 항목이 부족한지 정확한 사유를 반환한다.
@@ -30,7 +28,6 @@ import java.util.Map;
 @Slf4j
 public class PromotionGateService {
 
-    private static final int MIN_MOCK_DAYS = 14;
     private static final int MIN_MOCK_EXECUTED = 5;
     private static final double MAX_MOCK_FAIL_RATIO = 0.30;
 
@@ -75,18 +72,7 @@ public class PromotionGateService {
 
         // 이후 조건은 MOCK 존재할 때만 평가
         if (mockExists) {
-            // 3) MOCK 등록 후 N일 경과
-            long days = mock.getCreatedAt() == null ? 0
-                    : java.time.Duration.between(mock.getCreatedAt(), LocalDateTime.now()).toDays();
-            boolean enoughDays = days >= MIN_MOCK_DAYS;
-            checks.add(check("MOCK_DAYS",
-                    "MOCK 계정 사용 일수 ≥ " + MIN_MOCK_DAYS + "일",
-                    enoughDays,
-                    enoughDays
-                            ? "현재 " + days + "일"
-                            : "현재 " + days + "일 — " + (MIN_MOCK_DAYS - days) + "일 더 필요"));
-
-            // 4) MOCK으로 체결된 제안 수
+            // 3) MOCK으로 체결된 제안 수
             var mockProposals = proposalRepo.findByUserIdOrderByCreatedAtDesc(userId).stream()
                     .filter(p -> p.getBrokerAccountId().equals(mock.getId()))
                     .toList();

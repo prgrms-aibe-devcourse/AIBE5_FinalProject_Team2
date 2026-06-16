@@ -38,30 +38,30 @@ public class AiGatewayService {
     private final List<AiProvider> providers;
 
     /** 채팅 호출 — 최종 텍스트 반환. quota/provider 에러는 RuntimeException. */
-    public String chat(Long userId, String modelId, AiChatRequest request) {
+    public String chat(Long userId, String modelId, AiChatRequest request, String feature) {
         AiModelCatalog model = ensureUsable(userId, modelId);
         AiProvider provider = providerFor(model);
         AiProvider.Result result;
         try {
             result = provider.chat(model.getModelId(), request);
-            recordUsage(userId, modelId, result.tokensIn(), result.tokensOut(), true, null);
+            recordUsage(userId, modelId, result.tokensIn(), result.tokensOut(), true, null, feature);
             return result.text();
         } catch (RuntimeException e) {
-            recordUsage(userId, modelId, 0, 0, false, e.getMessage());
+            recordUsage(userId, modelId, 0, 0, false, e.getMessage(), feature);
             throw e;
         }
     }
 
-    public String oneShot(Long userId, String modelId, String systemInstruction, String userPrompt, boolean wantJson) {
+    public String oneShot(Long userId, String modelId, String systemInstruction, String userPrompt, boolean wantJson, String feature) {
         AiModelCatalog model = ensureUsable(userId, modelId);
         AiProvider provider = providerFor(model);
         AiProvider.Result result;
         try {
             result = provider.oneShot(model.getModelId(), systemInstruction, userPrompt, wantJson);
-            recordUsage(userId, modelId, result.tokensIn(), result.tokensOut(), true, null);
+            recordUsage(userId, modelId, result.tokensIn(), result.tokensOut(), true, null, feature);
             return result.text();
         } catch (RuntimeException e) {
-            recordUsage(userId, modelId, 0, 0, false, e.getMessage());
+            recordUsage(userId, modelId, 0, 0, false, e.getMessage(), feature);
             throw e;
         }
     }
@@ -139,7 +139,12 @@ public class AiGatewayService {
         return providers.stream().filter(p -> p.providerKey().equals(key)).findFirst();
     }
 
-    private void recordUsage(Long userId, String modelId, long tIn, long tOut, boolean ok, String err) {
+    /** Gateway를 거치지 않는 외부 직접 호출(Perplexity 등)의 사용 로그를 수동으로 기록한다. */
+    public void logExternalUsage(Long userId, String modelId, long tIn, long tOut, boolean ok, String err, String feature) {
+        recordUsage(userId, modelId, tIn, tOut, ok, err, feature);
+    }
+
+    private void recordUsage(Long userId, String modelId, long tIn, long tOut, boolean ok, String err, String feature) {
         try {
             usageRepo.save(AiUsageLog.builder()
                     .userId(userId)
@@ -148,6 +153,7 @@ public class AiGatewayService {
                     .tokensOut(tOut)
                     .success(ok)
                     .errorMessage(err == null ? null : err.substring(0, Math.min(err.length(), 500)))
+                    .feature(feature)
                     .build());
         } catch (Exception e) {
             log.warn("AiUsageLog 저장 실패 (무시): {}", e.getMessage());

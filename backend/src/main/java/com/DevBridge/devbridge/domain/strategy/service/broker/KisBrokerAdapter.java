@@ -4,6 +4,7 @@ import com.DevBridge.devbridge.domain.strategy.entity.BrokerAccount;
 import com.DevBridge.devbridge.domain.strategy.entity.OrderProposal;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -14,8 +15,17 @@ import java.util.Map;
  * KIS(한국투자증권 해외주식) 어댑터 — 기존 {@link KisApiClient} 를 그대로 위임. KIS 로직 무수정.
  *
  * <p>주문 정수화(주식은 정수 수량), KIS rt_cd/msg_cd → 정규화 OrderResult,
- * inquire-nccs 미체결조회 휴리스틱 → 정규화 FillResult 로 변환한다.
+ * inquire-ccnl(체결내역 CCLD_NCCS_DVSN=00) → 정규화 FillResult 로 변환한다.
+ *
+ * <p>체결 판정 규칙:
+ * <ul>
+ *   <li>목록에 있고 nccs_qty=0 → FILLED (전량 체결)</li>
+ *   <li>목록에 있고 nccs_qty &gt; 0 but filledQty &gt; 0 → PARTIAL (일부 체결)</li>
+ *   <li>목록에 있고 filledQty=0 → OPEN (미체결)</li>
+ *   <li>목록에 없음 → OPEN 유지 (접수 거부/취소 가능성, 섣불리 FILLED 처리 금지)</li>
+ * </ul>
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class KisBrokerAdapter implements Broker {
@@ -88,22 +98,41 @@ public class KisBrokerAdapter implements Broker {
         }
         String fillStatus;
         int filledQty;
+        BigDecimal avgPrice = null;
         if (match != null) {
             int orderQty = firstInt(match, "ft_ord_qty", "ord_qty", "ar_qty");
-            int nccsQty = firstInt(match, "nccs_qty", "rmn_qty", "ord_psbl_qty");
+            int nccsQty  = firstInt(match, "nccs_qty", "rmn_qty", "ord_psbl_qty");
             filledQty = Math.max(0, orderQty - nccsQty);
-            fillStatus = filledQty > 0 ? "PARTIAL" : "OPEN";
+            if (nccsQty == 0 && orderQty > 0) {
+                fillStatus = "FILLED";   // 미체결수량=0 → 전량 체결
+            } else if (filledQty > 0) {
+                fillStatus = "PARTIAL";  // 일부만 체결
+            } else {
+                fillStatus = "OPEN";     // 아직 미체결
+            }
+            // 평균 체결단가 (ft_ccld_unpr) — KIS 해외주식 주문체결내역에 포함됨
+            String unpr = firstStr(match, "ft_ccld_unpr", "avg_unpr");
+            if (!unpr.isEmpty() && !"0".equals(unpr)) {
+                try { avgPrice = new BigDecimal(unpr); } catch (Exception ignore) { }
+            }
         } else {
-            // 미체결 목록에 없음 → 전량 체결(또는 취소). EXECUTED 수락 주문이므로 FILLED 로 간주.
-            fillStatus = "FILLED";
-            filledQty = p.getQty() == null ? 0 : p.getQty();
+            // 오늘 주문내역(inquire-ccnl)에 없음 → 접수 거부/취소 가능성.
+            // 섣불리 FILLED로 판정하면 잘못된 체결 알림이 발생하므로 OPEN 유지.
+            log.warn("[KIS] 주문번호 {} 가 오늘 주문내역에 없음 — 접수 거부 또는 취소 가능성. OPEN 유지 (계속 폴링).", p.getKisOrderNo());
+            fillStatus = "OPEN";
+            filledQty  = 0;
         }
-        return FillResult.of(fillStatus, BigDecimal.valueOf(filledQty), null);
+        return FillResult.of(fillStatus, BigDecimal.valueOf(filledQty), avgPrice);
     }
 
     @Override
     public Map<String, Object> getBalance(BrokerAccount b) {
         return kis.getOverseasBalance(b);
+    }
+
+    @Override
+    public void invalidateBalanceCache(BrokerAccount b) {
+        kis.invalidateBalance(b);
     }
 
     @Override
@@ -118,6 +147,15 @@ public class KisBrokerAdapter implements Broker {
             if (s.matches("-?\\d+")) return Integer.parseInt(s);
         }
         return 0;
+    }
+
+    /** KIS 응답에서 여러 후보 키 중 첫 비어있지 않은 문자열 추출. */
+    private static String firstStr(JsonNode n, String... keys) {
+        for (String k : keys) {
+            String s = n.path(k).asText("").trim();
+            if (!s.isEmpty()) return s;
+        }
+        return "";
     }
 
     /** KIS msg_cd → 사용자 친화 메시지. */
