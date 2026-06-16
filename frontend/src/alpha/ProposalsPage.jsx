@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Inbox, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, RefreshCw, Plus, X,
+  Inbox, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, RefreshCw, Plus, X, Pencil,
 } from "lucide-react";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
-import { useLanguage } from "../i18n/LanguageContext";
-import { listProposals, approveProposal, rejectProposal, createProposal, listBrokerAccounts } from "./alphaApi";
+import { useLanguage } from "../i18n/useLanguage";
+import { listProposals, approveProposal, rejectProposal, createProposal, amendProposal, listBrokerAccounts } from "./alphaApi";
 import OrderConfirmModal from "./OrderConfirmModal";
+import OrderAmendModal from "./OrderAmendModal";
 
 /**
  * 자동주문 승인 큐.
@@ -37,6 +38,12 @@ export default function ProposalsPage() {
   const [confirming, setConfirming] = useState(null); // proposal
   const [modalErr, setModalErr] = useState(null);
 
+  // 주문 정정 모달 상태
+  const [amending, setAmending] = useState(null);     // proposal
+  const [amendErr, setAmendErr] = useState(null);
+  const [amendBusy, setAmendBusy] = useState(false);  // 정정 저장 중
+  const [cancelBusy, setCancelBusy] = useState(false); // 주문 취소(거절) 중
+
   // 수동 제안 생성 상태
   const [createOpen, setCreateOpen] = useState(false);
   const [brokerAccounts, setBrokerAccounts] = useState([]);
@@ -44,6 +51,7 @@ export default function ProposalsPage() {
   const [createBusy, setCreateBusy] = useState(false);
   const [createErr, setCreateErr] = useState(null);
   const [activeTab, setActiveTab] = useState("BUY");
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const rows = filter === "ALL" ? allRows : allRows.filter(r => r.status === filter);
   const filterCount = (s) => s === "ALL" ? allRows.length : allRows.filter(r => r.status === s).length;
@@ -65,6 +73,7 @@ export default function ProposalsPage() {
 
   const openCreate = async () => {
     setCreateErr(null);
+    setFieldErrors({});
     setForm(EMPTY_FORM);
     setActiveTab("BUY");
     setCreateOpen(true);
@@ -76,7 +85,13 @@ export default function ProposalsPage() {
 
   const onSubmitCreate = async (e) => {
     e.preventDefault();
-    if (!form.brokerAccountId || !form.ticker || !form.qty) return;
+    const errs = {};
+    if (!form.brokerAccountId) errs.brokerAccountId = "계좌를 선택해주세요";
+    if (!form.ticker) errs.ticker = "종목을 선택해주세요";
+    if (!form.qty || Number(form.qty) <= 0) errs.qty = "수량을 입력해주세요";
+    if (form.orderType !== "MARKET" && !form.limitPrice) errs.limitPrice = "단가를 입력해주세요";
+    if (Object.keys(errs).length > 0) { setFieldErrors(errs); return; }
+    setFieldErrors({});
     setCreateBusy(true);
     setCreateErr(null);
     const rationaleText = form.rationale.trim()
@@ -131,6 +146,43 @@ export default function ProposalsPage() {
       alert(t("proposals.rejectFailed").replace("{err}", e?.response?.data?.error || e.message));
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // ── 주문 정정 ──────────────────────────────────────────────
+  const onAmend = (p) => {
+    setAmendErr(null);
+    setAmending(p);
+  };
+
+  const onSaveAmend = async (fields) => {
+    if (!amending) return;
+    setAmendBusy(true);
+    setAmendErr(null);
+    try {
+      await amendProposal(amending.id, fields);
+      setAmending(null);
+      await load();
+    } catch (e) {
+      setAmendErr(e?.response?.data?.error || e.message);
+    } finally {
+      setAmendBusy(false);
+    }
+  };
+
+  // 주문 취소 = 큐에서 제거(거절 처리). 정정 모달 우측 버튼.
+  const onCancelOrder = async () => {
+    if (!amending) return;
+    setCancelBusy(true);
+    setAmendErr(null);
+    try {
+      await rejectProposal(amending.id, "주문 취소");
+      setAmending(null);
+      await load();
+    } catch (e) {
+      setAmendErr(e?.response?.data?.error || e.message);
+    } finally {
+      setCancelBusy(false);
     }
   };
 
@@ -281,6 +333,15 @@ export default function ProposalsPage() {
               </div>
               {isPending && (
                 <div className="prop-actions" style={{ display: "flex", gap: 6 }}>
+                  <button disabled={busyId === p.id} onClick={() => onAmend(p)}
+                    style={{
+                      background: "#fff", color: "#4338CA", fontWeight: 700, fontSize: 12,
+                      border: "1px solid #C7D2FE", borderRadius: 8, padding: "8px 12px",
+                      cursor: busyId === p.id ? "wait" : "pointer",
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                    }}>
+                    <Pencil size={12} /> {t("proposals.amend") || "주문 정정"}
+                  </button>
                   <button disabled={busyId === p.id} onClick={() => onApprove(p)}
                     style={{
                       background: "linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #6366f1 100%)",
@@ -326,6 +387,17 @@ export default function ProposalsPage() {
         onClose={() => { if (busyId !== confirming?.id) { setConfirming(null); setModalErr(null); } }}
       />
 
+      <OrderAmendModal
+        open={!!amending}
+        proposal={amending}
+        loading={amendBusy}
+        canceling={cancelBusy}
+        error={amendErr}
+        onSave={onSaveAmend}
+        onCancelOrder={onCancelOrder}
+        onClose={() => { if (!amendBusy && !cancelBusy) { setAmending(null); setAmendErr(null); } }}
+      />
+
       {/* 수동 제안 생성 모달 */}
       {createOpen && (() => {
         const isBuy = activeTab === "BUY";
@@ -352,24 +424,30 @@ export default function ProposalsPage() {
                   <div style={{ fontSize: 20, fontWeight: 800, color: "white", letterSpacing: -0.3 }}>수동 주문 제안</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  <select
-                    required value={form.brokerAccountId}
-                    onChange={e => setForm(f => ({ ...f, brokerAccountId: e.target.value, ticker: "" }))}
-                    style={{
-                      padding: "8px 12px", borderRadius: 9,
-                      border: "1px solid rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.07)",
-                      color: form.brokerAccountId ? "#E2E8F0" : "#64748B",
-                      fontSize: 12.5, fontWeight: 600, outline: "none", cursor: "pointer", maxWidth: 200,
-                    }}
-                  >
-                    <option value="" style={{ color: "#0F172A" }}>계좌 선택 *</option>
-                    {brokerAccounts.map(a => (
-                      <option key={a.id} value={a.id} style={{ color: "#0F172A" }}>
-                        [{a.env}] {a.brokerType} {a.accountAlias || a.accountNumber || `#${a.id}`}
-                        {a.tradingEnabled ? "" : " (거래 비활성)"}
-                      </option>
-                    ))}
-                  </select>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                    <select
+                      required value={form.brokerAccountId}
+                      onChange={e => { setForm(f => ({ ...f, brokerAccountId: e.target.value, ticker: "" })); setFieldErrors(fe => { const { brokerAccountId: _, ...rest } = fe; return rest; }); }}
+                      style={{
+                        padding: "8px 12px", borderRadius: 9,
+                        border: fieldErrors.brokerAccountId ? "1.5px solid #EF4444" : "1px solid rgba(255,255,255,0.1)",
+                        background: fieldErrors.brokerAccountId ? "rgba(239,68,68,0.15)" : "rgba(255,255,255,0.07)",
+                        color: form.brokerAccountId ? "#E2E8F0" : "#64748B",
+                        fontSize: 12.5, fontWeight: 600, outline: "none", cursor: "pointer", maxWidth: 200,
+                      }}
+                    >
+                      <option value="" style={{ color: "#0F172A" }}>계좌 선택 *</option>
+                      {brokerAccounts.map(a => (
+                        <option key={a.id} value={a.id} style={{ color: "#0F172A" }}>
+                          [{a.env}] {a.brokerType} {a.accountAlias || a.accountNumber || `#${a.id}`}
+                          {a.tradingEnabled ? "" : " (거래 비활성)"}
+                        </option>
+                      ))}
+                    </select>
+                    {fieldErrors.brokerAccountId && (
+                      <span style={{ fontSize: 11, color: "#FCA5A5", fontWeight: 600 }}>⚠ {fieldErrors.brokerAccountId}</span>
+                    )}
+                  </div>
                   <button onClick={() => !createBusy && setCreateOpen(false)} style={{
                     width: 32, height: 32, borderRadius: 9, border: "1px solid rgba(255,255,255,0.1)",
                     background: "rgba(255,255,255,0.05)", cursor: "pointer",
@@ -414,12 +492,15 @@ export default function ProposalsPage() {
                   {/* 종목 */}
                   <div style={{ marginBottom: 13 }}>
                     <label style={mLabelStyle}>종목 <span style={{ color: "#EF4444" }}>*</span></label>
-                    <select required value={form.ticker} onChange={e => setForm(f => ({ ...f, ticker: e.target.value }))} style={mInputStyle}>
+                    <select required value={form.ticker}
+                      onChange={e => { setForm(f => ({ ...f, ticker: e.target.value })); setFieldErrors(fe => { const { ticker: _, ...rest } = fe; return rest; }); }}
+                      style={{ ...mInputStyle, borderColor: fieldErrors.ticker ? "#EF4444" : "#E2E8F0", background: fieldErrors.ticker ? "#FFF5F5" : "#FAFAFA" }}>
                       <option value="">종목 선택</option>
                       {(brokerAccounts.find(a => String(a.id) === String(form.brokerAccountId))?.brokerType === "BINANCE"
                         ? CRYPTO_LIST : TICKER_LIST
                       ).map(tk => <option key={tk.value} value={tk.value}>{tk.value} — {tk.name}</option>)}
                     </select>
+                    {fieldErrors.ticker && <span style={{ fontSize: 11, color: "#EF4444", marginTop: 4, display: "block" }}>⚠ {fieldErrors.ticker}</span>}
                   </div>
 
                   {/* 주문유형 */}
@@ -460,13 +541,19 @@ export default function ProposalsPage() {
                     <div>
                       <label style={mLabelStyle}>수량 <span style={{ color: "#EF4444" }}>*</span></label>
                       <input required type="number" step="any" min="0.0001" placeholder="0"
-                        value={form.qty} onChange={e => setForm(f => ({ ...f, qty: e.target.value }))} style={mInputStyle} />
+                        value={form.qty}
+                        onChange={e => { setForm(f => ({ ...f, qty: e.target.value })); setFieldErrors(fe => { const { qty: _, ...rest } = fe; return rest; }); }}
+                        style={{ ...mInputStyle, borderColor: fieldErrors.qty ? "#EF4444" : "#E2E8F0", background: fieldErrors.qty ? "#FFF5F5" : "#FAFAFA" }} />
+                      {fieldErrors.qty && <span style={{ fontSize: 11, color: "#EF4444", marginTop: 4, display: "block" }}>⚠ {fieldErrors.qty}</span>}
                     </div>
                     {form.orderType !== "MARKET" && (
                       <div>
                         <label style={mLabelStyle}>단가 <span style={{ color: "#EF4444" }}>*</span></label>
                         <input required type="number" step="any" min="0" placeholder="0.00"
-                          value={form.limitPrice} onChange={e => setForm(f => ({ ...f, limitPrice: e.target.value }))} style={mInputStyle} />
+                          value={form.limitPrice}
+                          onChange={e => { setForm(f => ({ ...f, limitPrice: e.target.value })); setFieldErrors(fe => { const { limitPrice: _, ...rest } = fe; return rest; }); }}
+                          style={{ ...mInputStyle, borderColor: fieldErrors.limitPrice ? "#EF4444" : "#E2E8F0", background: fieldErrors.limitPrice ? "#FFF5F5" : "#FAFAFA" }} />
+                        {fieldErrors.limitPrice && <span style={{ fontSize: 11, color: "#EF4444", marginTop: 4, display: "block" }}>⚠ {fieldErrors.limitPrice}</span>}
                       </div>
                     )}
                   </div>

@@ -135,6 +135,8 @@ export const getPendingCount     = () => api.get("/proposals/pending-count").the
 export const createProposal      = (body) => api.post("/proposals", body).then(r => r.data);
 export const approveProposal     = (id) => api.post(`/proposals/${id}/approve`).then(r => r.data);
 export const rejectProposal      = (id, reason) => api.post(`/proposals/${id}/reject`, { reason }).then(r => r.data);
+// 주문 정정 — PENDING 제안의 수량/단가/주문유형/방향/사유 부분 수정 (들어온 키만 갱신)
+export const amendProposal       = (id, body) => api.patch(`/proposals/${id}`, body).then(r => r.data);
 
 // Quant Developer IDE Git 연동
 export const getGitStatus            = () => api.get("/alpha/git/status").then(r => r.data);
