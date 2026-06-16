@@ -6,13 +6,15 @@
  * 색상은 우리 웹 컨벤션(이익 초록/손실 빨강) + 브랜드 블루 헤더.
  * account 페이지(/alpha/account)는 별도로 브로커 등록/관리 전용 유지.
  */
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { CircleDollarSign } from "lucide-react";
 import { listBrokerAccounts, getBrokerBalance } from "./alphaApi";
 import { summarizeBalance } from "./balance/util";
 import AssetsTab from "./balance/AssetsTab";
 import BalancePnlTab from "./balance/BalancePnlTab";
 import TradesTab from "./balance/TradesTab";
+import { useNotificationStore } from "../store/useNotificationStore";
+import { brokerCache } from "./brokerCache";
 
 const TABS = ["종합 자산", "잔고·손익", "매매 내역"];
 
@@ -20,22 +22,57 @@ export default function BalanceAccountPage() {
   const [tab, setTab] = useState("종합 자산");
   const [accountsData, setAccountsData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // 주문 체결 알림이 새로 오면 자동 재조회
+  const orderFillCount = useNotificationStore(
+    (s) => s.notifications.filter((n) => n.type === "order").length
+  );
+  const prevOrderFillCount = useRef(orderFillCount);
 
   const reload = useCallback(async () => {
-    setLoading(true);
+    // 캐시된 계좌 목록이 있으면 즉시 표시 (스피너 없이)
+    const cachedAccts = brokerCache.getAccounts();
+    if (cachedAccts && cachedAccts.length > 0) {
+      const cachedRes = cachedAccts.map((acct) => {
+        const bal = brokerCache.getBalance(acct.env, acct.brokerType);
+        return { acct, bal, sum: summarizeBalance(bal, acct.brokerType) };
+      });
+      setAccountsData(cachedRes);
+      setLoading(false);
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
     try {
       const accts = await listBrokerAccounts();
       const list = Array.isArray(accts) ? accts : [];
+      brokerCache.setAccounts(list);
       const res = await Promise.all(list.map(async (acct) => {
-        try { const bal = await getBrokerBalance(acct.env, acct.brokerType); return { acct, bal, sum: summarizeBalance(bal, acct.brokerType) }; }
-        catch { return { acct, bal: null, sum: summarizeBalance(null, acct.brokerType) }; }
+        try {
+          const bal = await getBrokerBalance(acct.env, acct.brokerType);
+          brokerCache.setBalance(acct.env, acct.brokerType, bal);
+          return { acct, bal, sum: summarizeBalance(bal, acct.brokerType) };
+        } catch {
+          const cached = brokerCache.getBalance(acct.env, acct.brokerType);
+          return { acct, bal: cached ?? null, sum: summarizeBalance(cached ?? null, acct.brokerType) };
+        }
       }));
       setAccountsData(res);
     } catch { setAccountsData([]); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setRefreshing(false); }
   }, []);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // 체결 알림 수가 늘어나면 잔고 자동 재조회
+  useEffect(() => {
+    if (orderFillCount > prevOrderFillCount.current) {
+      reload();
+    }
+    prevOrderFillCount.current = orderFillCount;
+  }, [orderFillCount, reload]);
 
   return (
     <div style={{ padding: "36px 40px 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
@@ -76,8 +113,8 @@ export default function BalanceAccountPage() {
           ))}
         </div>
 
-        {tab === "종합 자산" && <AssetsTab accountsData={accountsData} loading={loading} onReload={reload} />}
-        {tab === "잔고·손익" && <BalancePnlTab accountsData={accountsData} />}
+        {tab === "종합 자산" && <AssetsTab accountsData={accountsData} loading={loading} refreshing={refreshing} onReload={reload} />}
+        {tab === "잔고·손익" && <BalancePnlTab accountsData={accountsData} refreshing={refreshing} />}
         {tab === "매매 내역" && <TradesTab accountsData={accountsData} />}
       </div>
     </div>

@@ -41,12 +41,13 @@ export default function BalancePnlTab({ accountsData }) {
     for (const o of list) {
       const t = o.ticker; const qty = Number(o.qtyDecimal ?? o.qty); const price = Number(o.limitPrice);
       if (!t || !(qty > 0) || !(price >= 0)) continue;
-      if (o.side === "BUY") (lots[t] = lots[t] || []).push({ qty, price });
+      if (o.side === "BUY") (lots[t] = lots[t] || []).push({ qty, price, stockName: o.stockName });
       else if (o.side === "SELL") {
         let remain = qty; const q = lots[t] || [];
+        const sn = o.stockName || (q[0] && q[0].stockName) || null;
         while (remain > 1e-9 && q.length) {
           const lot = q[0]; const m = Math.min(remain, lot.qty);
-          closed.push({ ticker: t, qty: m, buy: lot.price, sell: price, pnl: (price - lot.price) * m, date: (o.createdAt || "").slice(0, 10), name: o.ticker });
+          closed.push({ ticker: t, stockName: sn || lot.stockName || null, qty: m, buy: lot.price, sell: price, pnl: (price - lot.price) * m, date: (o.createdAt || "").slice(0, 10) });
           lot.qty -= m; remain -= m; if (lot.qty <= 1e-9) q.shift();
         }
       }
@@ -54,7 +55,8 @@ export default function BalancePnlTab({ accountsData }) {
     const inRange = closed.filter((c) => (!from || c.date >= from) && (!to || c.date <= to));
     const byMap = {};
     for (const c of inRange) {
-      byMap[c.ticker] = byMap[c.ticker] || { ticker: c.ticker, pnl: 0, qty: 0, sellAmt: 0, buyAmt: 0 };
+      byMap[c.ticker] = byMap[c.ticker] || { ticker: c.ticker, stockName: c.stockName || null, pnl: 0, qty: 0, sellAmt: 0, buyAmt: 0 };
+      if (!byMap[c.ticker].stockName && c.stockName) byMap[c.ticker].stockName = c.stockName;
       byMap[c.ticker].pnl += c.pnl; byMap[c.ticker].qty += c.qty; byMap[c.ticker].sellAmt += c.sell * c.qty; byMap[c.ticker].buyAmt += c.buy * c.qty;
     }
     const byTicker = Object.values(byMap).map((r) => ({ ...r, sellAvg: r.sellAmt / r.qty, buyAvg: r.buyAmt / r.qty, pct: r.buyAmt > 0 ? (r.pnl / r.buyAmt) * 100 : 0 }));
@@ -112,9 +114,32 @@ function BalanceSub({ data }) {
     <div style={{ overflowX: "auto", border: "1px solid #E2E8F0", borderRadius: 12, background: "white" }}>
       <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
         <thead><tr style={{ background: "#F8FAFC" }}><th style={{ ...th, textAlign: "left" }}>종목명</th><th style={th}>보유수량</th><th style={th}>매수단가</th><th style={th}>현재가</th><th style={th}>평가금액</th><th style={th}>평가손익</th></tr></thead>
-        <tbody>{data.sum.positions.map((p, i) => (
-          <tr key={i}><td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{p.name}</td><td style={td}>{p.qty}</td><td style={td}>${p.avg.toFixed(2)}</td><td style={td}>${p.now.toFixed(2)}</td><td style={{ ...td, fontWeight: 700 }}>${p.mv.toFixed(2)}</td><td style={{ ...td, color: pnlColor(p.pnl), fontWeight: 700 }}>{p.pnl >= 0 ? "+" : ""}${p.pnl.toFixed(2)}<br /><span style={{ fontSize: 11 }}>({fmtPct(p.pct)})</span></td></tr>
-        ))}</tbody>
+        <tbody>{data.sum.positions.map((p, i) => {
+          const isKrw = p.currency === "KRW";
+          const f = (v) => isKrw
+            ? `₩${Math.round(v).toLocaleString("ko-KR")}`
+            : `$${Number(v).toFixed(2)}`;
+          const fPnl = (v) => isKrw
+            ? `${v >= 0 ? "+" : "-"}₩${Math.abs(Math.round(v)).toLocaleString("ko-KR")}`
+            : `${v >= 0 ? "+" : ""}$${Number(v).toFixed(2)}`;
+          const nameLabel = p.name && p.name !== p.ticker ? p.name : p.ticker;
+          const codeLabel = p.name && p.name !== p.ticker ? ` (${p.ticker})` : "";
+          return (
+            <tr key={i}>
+              <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>
+                {nameLabel}<span style={{ fontSize: 10, color: "#64748B", fontWeight: 500 }}>{codeLabel}</span>
+                {isKrw && <span style={{ fontSize: 10, marginLeft: 4, color: "#6366f1", fontWeight: 600 }}>KRW</span>}
+              </td>
+              <td style={td}>{p.qty}</td>
+              <td style={td}>{f(p.avg)}</td>
+              <td style={td}>{f(p.now)}</td>
+              <td style={{ ...td, fontWeight: 700 }}>{f(p.mv)}</td>
+              <td style={{ ...td, color: pnlColor(p.pnl), fontWeight: 700 }}>
+                {fPnl(p.pnl)}<br /><span style={{ fontSize: 11 }}>({fmtPct(p.pct)})</span>
+              </td>
+            </tr>
+          );
+        })}</tbody>
       </table>
     </div>
   );
@@ -132,9 +157,20 @@ function RealizedSub({ realized, fmtMoney }) {
         <div style={{ overflowX: "auto", border: "1px solid #E2E8F0", borderRadius: 12, background: "white" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
             <thead><tr style={{ background: "#F8FAFC" }}><th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "left" }}>종목명</th><th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "right" }}>순손익금액(수익률)</th><th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "right" }}>매도평균가</th><th style={{ padding: "8px 10px", fontSize: 11, color: "#94A3B8", fontWeight: 700, textAlign: "right" }}>매수평균가</th></tr></thead>
-            <tbody>{realized.byTicker.map((r, i) => (
-              <tr key={i}><td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{r.ticker}</td><td style={{ ...td, color: pnlColor(r.pnl), fontWeight: 700 }}>{fmtMoney(r.pnl)}<br /><span style={{ fontSize: 11 }}>({fmtPct(r.pct)})</span></td><td style={td}>${r.sellAvg.toFixed(2)}</td><td style={td}>${r.buyAvg.toFixed(2)}</td></tr>
-            ))}</tbody>
+            <tbody>{realized.byTicker.map((r, i) => {
+              const nameLabel = r.stockName ? r.stockName : r.ticker;
+              const codeLabel = r.stockName ? ` (${r.ticker})` : "";
+              return (
+                <tr key={i}>
+                  <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>
+                    {nameLabel}<span style={{ fontSize: 10, color: "#64748B", fontWeight: 500 }}>{codeLabel}</span>
+                  </td>
+                  <td style={{ ...td, color: pnlColor(r.pnl), fontWeight: 700 }}>{fmtMoney(r.pnl)}<br /><span style={{ fontSize: 11 }}>({fmtPct(r.pct)})</span></td>
+                  <td style={td}>${r.sellAvg.toFixed(2)}</td>
+                  <td style={td}>${r.buyAvg.toFixed(2)}</td>
+                </tr>
+              );
+            })}</tbody>
           </table>
         </div>
       )}

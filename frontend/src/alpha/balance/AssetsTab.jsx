@@ -2,12 +2,12 @@ import { useState } from "react";
 import { ChevronLeft, LayoutGrid, List, RefreshCw, MoreVertical, ArrowRightLeft, Receipt, ShoppingCart } from "lucide-react";
 import {
   BRAND, pnlColor, fmtKrw, fmtUsd, fmtPct, fmtSigned, acctLabel, acctCurrency,
-  summarizeBalance, acctTotalKrw,
+  summarizeBalance, acctTotalKrw, FX_KRW_PER_USD,
 } from "./util";
 import StockOrderView from "./StockOrderView";
 
 /** 종합 자산 — 개요(계좌별) → 계좌 상세(보유종목, 표/카드) → 종목 주문 */
-export default function AssetsTab({ accountsData, loading, onReload }) {
+export default function AssetsTab({ accountsData, loading, refreshing, onReload }) {
   const [view, setView] = useState({ name: "overview" });
 
   if (view.name === "detail") {
@@ -18,12 +18,12 @@ export default function AssetsTab({ accountsData, loading, onReload }) {
     return <StockOrderView acct={view.acct} position={view.position}
       onBack={() => setView({ name: "overview" })} onReload={onReload} />;
   }
-  return <Overview accountsData={accountsData} loading={loading} onReload={onReload}
+  return <Overview accountsData={accountsData} loading={loading} refreshing={refreshing} onReload={onReload}
     onOpen={(d) => setView({ name: "detail", data: d })} />;
 }
 
 /** 이미지1 — 자산 개요(계좌별 카드) */
-function Overview({ accountsData, loading, onReload, onOpen }) {
+function Overview({ accountsData, loading, refreshing, onReload, onOpen }) {
   const totalKrw = accountsData.reduce((s, d) => s + acctTotalKrw(d.sum), 0);
   const pnlUsd = accountsData.reduce((s, d) => s + d.sum.pnl, 0);
   const costUsd = accountsData.reduce((s, d) => s + d.sum.cost, 0);
@@ -47,7 +47,11 @@ function Overview({ accountsData, loading, onReload, onOpen }) {
         <span style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>계좌별</span>
         <span style={{ fontSize: 14, color: "#94A3B8" }}>종목별</span>
         <span style={{ fontSize: 14, color: "#94A3B8" }}>현금</span>
-        <button onClick={onReload} title="새로고침" style={iconBtn}><RefreshCw size={16} /></button>
+        <button onClick={onReload} title="새로고침" style={iconBtn}>
+          <RefreshCw size={16} style={refreshing ? { animation: "spin 1s linear infinite" } : {}} />
+        </button>
+        {refreshing && <span style={{ fontSize: 11, color: "#94A3B8" }}>갱신 중…</span>}
+        <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
       </div>
 
       {loading ? <div style={{ color: "#64748B", padding: 20 }}>불러오는 중…</div>
@@ -60,7 +64,7 @@ function Overview({ accountsData, loading, onReload, onOpen }) {
 function AccountCard({ data, onOpen }) {
   const { acct, sum, bal } = data;
   const cur = acctCurrency(acct.brokerType);
-  const totalCur = sum.mv + sum.cashUsd; // 계좌 통화 기준 총평가
+  const totalCur = sum.mv + sum.cashUsd + sum.cashKrw / FX_KRW_PER_USD;
   const fail = !bal;
   return (
     <div style={{ border: "1px solid #E2E8F0", borderRadius: 14, padding: "16px 18px", marginBottom: 12, background: "white", boxShadow: "0 2px 10px rgba(15,23,42,0.04)" }}>
@@ -100,7 +104,7 @@ function AccountDetail({ data, onBack, onOrder }) {
   const { acct, sum } = data;
   const [mode, setMode] = useState("card"); // card(이미지4) | table(이미지2/3)
   const cur = acctCurrency(acct.brokerType);
-  const totalCur = sum.mv + sum.cashUsd;
+  const totalCur = sum.mv + sum.cashUsd + sum.cashKrw / FX_KRW_PER_USD;
 
   return (
     <div>
@@ -128,16 +132,26 @@ function AccountDetail({ data, onBack, onOrder }) {
 }
 
 function HoldingCard({ p, cur, brokerType, onClick }) {
-  const kind = brokerType === "BINANCE" ? "크립토" : "해외주식";
+  const isKrw = p.currency === "KRW";
+  const kind = brokerType === "BINANCE" ? "크립토" : isKrw ? "국내주식" : "해외주식";
+  const mvFmt = isKrw ? fmtKrw(p.mv) : fmtUsd(p.mv);
+  const pnlFmt = isKrw
+    ? `${p.pnl >= 0 ? "+" : "-"}₩${Math.abs(Math.round(p.pnl)).toLocaleString()}`
+    : fmtSigned(p.pnl);
+  // 이름이 티커와 다를 때만 "(코드)" 표시 (예: "삼성전자(005930)", "Apple Inc.(AAPL)")
+  const nameLabel = p.name && p.name !== p.ticker ? p.name : p.ticker;
+  const codeLabel = p.name && p.name !== p.ticker ? `(${p.ticker})` : "";
   return (
     <div onClick={onClick} style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 16px", marginBottom: 10, background: "white", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
       <div>
-        <div style={{ fontSize: 14.5, fontWeight: 800, color: "#0f172a" }}>{p.name}</div>
-        <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 2 }}>{kind} {p.qty}{cur === "USDT" ? "" : "주"}</div>
+        <div style={{ fontSize: 14.5, fontWeight: 800, color: "#0f172a" }}>
+          {nameLabel}<span style={{ fontSize: 12, fontWeight: 500, color: "#64748B", marginLeft: 4 }}>{codeLabel}</span>
+        </div>
+        <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 2 }}>{kind} · {p.qty}{cur === "USDT" ? "" : "주"}</div>
       </div>
       <div style={{ textAlign: "right" }}>
-        <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>{fmtUsd(p.mv)}</div>
-        <div style={{ fontSize: 12.5, fontWeight: 700, color: pnlColor(p.pnl) }}>{fmtSigned(p.pnl)} ({fmtPct(p.pct)})</div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>{mvFmt}</div>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: pnlColor(p.pnl) }}>{pnlFmt} ({fmtPct(p.pct)})</div>
       </div>
     </div>
   );
@@ -152,18 +166,31 @@ function HoldingTable({ positions, onRow }) {
         <thead><tr style={{ background: "#F8FAFC" }}>
           <th style={{ ...th, textAlign: "left" }}>종목명</th><th style={th}>보유수량</th><th style={th}>매수단가</th><th style={th}>현재가</th><th style={th}>평가금액</th><th style={th}>평가손익(수익률)</th>
         </tr></thead>
-        <tbody>{positions.map((p, i) => (
-          <tr key={i} onClick={() => onRow(p)} style={{ cursor: "pointer" }}
-            onMouseEnter={(e) => e.currentTarget.style.background = "#F8FAFC"}
-            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
-            <td style={{ ...td, textAlign: "left", fontWeight: 700, color: "#0f172a" }}>{p.name}</td>
-            <td style={td}>{p.qty}</td>
-            <td style={td}>{fmtUsd(p.avg)}</td>
-            <td style={td}>{fmtUsd(p.now)}</td>
-            <td style={{ ...td, fontWeight: 700 }}>{fmtUsd(p.mv)}</td>
-            <td style={{ ...td, color: pnlColor(p.pnl), fontWeight: 700 }}>{fmtSigned(p.pnl)}<br /><span style={{ fontSize: 11 }}>({fmtPct(p.pct)})</span></td>
-          </tr>
-        ))}</tbody>
+        <tbody>{positions.map((p, i) => {
+          const isKrw = p.currency === "KRW";
+          const f = (v) => isKrw ? fmtKrw(v) : fmtUsd(v);
+          const fPnl = isKrw
+            ? `${p.pnl >= 0 ? "+" : "-"}₩${Math.abs(Math.round(p.pnl)).toLocaleString()}`
+            : fmtSigned(p.pnl);
+          return (
+            <tr key={i} onClick={() => onRow(p)} style={{ cursor: "pointer" }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#F8FAFC"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+              <td style={{ ...td, textAlign: "left", fontWeight: 700, color: "#0f172a" }}>
+                {p.name && p.name !== p.ticker ? p.name : p.ticker}
+                <span style={{ fontSize: 10, marginLeft: 4, color: "#64748B", fontWeight: 500 }}>
+                  {p.name && p.name !== p.ticker ? `(${p.ticker})` : ""}
+                </span>
+                {isKrw && <span style={{ fontSize: 10, marginLeft: 4, color: "#6366f1", fontWeight: 600 }}>KRW</span>}
+              </td>
+              <td style={td}>{p.qty}</td>
+              <td style={td}>{f(p.avg)}</td>
+              <td style={td}>{f(p.now)}</td>
+              <td style={{ ...td, fontWeight: 700 }}>{f(p.mv)}</td>
+              <td style={{ ...td, color: pnlColor(p.pnl), fontWeight: 700 }}>{fPnl}<br /><span style={{ fontSize: 11 }}>({fmtPct(p.pct)})</span></td>
+            </tr>
+          );
+        })}</tbody>
       </table>
     </div>
   );

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Wallet } from "lucide-react";
 import binanceLogo from "../assets/binance.png";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
-import { useLanguage } from "../i18n/LanguageContext";
+import { useLanguage } from "../i18n/useLanguage";
 import {
   listBrokerAccounts, upsertBrokerAccount, deleteBrokerAccount,
   testBrokerAccount, setBrokerTrading, setBrokerAutoExecute, getPromotionGate,
@@ -10,6 +10,7 @@ import {
   previewBrokerOrder, placeBrokerOrder, getBrokerQuote,
   testBinanceAccount, getBinanceBalance,
 } from "./alphaApi";
+import { brokerCache } from "./brokerCache";
 
 /**
  * 계좌 페이지 — KIS(한국투자증권) + Binance 모의/실전 동시 등록·관리.
@@ -43,11 +44,19 @@ export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
   );
 
   const reload = async () => {
+    // 캐시된 계좌 목록이 있으면 즉시 표시 (loading 상태 스킵)
+    const cached = brokerCache.getAccounts();
+    if (cached) {
+      setAccounts(cached);
+      setLoading(false);
+    }
     try {
       const list = await listBrokerAccounts();
-      setAccounts(Array.isArray(list) ? list : []);
+      const arr = Array.isArray(list) ? list : [];
+      brokerCache.setAccounts(arr);
+      setAccounts(arr);
     } catch (e) {
-      setMsg({ type: "err", text: "계좌 조회 실패: " + (e?.response?.data?.error || e.message) });
+      if (!cached) setMsg({ type: "err", text: "계좌 조회 실패: " + (e?.response?.data?.error || e.message) });
     } finally {
       setLoading(false);
     }
@@ -284,7 +293,7 @@ function AccountRegister({ theme, env, accounts = [], reload, setMsg }) {
             onChange={e => setForm(f => ({ ...f, appKey: e.target.value }))} required />
         </Field>
         <Field label={`App Secret (${env === "MOCK" ? "모의" : "실전"}용, 180자+)`} col={2}>
-          <input type="text" style={{ ...inp(theme), fontFamily: "monospace", fontSize: 11 }}
+          <input type="text" style={inp(theme)}
             value={form.appSecret} name={`appsecret-${env}`}
             autoComplete="off" spellCheck="false" autoCorrect="off"
             placeholder="KIS에서 복사한 App Secret 전체를 붙여넣으세요"
@@ -326,21 +335,34 @@ function AccountRegister({ theme, env, accounts = [], reload, setMsg }) {
 
 /* ───────────────────────────────────────────── 활성 계좌 */
 function AccountActive({ theme, env, acct, reload, setMsg }) {
-  const [balance, setBalance] = useState(null);
-  const [orders, setOrders] = useState(null);
+  // 캐시 hit 시 즉시 표시 (null 초기화 없음)
+  const [balance, setBalance] = useState(() => brokerCache.getBalance(env, "KIS"));
+  const [orders, setOrders] = useState(() => brokerCache.getOrders(env));
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [gate, setGate] = useState(null); // { passed, summary, checks } — REAL 계정에만 로드
 
-  const refresh = async () => {
+  const refresh = async ({ silent = false } = {}) => {
+    if (!silent) setRefreshing(true);
     try {
       const [b, o] = await Promise.all([
         getBrokerBalance(env).catch(() => null),
         getBrokerOrdersToday(env).catch(() => null),
       ]);
-      setBalance(b); setOrders(o);
+      if (b) { brokerCache.setBalance(env, "KIS", b); setBalance(b); }
+      if (o) { brokerCache.setOrders(env, o); setOrders(o); }
     } catch {}
+    finally { setRefreshing(false); }
   };
-  useEffect(() => { setBalance(null); setOrders(null); if (acct.lastVerifiedAt) refresh(); }, [env, acct.id, acct.lastVerifiedAt]);
+
+  useEffect(() => {
+    // 환경/계좌 전환 시 해당 캐시로 즉시 업데이트
+    const cachedBal = brokerCache.getBalance(env, "KIS");
+    const cachedOrd = brokerCache.getOrders(env);
+    setBalance(cachedBal ?? null);
+    setOrders(cachedOrd ?? null);
+    if (acct.lastVerifiedAt) refresh({ silent: !!cachedBal });
+  }, [env, acct.id, acct.lastVerifiedAt]);
 
   // REAL 계정 선택 시 승격 게이트 현황 자동 로드
   useEffect(() => {
@@ -355,12 +377,15 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
       setMsg({ type: "ok", text: `연결 성공 — USD $${Number(res.cash_usd || 0).toFixed(2)} / KRW ₩${Number(res.cash_krw || 0).toLocaleString("ko-KR")}` });
       // test 응답이 이미 balance 데이터를 전부 가지고 있으니 그대로 박는다.
       // (별도 refresh() 호출은 또 KIS 4종을 부르므로 EGW00201 재발 위험)
-      setBalance({
+      const newBal = {
         cash_usd: res.cash_usd,
         cash_krw: res.cash_krw,
         positions: res.positions || [],
         total_market_value_usd: res.total_market_value_usd || 0,
-      });
+      };
+      brokerCache.setBalance(env, "KIS", newBal);
+      setBalance(newBal);
+      brokerCache.invalidateAll(); // lastVerifiedAt 등 계좌 메타 갱신 유도
       reload();
     } catch (e) {
       const status = e?.response?.status;
@@ -500,7 +525,10 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
       {/* 잔고 */}
       <Card theme={theme}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-          <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>📊 보유 자산</h3>
+          <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>
+            📊 보유 자산
+            {refreshing && <span style={{ marginLeft: 8, fontSize: 11, color: "#94A3B8", fontWeight: 500 }}>갱신 중…</span>}
+          </h3>
           <div title="통합증거금이 활성화되어 있어 USD 잔고가 0이어도 KRW에서 환산 차감으로 미국 주식 매수가 가능합니다."
             style={{
               display: "inline-flex", alignItems: "center", gap: 6,
@@ -524,11 +552,13 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
             ) : (
               <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
                 <thead><tr style={{ color: theme.subtle, textAlign: "left" }}>
-                  <th style={th}>티커</th><th style={th}>수량</th><th style={th}>평단</th>
+                  <th style={th}>종목</th><th style={th}>수량</th><th style={th}>평단</th>
                   <th style={th}>평가금액</th><th style={th}>평가손익</th>
                 </tr></thead>
                 <tbody>
                   {balance.positions.map((p, i) => {
+                    const isKrw = p.currency === "KRW";
+                    const curr = isKrw ? "₩" : "$";
                     const pnl = Number(p.unrealized_pnl || 0);
                     const avg = Number(p.avg_price);
                     const qty = Number(p.qty);
@@ -537,14 +567,22 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
                     if (!Number.isFinite(mv) || mv === 0) {
                       mv = (Number.isFinite(qty) && Number.isFinite(avg)) ? qty * avg + pnl : NaN;
                     }
+                    const fmtPrice = (v) => Number.isFinite(v)
+                      ? isKrw ? `₩${v.toLocaleString("ko-KR")}` : `$${v.toFixed(2)}`
+                      : "—";
+                    const fmtPnl = (v) => isKrw
+                      ? `${v >= 0 ? "+" : ""}₩${Math.round(v).toLocaleString("ko-KR")}`
+                      : `${v >= 0 ? "+" : ""}$${v.toFixed(2)}`;
+                    // 종목명(코드) 표시: 국내주식은 "삼성전자(005930)", 미국주식은 "AAPL" 또는 "Apple Inc.(AAPL)"
+                    const nameLabel = p.name ? `${p.name}(${p.ticker})` : p.ticker;
                     return (
                       <tr key={i} style={{ borderTop: `1px solid ${theme.border}` }}>
-                        <td style={td}>{p.ticker}</td>
+                        <td style={td}>{nameLabel}</td>
                         <td style={td}>{p.qty}</td>
-                        <td style={td}>{Number.isFinite(avg) ? `$${avg.toFixed(2)}` : "—"}</td>
-                        <td style={td}>{Number.isFinite(mv) ? `$${mv.toFixed(2)}` : "—"}</td>
+                        <td style={td}>{fmtPrice(avg)}</td>
+                        <td style={td}>{fmtPrice(mv)}</td>
                         <td style={{ ...td, color: pnl >= 0 ? "#16a34a" : "#dc2626", fontWeight: 700 }}>
-                          {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
+                          {fmtPnl(pnl)}
                         </td>
                       </tr>
                     );
@@ -779,7 +817,7 @@ function Stat({ label, value, tone, theme }) {
   </div>;
 }
 
-/* 당일 주문 내역 — KIS inquire-nccs 응답(output 배열) 정상화 */
+/* 당일 주문 내역 — KIS inquire-ccnl 응답(output 배열) 정상화 */
 function OrdersTable({ theme, orders }) {
   // 백엔드가 KIS raw JsonNode를 그대로 반환 → output / output1 / output2 어디든 배열을 찾는다
   const rows = (() => {
@@ -796,26 +834,51 @@ function OrdersTable({ theme, orders }) {
   return (
     <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
       <thead><tr style={{ color: theme.subtle, textAlign: "left" }}>
-        <th style={th}>시각</th><th style={th}>티커</th><th style={th}>구분</th>
-        <th style={th}>수량</th><th style={th}>가격</th><th style={th}>상태</th>
+        <th style={th}>시각</th><th style={th}>종목</th><th style={th}>구분</th>
+        <th style={th}>수량/체결</th><th style={th}>주문단가</th><th style={th}>체결단가</th><th style={th}>상태</th>
       </tr></thead>
       <tbody>
         {rows.map((r, i) => {
-          const time = r.ord_tmd || r.ord_time || r.dmst_ord_dt || "-";
+          // HH:MM:SS 포맷으로 변환 (HHMMSS → HH:MM:SS)
+          const rawTime = r.ord_tmd || r.ord_time || r.dmst_ord_dt || "-";
+          const time = rawTime.length === 6
+            ? `${rawTime.slice(0,2)}:${rawTime.slice(2,4)}:${rawTime.slice(4,6)}`
+            : rawTime;
+
+          // 종목명(종목코드) — KIS prdt_name 필드 우선
           const ticker = r.pdno || r.ovrs_pdno || r.symb || "-";
+          const name = r.prdt_name || r.prdt_name_kor || "";
+          const tickerDisplay = name ? `${name}(${ticker})` : ticker;
+
           const side = (r.sll_buy_dvsn_cd === "01" || r.buy_sll_dvsn_cd === "01") ? "매도"
                      : (r.sll_buy_dvsn_cd === "02" || r.buy_sll_dvsn_cd === "02") ? "매수"
                      : (r.sll_buy_dvsn_cd || r.buy_sll_dvsn_cd || "-");
-          const qty = r.ord_qty || r.tot_ccld_qty || "-";
-          const price = r.ord_unpr || r.ord_unpr3 || r.avg_prvs || "-";
-          const status = r.ord_stat_name || r.ccld_yn || (r.rmn_qty > 0 ? "미체결" : "체결");
+
+          const ordQty    = r.ord_qty    || r.tot_ord_qty  || "-";
+          const fillQty   = r.ft_ord_qty || r.tot_ccld_qty || r.ccld_qty || "0";
+          const qtyDisplay = fillQty !== "0" && fillQty !== 0
+            ? `${ordQty} / ${fillQty}체결`
+            : `${ordQty}`;
+
+          // 주문단가: "0" 또는 빈값이면 시장가
+          const ordUnpr = r.ord_unpr || r.ord_unpr3 || "";
+          const isMarket = !ordUnpr || ordUnpr === "0";
+          const ordPriceDisplay = isMarket ? "시장가" : ordUnpr;
+
+          // 체결단가: ft_ccld_unpr(평균체결단가) 우선
+          const fillPrice = r.ft_ccld_unpr || r.avg_unpr || r.avg_prvs || "";
+          const fillPriceDisplay = fillPrice && fillPrice !== "0" ? fillPrice : "-";
+
+          const status = r.ord_stat_name || (r.ccld_yn === "Y" ? "체결" : r.ccld_yn === "N" ? "미체결" : null)
+                       || (Number(r.rmn_qty || r.nccs_qty) > 0 ? "미체결" : "체결");
           return (
             <tr key={i} style={{ borderTop: `1px solid ${theme.border}` }}>
               <td style={td}>{time}</td>
-              <td style={td}>{ticker}</td>
-              <td style={td}>{side}</td>
-              <td style={td}>{qty}</td>
-              <td style={td}>{price}</td>
+              <td style={{ ...td, maxWidth: 180, wordBreak: "break-all" }}>{tickerDisplay}</td>
+              <td style={{ ...td, color: side === "매수" ? "#16a34a" : side === "매도" ? "#dc2626" : undefined, fontWeight: 600 }}>{side}</td>
+              <td style={td}>{qtyDisplay}</td>
+              <td style={td}>{ordPriceDisplay}</td>
+              <td style={{ ...td, fontWeight: fillPriceDisplay !== "-" ? 600 : undefined }}>{fillPriceDisplay}</td>
               <td style={td}>{status}</td>
             </tr>
           );
@@ -916,7 +979,7 @@ function BinanceRegister({ theme, env, reload, setMsg }) {
             onChange={e => setForm(f => ({ ...f, binanceApiKey: e.target.value }))} required />
         </Field>
         <Field label="API Secret" col={2}>
-          <input type="text" style={{ ...inp(theme), fontFamily: "monospace", fontSize: 11 }}
+          <input type="text" style={inp(theme)}
             value={form.binanceApiSecret} name={`bnb-secret-${env}`}
             autoComplete="off" spellCheck="false"
             placeholder="Binance API Secret (64자)"
