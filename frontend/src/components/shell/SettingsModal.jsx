@@ -4,7 +4,7 @@ import {
   Keyboard, Code, Sparkles, ShieldCheck, User, Maximize2,
   BarChart2, TrendingUp, Terminal, MessageSquare,
 } from "lucide-react";
-import { useLanguage } from "../../i18n/LanguageContext";
+import { useLanguage } from "../../i18n/useLanguage";
 
 /**
  * VS Code 스타일 설정 모달 — Alpha-Helix 전용 설정

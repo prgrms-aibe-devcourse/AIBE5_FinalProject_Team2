@@ -5,16 +5,16 @@ import {
   ScrollText, Sparkles, BookOpenText, Wallet, Inbox, Image as ImageIcon, Bell,
   Globe, Settings, MoreHorizontal, Palette, UserCircle, ChevronRight, Check, LogOut, BookOpen,
   Laptop, FileCode, Database, TerminalSquare, FolderOpen, CreditCard,
-  PenLine, ChevronLeft, PanelLeftOpen, CircleDollarSign, CircleHelp,
+  PenLine, ChevronLeft, ChevronDown, PanelLeftOpen, CircleDollarSign, CircleHelp,
 } from "lucide-react";
-import logoIcon from "../../assets/로고.png";
+import logoIcon from "../../assets/main_logo.png";
 import { HEROES, getCurrentHeroKey, getCurrentHeroSrc, setCurrentHeroKey } from "../../alpha/heroAssets";
 import { listWorkspaces, createWorkspace } from "../../alpha/alphaApi";
 import LoginRequiredModal from "./LoginRequiredModal";
 import CreateWorkspaceModal from "../../alpha/CreateWorkspaceModal";
 import SettingsModal from "./SettingsModal";
 import SubscriptionModal from "./SubscriptionModal";
-import { useLanguage } from "../../i18n/LanguageContext";
+import { useLanguage } from "../../i18n/useLanguage";
 import { useTheme } from "../../alpha/ThemeContext";
 import { authApi } from "../../api/auth.api";
 import useStore from "../../store/useStore";
@@ -52,7 +52,7 @@ const DEV_SUBMENUS = [
 
 const EASE = "cubic-bezier(0.4,0,0.2,1)";
 
-export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggleGuide, guideOpen }) {
+export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggleGuide, guideOpen, topCollapsed, onExpandTop }) {
   const nav = useNavigate();
   const loc = useLocation();
   const { theme, themeKey, setThemeKey } = useTheme();
@@ -108,13 +108,15 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   const inAlpha    = loc.pathname === "/alpha" || loc.pathname.startsWith("/alpha/w/");
   const inDeveloper = loc.pathname === "/alpha/developer" || loc.pathname.startsWith("/alpha/developer/");
 
-  /* ── 미읽은 알림 배지: 앱 시작 시 즉시 fetch + 60초 폴링 ── */
+  // Developer IDE 페이지에서 nav 섹션 기본 접기
+  // (navCollapsed 제거됨 — DeveloperLab 툴바의 [|>] 버튼으로 전체 사이드바 토글)
+
+  /* ── 미읽은 알림 배지: 앱 시작 시 즉시 fetch + 30초 폴링 ── */
   useEffect(() => {
-    if (!isAuthed) return;
     fetchNotifications();
-    const id = setInterval(fetchNotifications, 60_000);
+    const id = setInterval(fetchNotifications, 30_000);
     return () => clearInterval(id);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchNotifications]);
 
   /* ── load workspaces ── */
   const loadWorkspaces = () =>
@@ -429,7 +431,30 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           >
             <ChevronLeft size={16} />
           </button>
+
+          {/* Nav 섹션 접기/펼치기 버튼 제거됨 — DeveloperLab 툴바의 [|>] 버튼으로 전체 사이드바 토글 */}
         </div>
+
+        {/* ── 상단바 펼치기 (개발자 IDE 등 상단바 접힌 상태에서만 노출) ── */}
+        {topCollapsed && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onExpandTop && onExpandTop(); }}
+            title="상단 검색·AI 바 펼치기"
+            style={{
+              margin: "0 8px 4px", height: 30, flexShrink: 0,
+              borderRadius: 8, border: "1px dashed rgba(255,255,255,0.28)",
+              background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.72)",
+              cursor: "pointer", display: "flex", alignItems: "center",
+              justifyContent: "center", gap: 6, overflow: "hidden",
+              transition: "background 0.15s, color 0.15s",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.14)"; e.currentTarget.style.color = "white"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.72)"; }}
+          >
+            <ChevronDown size={16} style={{ flexShrink: 0 }} />
+            {expanded && <span style={{ fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap" }}>상단바 펼치기</span>}
+          </button>
+        )}
 
         {/* ── 2. Expanded-only: 새 전략 / 검색 ────────── */}
         <div style={{

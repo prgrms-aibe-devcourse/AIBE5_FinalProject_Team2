@@ -1,6 +1,6 @@
-import { useLanguage } from "../../i18n/LanguageContext";
+import { useLanguage } from "../../i18n/useLanguage";
 import { useNavigate } from "react-router-dom";
-import devBridgeLogo from "../../assets/로고.svg";
+import devBridgeLogo from "../../assets/main_logo.png";
 
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
@@ -75,7 +75,7 @@ export default function Footer() {
           {/* Brand area */}
           <div style={{ minWidth: 200 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-              <img src={devBridgeLogo} alt="Alpha-Helix" style={{ height: 20, objectFit: "contain", filter: "drop-shadow(0 2px 6px rgba(99,102,241,0.25))" }} />
+              <img src={devBridgeLogo} alt="Alpha-Helix" style={{ height: 32, objectFit: "contain", filter: "drop-shadow(0 2px 6px rgba(99,102,241,0.25))" }} />
               <span style={{
                 fontSize: 21.7, fontWeight: 600, fontFamily: "'Inter Tight', sans-serif", marginTop: 4,
                 background: "linear-gradient(90deg, #7DD3FC 0%, #38BDF8 25%, #818CF8 65%, #93C5FD 100%)",

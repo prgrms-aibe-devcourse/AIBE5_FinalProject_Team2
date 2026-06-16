@@ -6,7 +6,7 @@ import heliWait  from "../../assets/heli_ai_wait.png";
 import heliSorry from "../../assets/heli_ai_sorry.png";
 import heliFace  from "../../assets/heli_face.png";
 import { chatWithAI, langInstruction } from "../../lib/aiClient";
-import { useLanguage } from "../../i18n/LanguageContext";
+import { useLanguage } from "../../i18n/useLanguage";
 import ModelPicker from "../ai/ModelPicker";
 import { applyPatch as applyAlphaPatch, getWorkspace, formalize } from "../../alpha/alphaApi";
 import ChangeBar from "../../alpha/ChangeBar";
@@ -41,40 +41,22 @@ function renderRichText(text) {
   return parts;
 }
 
-const SYS = `너는 Alpha-Helix의 AI 동료 "Heli(헬리)"야. 차분하고 따뜻한 투자 파트너 톤.
-이름을 굳이 매 답변마다 소개하지 말고 필요할 때만 가볍게 언급해. 말투는 자연스럽고 고객에게 동료처럼.
-전략 설계·백테스트·리스크 관리·Regime·Trust Score·브리핑 해석을 도와. 핵심은 **굵게**, 답변은 3~6줄로 간결하게.
+const SYS = `너는 Alpha-Helix 투자 AI "Heli". 투자 파트너 톤으로 3~6줄 간결하게. 핵심은 **굵게**.
 
-[Patch tool — 워크스페이스 라이브 수정]
-다음 두 경우에 반드시 답변 마지막에 \`\`\`heli-patch 블록을 첨부해:
-① 사용자가 "적용/바꿔/설정해줘/고쳐줘/수정해줘" 같이 명시적으로 변경을 요청할 때
-② 사용자가 투자 목표 정보(목표·기간·초기금·적립금·성향·MDD·관심자산·전략방향 중 2개 이상)를 제공할 때 — 명시적 "저장해줘" 없어도 즉시 goalProfile에 반영해. 확인 후 "목표 프로필 저장됨" 안내.
-블록 안엔 다음 형식의 JSON 한 개만:
-{
-  "title": "한 줄 변경 요약",
-  "ops": [
-    { "target": "goalProfile|backtest|regime|trustScore|strategy|code", "path": "필드명", "value": <새 값> }
-  ]
-}
-허용 필드 (★ goalProfile 키는 반드시 아래 영문 키를 그대로 사용. 한글 키 금지):
-- goalProfile.goal                       (문자열: 한 줄 목표)
-- goalProfile.horizon_years              (숫자: 투자기간 연수)
-- goalProfile.initial_capital_krw        (숫자: 초기 투자금, 원)
-- goalProfile.monthly_contribution_krw   (숫자: 월 적립금, 원)
-- goalProfile.risk_tolerance             ("보수적"|"중립"|"공격적"|"매우 공격적")
-- goalProfile.max_drawdown_target_pct    (숫자: MDD 허용 %, 예: 25)
-- goalProfile.daily_buy_limit_krw / goalProfile.daily_sell_limit_krw (숫자, 원)
-- goalProfile.assets_of_interest         (문자열 또는 배열: 예 "TQQQ, SOXL")
-- goalProfile.strategy_direction         ("추세추종"|"평균회귀"|"모멘텀"|"변동성조절"|"무한매수"|"잘모름")
-- backtest.slippage_bps, backtest.fee_bps, backtest.initial_capital
-- regime.method ("rule"|"hmm"), regime.smoothing, regime.n_states
-- trustScore.weights.regime
-- strategy.maxDrawdownPct 등
-- code.<파일명>  (예: code.main) → value 는 해당 파일의 **새 전체 Python 코드 문자열**.
-  코드 패치는 일부 함수만 짧게 바꿔도 되지만 반드시 그 파일 전체를 재작성한 결과를 넣어야 해.
-  파일이 여러 개면 ops 에 여러 줄 추가하면 돼.
-불확실하면 patch를 만들지 말고 질문으로 답해.
-패치는 즉시 적용되고 화면 상단 바에서 [유지] / [실행 취소] 가능. VS Code Copilot처럼 사용자 승인이 보장돼.`;
+[Patch]
+① 명시적 변경 요청(적용/바꿔/설정/고쳐/수정) 또는
+② 투자 목표 정보 2개 이상 제공 시
+→ 답변 끝에 \`\`\`heli-patch 블록 첨부. ②는 "목표 프로필 저장됨" 안내 필수.
+
+형식: {"title":"요약","ops":[{"target":"TARGET","path":"PATH","value":VALUE}]}
+
+target/path:
+- goalProfile: goal · horizon_years · initial_capital_krw · monthly_contribution_krw · risk_tolerance("보수적"|"중립"|"공격적"|"매우 공격적") · max_drawdown_target_pct · daily_buy_limit_krw · daily_sell_limit_krw · assets_of_interest · strategy_direction("추세추종"|"평균회귀"|"모멘텀"|"변동성조절"|"무한매수"|"잘모름")
+- backtest: slippage_bps · fee_bps · initial_capital
+- regime: method("rule"|"hmm") · smoothing · n_states
+- strategy: maxDrawdownPct 등
+- code.<파일명>: value = 파일 전체 코드 재작성 결과
+불확실하면 patch 없이 질문.`;
 
 // Quant Developer IDE 에디터가 공유한 현재 코드를 Heli 컨텍스트로 만든다.
 // (window.__alphaLiveCode 는 DeveloperLab 이 wsId/fileContents 변경 시 갱신)
@@ -351,10 +333,20 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
         : null;
       let wsCtx = "";
       try { if (liveWsId) wsCtx = summarizeWorkspace(await getWorkspace(liveWsId)); } catch { /* 조회 실패는 무시 */ }
-      const sys = `${SYS}\n${langInstruction(lang)}${wsCtx}${buildLiveCodeContext()}`;
+      // SYS는 고정 문자열 → 백엔드 Context Caching 캐시 히트 가능
+      // wsCtx·코드컨텍스트는 매번 달라지므로 시스템 프롬프트 대신 현재 유저 메시지 앞에 붙임
+      const fixedSys = `${SYS}\n${langInstruction(lang)}`;
+      const ctxPrefix = [wsCtx, buildLiveCodeContext()].filter(Boolean).join("\n").trim();
+      const currentText = ctxPrefix ? `${ctxPrefix}\n\n---\n${text}` : text;
+      // 전체 히스토리 대신 최근 10턴(20개 메시지)만 전송 — 누적 시 토큰 폭증 방지
+      const MAX_TURNS = 10;
+      const recentHistory = messages
+        .slice(1)                    // 첫 Heli 인삿말은 매번 같으므로 제외
+        .slice(-MAX_TURNS * 2)       // 최근 N턴만
+        .map(m => ({ role: m.role, text: m.content }));
       const reply = await chatWithAI(
-        [...messages, { role: "user", content: text }].map(m => ({ role: m.role, text: m.content })),
-        sys, model
+        [...recentHistory, { role: "user", text: currentText }],
+        fixedSys, model
       );
       const replyText = reply || "...";
       // 패치 코드블록은 사용자에게 노출하지 않음 (자동 적용 후 안내 메시지만 표시)

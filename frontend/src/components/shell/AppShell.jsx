@@ -21,7 +21,20 @@ export default function AppShell({ children, hideChat = false }) {
   const [chatOpen, setChatOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(() => {
+    if (window.location.pathname.startsWith("/alpha/developer")) return false;
     try { return localStorage.getItem("alpha.sidebar.expanded") !== "false"; } catch { return true; }
+  });
+  // 상단 글로벌 바(검색+AI) 접힘 상태 — 개발자 IDE에선 기본 접힘(IDE 툴바 가림 방지)
+  const [topCollapsed, setTopCollapsed] = useState(isDeveloper);
+  useEffect(() => { setTopCollapsed(isDeveloper); }, [isDeveloper]);
+
+  const toggleSidebar = () => setSidebarExpanded(o => {
+    const next = !o;
+    try {
+      localStorage.setItem("alpha.sidebar.expanded", String(next));
+      window.dispatchEvent(new CustomEvent("alpha:sidebar-changed", { detail: { expanded: next } }));
+    } catch {}
+    return next;
   });
 
   useEffect(() => {
@@ -29,6 +42,12 @@ export default function AppShell({ children, hideChat = false }) {
     window.addEventListener("alpha:open-chat", handler);
     return () => window.removeEventListener("alpha:open-chat", handler);
   }, []);
+
+  useEffect(() => {
+    const handler = () => toggleSidebar();
+    window.addEventListener("alpha:toggle-sidebar", handler);
+    return () => window.removeEventListener("alpha:toggle-sidebar", handler);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     document.body.classList.toggle("chat-open", chatOpen);
@@ -50,29 +69,32 @@ export default function AppShell({ children, hideChat = false }) {
   const rightOffset = !hideChat && chatOpen ? chatWidth : 0;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F8FAFC", ...(isDeveloper || isWorkspace ? { height: "100vh", overflow: "hidden" } : {}) }}>
+    <div style={{ minHeight: "calc(100vh / var(--app-zoom, 1.1))", background: isDeveloper ? "#0f1117" : "#F8FAFC", ...(isDeveloper || isWorkspace ? { height: "calc(100vh / var(--app-zoom, 1.1))", overflow: "hidden" } : {}) }}>
       <LeftSidebar
         expanded={sidebarExpanded}
-        onToggleExpanded={() => setSidebarExpanded(o => {
-          const next = !o;
-          try { localStorage.setItem("alpha.sidebar.expanded", String(next)); } catch {}
-          return next;
-        })}
+        onToggleExpanded={toggleSidebar}
         guideOpen={guideOpen}
         onToggleGuide={() => setGuideOpen(o => !o)}
+        topCollapsed={topCollapsed}
+        onExpandTop={() => setTopCollapsed(false)}
       />
       <GuideDock open={guideOpen} onClose={() => setGuideOpen(false)} width={guideWidth} sidebarWidth={sidebarW} />
-      <TopBar
-        onToggleChat={() => setChatOpen(o => !o)}
-        chatOpen={chatOpen}
-        rightOffset={rightOffset}
-        leftOffset={leftOffset}
-      />
+      {!isDeveloper && !topCollapsed && (
+        <TopBar
+          onToggleChat={() => setChatOpen(o => !o)}
+          chatOpen={chatOpen}
+          rightOffset={rightOffset}
+          leftOffset={leftOffset}
+          onCollapse={() => setTopCollapsed(true)}
+        />
+      )}
       <main style={{
         marginLeft: leftOffset,
-        paddingTop: 44,
+        paddingTop: (isDeveloper || topCollapsed) ? 0 : 44,
+        "--alpha-top-h": (isDeveloper || topCollapsed) ? "0px" : "44px",
+        boxSizing: "border-box",
         marginRight: rightOffset,
-        ...(isWorkspace || isDeveloper ? { height: "100vh", overflow: "hidden" } : { minHeight: "100vh" }),
+        ...(isWorkspace || isDeveloper ? { height: "calc(100vh / var(--app-zoom, 1.1))", overflow: "hidden" } : { minHeight: "calc(100vh / var(--app-zoom, 1.1))" }),
         transition: "margin-left 0.18s ease, margin-right 0.18s ease",
       }}>
         {children}
