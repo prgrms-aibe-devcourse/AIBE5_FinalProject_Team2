@@ -1,20 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { listProposals } from "../alphaApi";
-import { acctLabel } from "./util";
+import { acctLabel, FX_KRW_PER_USD } from "./util";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
 const SIDE_KO = { BUY: "매수", SELL: "매도" };
 
-/** 이미지7 — 매매 내역: 국내/해외 + 계좌 드롭다운 + (당일체결/기간체결) + 필터 + 표 */
+/** 매매 내역: 국내/해외 + 계좌 드롭다운 + (당일체결/기간체결) + 필터 + 표 */
 export default function TradesTab({ accountsData }) {
   const accts = accountsData.map((d) => d.acct);
   const [region, setRegion] = useState("해외");
   const [acctId, setAcctId] = useState("");
-  const [mode, setMode] = useState("당일체결");      // 당일체결 | 기간체결
-  const [fillKind, setFillKind] = useState("전체");   // 전체 | 체결 | 미체결
-  const [sideKind, setSideKind] = useState("전체");   // 전체 | 매수 | 매도
+  const [mode, setMode] = useState("당일체결");
+  const [fillKind, setFillKind] = useState("전체");
+  const [sideKind, setSideKind] = useState("전체");
+  const [curMode, setCurMode] = useState("원화");          // 기본값 원화
   const [day, setDay] = useState(todayStr());
   const [from, setFrom] = useState(daysAgoStr(30));
   const [to, setTo] = useState(todayStr());
@@ -27,6 +28,13 @@ export default function TradesTab({ accountsData }) {
     listProposals().then((r) => alive && setOrders(Array.isArray(r) ? r : [])).catch(() => alive && setOrders([]));
     return () => { alive = false; };
   }, []);
+
+  // USD 기준 가격 → 통화 설정에 따라 포맷
+  const fmtPrice = (v) => {
+    if (v == null) return "-";
+    if (curMode === "원화") return `₩${Math.round(Number(v) * FX_KRW_PER_USD).toLocaleString("ko-KR")}`;
+    return `$${Number(v).toFixed(2)}`;
+  };
 
   const rows = useMemo(() => {
     if (!orders) return null;
@@ -73,6 +81,7 @@ export default function TradesTab({ accountsData }) {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap", background: "#F8FAFC", padding: "10px 12px", borderRadius: 10 }}>
+        {seg(curMode, setCurMode, ["원화", "외화"])}
         <span style={{ fontSize: 11.5, color: "#64748b" }}>체결</span>{seg(fillKind, setFillKind, ["전체", "체결", "미체결"])}
         <span style={{ fontSize: 11.5, color: "#64748b" }}>구분</span>{seg(sideKind, setSideKind, ["전체", "매수", "매도"])}
         {mode === "당일체결"
@@ -89,28 +98,28 @@ export default function TradesTab({ accountsData }) {
             <div style={{ overflowX: "auto", border: "1px solid #E2E8F0", borderRadius: 12, background: "white" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
                 <thead><tr style={{ background: "#F8FAFC" }}>
-                  <th style={{ ...th, textAlign: "left" }}>종목</th><th style={th}>주문구분</th><th style={th}>주문수량</th><th style={th}>주문단가</th><th style={th}>체결수량</th><th style={th}>체결단가</th><th style={th}>미체결수량</th><th style={th}>주문시간</th>
+                  <th style={{ ...th, textAlign: "left" }}>종목</th>
+                  <th style={th}>주문구분</th>
+                  <th style={th}>주문수량</th>
+                  <th style={th}>주문단가</th>
+                  <th style={th}>체결수량</th>
+                  <th style={th}>체결단가</th>
+                  <th style={th}>미체결수량</th>
+                  <th style={th}>주문시간</th>
                 </tr></thead>
                 <tbody>{rows.map((p, i) => {
                   const filled = p.status === "EXECUTED" || p.fillStatus === "FILLED";
-                  const partialFilled = p.fillStatus === "PARTIAL";
                   const qty = Number(p.qtyDecimal ?? p.qty ?? 0);
                   const limitPrice = p.limitPrice != null ? Number(p.limitPrice) : null;
                   const fillAvgPrice = p.fillAvgPrice != null ? Number(p.fillAvgPrice) : null;
                   const filledQty = p.filledQtyDecimal != null ? Number(p.filledQtyDecimal)
                                   : p.filledQty != null ? Number(p.filledQty) : null;
                   const remainQty = filledQty != null ? Math.max(0, qty - filledQty) : (filled ? 0 : qty);
-
-                  // 종목명(코드) — stockName이 있으면 "삼성전자(005930)", 없으면 ticker만
                   const nameLabel = p.stockName ? `${p.stockName}(${p.ticker})` : p.ticker;
-
-                  // 주문단가: 시장가(limitPrice null)이면 "시장가" 표시
-                  const ordPriceDisplay = limitPrice ? `$${limitPrice.toFixed(2)}` : "시장가";
-
-                  // 체결단가: fillAvgPrice 우선 (KIS queryFill에서 ft_ccld_unpr 파싱), 없으면 limitPrice
-                  const fillPriceDisplay = fillAvgPrice
-                    ? `$${fillAvgPrice.toFixed(2)}`
-                    : (filled && limitPrice ? `$${limitPrice.toFixed(2)}` : "-");
+                  const ordPriceDisplay = limitPrice != null ? fmtPrice(limitPrice) : "시장가";
+                  const fillPriceDisplay = fillAvgPrice != null
+                    ? fmtPrice(fillAvgPrice)
+                    : (filled && limitPrice != null ? fmtPrice(limitPrice) : "-");
 
                   return (
                     <tr key={i}>
