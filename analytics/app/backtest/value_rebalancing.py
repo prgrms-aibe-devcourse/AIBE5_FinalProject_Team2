@@ -106,6 +106,8 @@ def run_value_rebalancing(
         states[t] = s
 
     equity_history: list[tuple[pd.Timestamp, float]] = []
+    holdings_history: list[float] = []   # per-bar 보유 평가액 합 (QC Holdings/Exposure)
+    cash_history: list[float] = []       # per-bar Pool(현금) 합
 
     for i, (ts, row) in enumerate(df.iterrows()):
         for t in tickers:
@@ -171,8 +173,12 @@ def run_value_rebalancing(
             else:
                 s.days_since_rebalance += 1
 
-        total_eq = sum(states[t].pool + states[t].shares * float(row.get(t, 0) or 0) for t in tickers)
+        total_hold = sum(states[t].shares * float(row.get(t, 0) or 0) for t in tickers)
+        total_cash = sum(states[t].pool for t in tickers)
+        total_eq = total_hold + total_cash
         equity_history.append((ts, total_eq))
+        holdings_history.append(total_hold)
+        cash_history.append(total_cash)
 
     eq_series = pd.Series([v for _, v in equity_history], index=[d for d, _ in equity_history])
     daily_ret = eq_series.pct_change().fillna(0.0)
@@ -210,6 +216,25 @@ def run_value_rebalancing(
 
     step = max(1, len(eq_series) // 365)
     eq_points = [{"date": str(d.date()), "value": _round(v)} for d, v in eq_series.iloc[::step].items()]
+
+    # 보유/현금/노출 시계열 + 종목별 거래대금 (QC Holdings/Exposure/Treemap)
+    hold_series = pd.Series(holdings_history, index=eq_series.index)
+    cash_series = pd.Series(cash_history, index=eq_series.index)
+    holdings_curve = [{"date": str(d.date()), "value": _round(v)} for d, v in hold_series.iloc[::step].items()]
+    cash_curve = [{"date": str(d.date()), "value": _round(v)} for d, v in cash_series.iloc[::step].items()]
+    exposure_curve = [
+        {"date": str(d.date()), "exposure_pct": _round((float(h) / float(ev) * 100.0) if ev else 0.0)}
+        for (d, h), ev in zip(hold_series.iloc[::step].items(), eq_series.iloc[::step].values)
+    ]
+    assets_volume = []
+    for t in tickers:
+        buy = sum(tr["amount"] for tr in states[t].trades if tr.get("side") == "BUY")
+        sell = sum(tr["amount"] for tr in states[t].trades if tr.get("side") == "SELL")
+        assets_volume.append({"ticker": t, "buy": _round(buy), "sell": _round(sell), "total": _round(buy + sell)})
+    assets_volume.sort(key=lambda x: x["total"], reverse=True)
+    holdings_value_end = float(hold_series.iloc[-1]) if len(hold_series) else 0.0
+    cash_end = float(cash_series.iloc[-1]) if len(cash_series) else 0.0
+    unrealized_pnl = holdings_value_end - sum(states[t].cost_basis for t in tickers)
 
     all_trades = []
     for s in states.values():
@@ -260,9 +285,16 @@ def run_value_rebalancing(
             "final_equity": _round(eq_series.iloc[-1]),
             "realized_pnl_total": _round(realized_total),
             "estimated_monthly_cashflow": _round(monthly_cashflow),
+            "holdings_value_end": _round(holdings_value_end),
+            "cash_end": _round(cash_end),
+            "unrealized_pnl": _round(unrealized_pnl),
         },
         "per_ticker": per_ticker_summary,
         "equity_curve": eq_points,
+        "holdings_curve": holdings_curve,
+        "cash_curve": cash_curve,
+        "exposure_curve": exposure_curve,
+        "assets_volume": assets_volume,
         "recent_trades": recent_trades,
         "_strategy_returns": daily_ret,
     }

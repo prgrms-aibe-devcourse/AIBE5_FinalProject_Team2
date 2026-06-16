@@ -23,6 +23,7 @@ StrategyType = Literal[
     "buy_and_hold", "sma_cross", "rsi_meanrev", "macd",
     "momentum_12_1", "vix_risk_off",
     "infinite_buying", "value_rebalancing",
+    "momentum_rotation",
 ]
 
 
@@ -54,6 +55,14 @@ class BacktestParams:
     pool_target_pct: float = 0.50
     initial_pool_pct: float = 0.50
     biweekly_contrib: float = 0.0
+    # 모멘텀 로테이션(momentum_rotation) 파라미터 — run_backtest 는 1-자산 universe 로 전용 엔진에 위임
+    # (Trust/Regime 단일 close 경로 = 절대모멘텀 타이밍). 멀티자산 풀 로테이션은 /backtest/momentum-rotation.
+    mom_lookback_days: int = 252
+    mom_skip_days: int = 21
+    mom_top_n: int = 3
+    mom_rebalance_days: int = 21
+    mom_abs_gate: bool = True
+    mom_cash_asset: str = "BIL"
 
 
 def _signals(
@@ -134,6 +143,16 @@ def run_backtest(
             pool_target_pct=p.pool_target_pct, initial_pool_pct=p.initial_pool_pct,
             biweekly_contrib=p.biweekly_contrib, initial_capital=p.initial_capital,
             fees=p.fees, slippage=p.slippage))
+    if p.strategy == "momentum_rotation":
+        # 단일 close 경로(Trust/Regime): 1-자산 universe → 절대모멘텀 타이밍(같은 엔진·동일 계약).
+        # cash_asset 가 universe 에 없으므로 절대모멘텀<=0 이면 현금 대피. 멀티자산 풀 로테이션은
+        # main.py /backtest/momentum-rotation 엔드포인트가 멀티티커로 직접 호출한다.
+        from app.backtest.momentum_rotation import run_momentum_rotation, MomentumRotationParams
+        return run_momentum_rotation({"ASSET": close}, MomentumRotationParams(
+            lookback_days=p.mom_lookback_days, skip_recent_days=p.mom_skip_days,
+            top_n=max(1, p.mom_top_n), rebalance_days=p.mom_rebalance_days,
+            abs_momentum_gate=p.mom_abs_gate, cash_asset="__CASH__",
+            initial_capital=p.initial_capital, fees=p.fees, slippage=p.slippage))
 
     entries, exits = _signals(close, p, vix=vix)
     # Look-ahead bias 방지: close로 생성한 신호는 1bar shift (vectorbt docs 권장)
@@ -177,7 +196,7 @@ def run_backtest(
         except Exception:
             _calmar = None
 
-    return {
+    result = {
         "strategy": p.strategy,
         "params": {
             "sma_fast": p.sma_fast, "sma_slow": p.sma_slow,
@@ -185,6 +204,7 @@ def run_backtest(
             "macd_fast": p.macd_fast, "macd_slow": p.macd_slow, "macd_signal": p.macd_signal,
             "momentum_long_days": p.momentum_long_days, "momentum_short_days": p.momentum_short_days,
             "vix_threshold": p.vix_threshold,
+            "initial_capital": p.initial_capital,
         },
         "stats": {
             "total_return_pct": _f(stats.get("Total Return [%]")),
@@ -204,6 +224,51 @@ def run_backtest(
         ],
         "_strategy_returns": strat_returns,  # internal: passed to QuantStats in main.py
     }
+    # orders/trades + total_fees/volume (QC 대시보드용) — pf 가 있는 표준 경로에서만
+    try:
+        from app.backtest.enrich import orders_trades_from_pf
+        ot = orders_trades_from_pf(pf, ticker="ASSET")
+        result["orders"] = ot["orders"]
+        result["trades"] = ot["trades"]
+        result["orders_truncated"] = ot["orders_truncated"]
+        if ot["total_fees"] is not None:
+            result["stats"]["total_fees"] = ot["total_fees"]
+        if ot["volume"] is not None:
+            result["stats"]["volume"] = ot["volume"]
+    except Exception:
+        pass
+    # 보유/현금/노출 시계열 + 보유평가액·미실현 (QC Holdings/Exposure/Margin 대시보드용)
+    try:
+        av = pf.asset_value()          # 보유 평가액(시가)
+        csh = pf.cash()                # 현금
+        _stp = max(1, len(eq) // 365)  # equity_curve 와 동일 다운샘플
+        avd = av.iloc[::_stp]
+        eqd = eq.iloc[::_stp]
+        result["holdings_curve"] = [
+            {"date": str(d.date()), "value": _f(v)} for d, v in avd.items()
+        ]
+        result["cash_curve"] = [
+            {"date": str(d.date()), "value": _f(v)} for d, v in csh.iloc[::_stp].items()
+        ]
+        result["exposure_curve"] = [
+            {"date": str(d.date()), "exposure_pct": _f((float(a) / float(ev) * 100.0) if ev else 0.0)}
+            for (d, a), ev in zip(avd.items(), eqd.values)
+        ]
+        result["stats"]["holdings_value_end"] = _f(av.iloc[-1])
+        result["stats"]["cash_end"] = _f(csh.iloc[-1])
+        # 미실현 손익: 미청산(Open) 트레이드 PnL 합
+        try:
+            tr = pf.trades.records_readable
+            if "Status" in tr.columns and "PnL" in tr.columns:
+                _open = tr[tr["Status"].astype(str).str.lower() == "open"]
+                result["stats"]["unrealized_pnl"] = _f(_open["PnL"].sum()) if len(_open) else 0.0
+            else:
+                result["stats"]["unrealized_pnl"] = None
+        except Exception:
+            result["stats"]["unrealized_pnl"] = None
+    except Exception:
+        pass
+    return result
 
 
 def latest_signal(

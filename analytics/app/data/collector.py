@@ -13,7 +13,7 @@ import threading
 import time
 from datetime import date, timedelta
 
-from app.data import polygon_client, fred_client, binance_client, market_db
+from app.data import polygon_client, fred_client, binance_client, market_db, kis_client
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +30,19 @@ US_SYMBOLS = [
 
 CRYPTO_SYMBOLS = [
     "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "DOGEUSDT",
+]
+
+KIS_DOMESTIC_SYMBOLS = [
+    "005930",  # 삼성전자
+    "000660",  # SK하이닉스
+    "035420",  # NAVER
+    "005380",  # 현대차
+    "051910",  # LG화학
+    "035720",  # 카카오
+    "207940",  # 삼성바이오로직스
+    "006400",  # 삼성SDI
+    "000270",  # 기아
+    "105560",  # KB금융
 ]
 
 FRED_SERIES = [
@@ -98,6 +111,32 @@ def collect_macro(series_ids: list[str] = None, days_back: int = 30) -> dict:
     return results
 
 
+def collect_kis_ohlcv(symbols: list[str] = None, days_back: int = 7) -> dict:
+    """KIS에서 국내주식 일봉 수집 (KIS_APP_KEY / KIS_APP_SECRET 필요)."""
+    if not kis_client.available():
+        return {"skipped": True, "reason": "KIS_APP_KEY or KIS_APP_SECRET not set"}
+
+    symbols = symbols or KIS_DOMESTIC_SYMBOLS
+    end_date   = date.today().isoformat()
+    start_date = (date.today() - timedelta(days=days_back)).isoformat()
+
+    results = {}
+    for sym in symbols:
+        try:
+            df = kis_client.get_domestic_daily(sym, start_date, end_date)
+            if not df.empty:
+                n = market_db.upsert_ohlcv(df, tf="1d")
+                results[sym] = {"rows": n, "ok": True}
+            else:
+                results[sym] = {"rows": 0, "ok": True}
+        except Exception as e:
+            log.warning("collect_kis_ohlcv %s error: %s", sym, e)
+            results[sym] = {"ok": False, "error": str(e)}
+
+    log.info("collect_kis_ohlcv done: %d symbols", len(results))
+    return results
+
+
 def collect_crypto_ohlcv(symbols: list[str] = None, days_back: int = 7, interval: str = "1d") -> dict:
     """Binance에서 코인 OHLCV 수집."""
     symbols = symbols or CRYPTO_SYMBOLS
@@ -155,7 +194,20 @@ def full_initial_load(years_back: int = 5) -> dict:
                 log.warning("initial load fred %s: %s", sid, e)
                 results[f"fred_{sid}"] = f"error: {e}"
 
-    # 3) Binance 코인 (공개 API — 항상 실행)
+    # 3) KIS 국내주식
+    if kis_client.available():
+        for sym in KIS_DOMESTIC_SYMBOLS:
+            try:
+                df = kis_client.get_domestic_daily_full(sym, start_date, date.today().isoformat())
+                if not df.empty:
+                    n = market_db.upsert_ohlcv(df, tf="1d")
+                    results[f"kis_{sym}"] = n
+                    log.info("initial load kis %s: %d rows", sym, n)
+            except Exception as e:
+                log.warning("initial load kis %s: %s", sym, e)
+                results[f"kis_{sym}"] = f"error: {e}"
+
+    # 4) Binance 코인 (공개 API — 항상 실행)
     for sym in CRYPTO_SYMBOLS:
         try:
             df = binance_client.get_klines_full(sym, interval="1d", start_date=start_date)
@@ -183,11 +235,12 @@ def _scheduler_loop():
     last_daily_date = None
     last_macro_date = None
     last_crypto_hour = None
+    last_kis_date = None
 
     while _running:
         now = datetime.now(timezone.utc)
 
-        # 일봉 수집: 매일 06:00 UTC
+        # 일봉 수집: 매일 06:00 UTC (미국 장 마감 후)
         if now.hour == 6 and last_daily_date != now.date():
             try:
                 collect_us_ohlcv(days_back=3)
@@ -203,6 +256,14 @@ def _scheduler_loop():
             except Exception as e:
                 log.error("macro collect error: %s", e)
             last_macro_date = now.date()
+
+        # KIS 국내주식: 매일 09:00 UTC (18:00 KST, 장 마감 후)
+        if now.hour == 9 and last_kis_date != now.date():
+            try:
+                collect_kis_ohlcv(days_back=3)
+            except Exception as e:
+                log.error("KIS collect error: %s", e)
+            last_kis_date = now.date()
 
         # 코인 1시간봉: 매 시간
         if last_crypto_hour != now.hour:

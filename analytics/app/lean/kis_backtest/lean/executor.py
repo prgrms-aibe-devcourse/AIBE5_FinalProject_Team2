@@ -141,6 +141,52 @@ class LeanRun:
         }
 
 
+def _sanitize_container_token(s) -> str:
+    """docker 컨테이너 이름 토큰으로 안전화 ([A-Za-z0-9_.-], 최대 40자)."""
+    import re as _re
+    t = _re.sub(r"[^A-Za-z0-9_.-]", "-", str(s or "run"))
+    t = t.strip("-.") or "run"
+    return t[:40]
+
+
+def _list_lean_container_ids() -> set:
+    """quantconnect/lean 컨테이너 ID 집합 (Created/Running/Exited 전부 — `-a`).
+
+    `-q`(running) 만 보면 컨테이너가 잠깐 'Created' 상태일 때 놓칠 수 있어 `-a` 사용.
+    """
+    try:
+        r = subprocess.run(["docker", "ps", "-aq", "--filter", f"ancestor={LEAN_IMAGE}"],
+                           capture_output=True, text=True, timeout=8)
+        return {x for x in (r.stdout or "").split() if x}
+    except Exception:
+        return set()
+
+
+def _rename_new_lean_container(pre_ids: set, target: str, deadline: float, stop_event, out: dict) -> None:
+    """lean 이 새로 띄운 컨테이너(pre_ids 에 없던 것)를 target 으로 rename (best-effort).
+
+    백테스트 실행 경로와 완전히 분리된 데몬 스레드 — 실패해도 백테스트엔 영향 없음.
+    실행 전 ID 스냅샷(pre_ids) 대비 신규 컨테이너만 대상으로 해 동시/이전 실행을 오인하지 않음.
+    """
+    import time as _t
+    while not stop_event.is_set() and _t.monotonic() < deadline:
+        new = _list_lean_container_ids() - pre_ids
+        if new:
+            cid = sorted(new)[0]
+            try:
+                rr = subprocess.run(["docker", "rename", cid, target],
+                                   capture_output=True, text=True, timeout=8)
+                if rr.returncode == 0:
+                    out["container"] = target
+                    logger.info(f"[Lean] 컨테이너 명명: {cid[:12]} → {target}")
+                else:
+                    logger.warning(f"[Lean] 컨테이너 rename 실패: {rr.stderr.strip()[:120]}")
+            except Exception as e:
+                logger.warning(f"[Lean] 컨테이너 rename 예외: {e}")
+            return
+        _t.sleep(1.0)
+
+
 class LeanExecutor:
     """공식 `lean` CLI 로 백테스트 실행"""
 
@@ -151,6 +197,7 @@ class LeanExecutor:
         stream_logs: bool = False,
         timeout: int = 600,
         on_line: Optional[Callable[[str], None]] = None,
+        nickname: Optional[str] = None,
     ) -> LeanRun:
         """`lean backtest` CLI 로 백테스트 실행
 
@@ -202,6 +249,14 @@ class LeanExecutor:
         cmd = [lean_bin, "backtest", project_arg, "--output", str(results_path)]
         logger.info(f"[Lean] CLI 실행: {' '.join(cmd)} (cwd={workspace})")
 
+        # 컨테이너 per-run 관리(#138): 실행 전 기존 lean 컨테이너 스냅샷 → 신규 컨테이너를
+        # lean_<닉네임>_<타임스탬프> 로 rename(아래 데몬 스레드). docker ps 에서 실행별 식별/관리 가능.
+        _nick = _sanitize_container_token(nickname or getattr(project, "strategy_name", None) or project.project_dir.name)
+        container_name = f"lean_{_nick}_{started_at.strftime('%Y%m%d-%H%M%S')}"
+        _pre_ids = _list_lean_container_ids()
+        _rename_stop = threading.Event()
+        _rename_out: dict = {}
+
         # Popen + 리더 스레드: lean stdout 을 라인 단위로 캡처하며 on_line 콜백으로 실시간 스트리밍.
         # (기존 subprocess.run 블로킹을 대체 — returncode/타임아웃/에러 메시지 동작은 그대로 보존.)
         try:
@@ -221,6 +276,14 @@ class LeanExecutor:
             )
             logger.error(f"[Lean] {error_msg}")
             raise RuntimeError(error_msg)
+
+        # 신규 lean 컨테이너를 container_name 으로 rename (best-effort 데몬 — 백테스트 경로 무영향)
+        import time as _time
+        threading.Thread(
+            target=_rename_new_lean_container,
+            args=(_pre_ids, container_name, _time.monotonic() + min(timeout, 90), _rename_stop, _rename_out),
+            daemon=True,
+        ).start()
 
         captured: List[str] = []
 
@@ -243,11 +306,13 @@ class LeanExecutor:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             proc.kill()
+            _rename_stop.set()
             reader.join(timeout=5)
             error_msg = f"Lean 백테스트 타임아웃 ({timeout}초)"
             logger.error(f"[Lean] {error_msg}")
             raise RuntimeError(error_msg)
         reader.join(timeout=10)
+        _rename_stop.set()
 
         finished_at = datetime.now()
         duration = (finished_at - started_at).total_seconds()
@@ -271,7 +336,7 @@ class LeanExecutor:
         )
         run.load_result()
 
-        logger.info(f"[Lean] 완료: {duration:.1f}초 (output={output_dir})")
+        logger.info(f"[Lean] 완료: {duration:.1f}초 (output={output_dir}, container={_rename_out.get('container') or container_name})")
         return run
 
     @staticmethod
@@ -302,6 +367,22 @@ class LeanExecutor:
             return result.returncode == 0
         except Exception:
             return False
+
+    @classmethod
+    def get_lean_version(cls) -> dict:
+        """lean CLI 버전 정보 파싱. 예: '1.0.17731+...' → build='17731'"""
+        import re
+        try:
+            result = subprocess.run(
+                [_resolve_lean_bin(), "--version"],
+                capture_output=True, text=True, timeout=15,
+            )
+            raw = (result.stdout or result.stderr or "").strip()
+            m = re.search(r'(\d{4,})', raw)
+            build = m.group(1) if m else "latest"
+            return {"build": build, "raw": raw, "channel": "master"}
+        except Exception:
+            return {"build": "latest", "raw": "", "channel": "master"}
 
     @classmethod
     def pull_image(cls) -> bool:

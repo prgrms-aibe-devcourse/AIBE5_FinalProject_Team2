@@ -37,6 +37,10 @@ from app.backtest.value_rebalancing import (
     run_value_rebalancing,
     latest_vr_plan,
 )
+from app.backtest.momentum_rotation import (
+    MomentumRotationParams,
+    run_momentum_rotation,
+)
 from app.metrics.quantstats_report import compute_metrics
 from app.models.xgb_signal import train_model, predict_proba_up
 from app.models.retrain_scheduler import start_scheduler, retrain_all
@@ -65,37 +69,41 @@ app = FastAPI(title="Alpha-Helix Analytics", version="0.2.0", lifespan=lifespan)
 app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
 
 
+# ---------- 요청 상관관계 ID (BE 와 동일한 reqId 로 양 서비스 로그를 잇는다 · DDIA 1·8장) ----------
+@app.middleware("http")
+async def request_id_logging(request, call_next):
+    """Spring(BE)이 보낸 X-Request-Id 를 받아 응답 헤더로 되돌리고, 요청 1건당 상관관계 로그 1줄을 남긴다.
+    → BE 로그의 reqId 와 여기 Python 로그의 reqId 를 같은 값으로 grep 하면, 한 요청을 두 서비스에서
+      끝까지 추적할 수 있다(부분 실패 디버깅의 핵심). BE 가 헤더를 안 보내면 '-' 로 남는다."""
+    rid = request.headers.get("x-request-id") or "-"
+    response = await call_next(request)
+    response.headers["X-Request-Id"] = rid
+    log.info("reqId=%s %s %s -> %s", rid, request.method, request.url.path, response.status_code)
+    return response
+
+
 # ---------- Auth ----------
 def require_internal_token(x_internal_token: str = Header(default="")) -> None:
     if x_internal_token != INTERNAL_TOKEN:
         raise HTTPException(status_code=401, detail="invalid internal token")
 
 
+def _slice_df(df, start=None, end=None):
+    """ISO start/end 가 주어지면 df 를 그 날짜구간으로 자른다(백테스트·Regime·Trust 공통)."""
+    if not start and not end:
+        return df
+    try:
+        return df.loc[(start or None):(end or None)]
+    except Exception:
+        return df
+
+
 # ---------- Schemas ----------
 STRATEGY_LITERAL = Literal[
     "buy_and_hold", "sma_cross", "rsi_meanrev", "macd",
     "momentum_12_1", "vix_risk_off",
-    "infinite_buying", "value_rebalancing",
+    "infinite_buying", "value_rebalancing", "momentum_rotation",
 ]
-
-# Trust/Regime 요청에 실리는 무한매수법/밸류리밸런싱 파라미터 (해당 strategy 일 때만 사용)
-_IB_VR_FIELDS = """split take_profit_pct loc_offset_pct rebalance_days expected_return band_pct pool_target_pct initial_pool_pct biweekly_contrib"""
-
-
-def _bt_params(req) -> "BacktestParams":
-    """Trust/Regime 요청 → BacktestParams (IB/VR 상태기반 전략 파라미터까지 전달)."""
-    return BacktestParams(
-        strategy=req.strategy,
-        split=getattr(req, "split", 40),
-        take_profit_pct=getattr(req, "take_profit_pct", 10.0),
-        loc_offset_pct=getattr(req, "loc_offset_pct", 12.0),
-        rebalance_days=getattr(req, "rebalance_days", 10),
-        expected_return=getattr(req, "expected_return", 0.02),
-        band_pct=getattr(req, "band_pct", 0.20),
-        pool_target_pct=getattr(req, "pool_target_pct", 0.50),
-        initial_pool_pct=getattr(req, "initial_pool_pct", 0.50),
-        biweekly_contrib=getattr(req, "biweekly_contrib", 0.0),
-    )
 
 
 class BacktestReq(BaseModel):
@@ -175,6 +183,13 @@ def backtest(req: BacktestReq):
         result = run_backtest(df["Close"], params, vix=vix_series)
         result["ticker"] = req.ticker.upper()
 
+        # QC 대시보드 보강(drawdown/returns/monthly/benchmark + 파생 stats) — _strategy_returns pop 전
+        try:
+            from app.backtest.enrich import enrich_result
+            enrich_result(result, df["Close"])
+        except Exception:
+            log.warning("enrich_result failed", exc_info=True)
+
         # --- QuantStats overlay (Step 1: 전략수익률 + SPY 벤치마크) ---
         # vbt_engine이 반환한 진짜 전략 수익률 (수수료/슬리피지 반영). buy&hold 아님.
         strat_returns = result.pop("_strategy_returns", None)
@@ -197,10 +212,15 @@ def backtest(req: BacktestReq):
         result["risk_metrics"] = compute_metrics(strat_returns, benchmark=bench_returns)
         # 단순보유 비교용
         result["buy_and_hold_metrics"] = compute_metrics(df["Close"].pct_change().dropna())
+        # Capacity(근사): 일평균 거래대금 × 1% 참여율 (QC 정밀 시장충격 모델 아님)
+        try:
+            if "Volume" in df.columns:
+                dvol = (df["Close"] * df["Volume"]).dropna()
+                if len(dvol):
+                    result["stats"]["capacity_usd"] = round(float(dvol.median()) * 0.01, 2)
+        except Exception:
+            pass
         return result
-    except ValueError as e:
-        # 시세 데이터 부재 — 서버 오류가 아니라 요청 데이터 문제
-        raise HTTPException(400, str(e))
     except Exception as e:
         log.exception("backtest failed")
         raise HTTPException(500, str(e))
@@ -277,16 +297,6 @@ def walk_forward_endpoint(req: WalkForwardReq):
         raise HTTPException(500, str(e))
 
 
-def _slice_df(df, start=None, end=None):
-    """ISO start/end 가 주어지면 df 를 그 날짜구간으로 자른다(백테스트·Regime·Trust 공통)."""
-    if not start and not end:
-        return df
-    try:
-        return df.loc[(start or None):(end or None)]
-    except Exception:
-        return df
-
-
 class RegimeReq(BaseModel):
     ticker: str
     period: str = "5y"
@@ -294,17 +304,6 @@ class RegimeReq(BaseModel):
     method: str = "rule"      # "rule" | "hmm"
     smoothing: int = 0        # Viterbi-style minimum-run filter (0=off, 권장 5)
     n_states: int = 4         # HMM 상태 수 (rule-based에서는 무시)
-    causal: bool = False      # HMM 인과(워크포워드) 디코딩 — 룩어헤드 제거(느림). False=전체표본(빠름·사후)
-    # 무한매수법/밸류리밸런싱 파라미터 (strategy 가 해당일 때만 사용)
-    split: int = 40
-    take_profit_pct: float = 10.0
-    loc_offset_pct: float = 12.0
-    rebalance_days: int = 10
-    expected_return: float = 0.02
-    band_pct: float = 0.20
-    pool_target_pct: float = 0.50
-    initial_pool_pct: float = 0.50
-    biweekly_contrib: float = 0.0
     start: str | None = None  # 직접 지정 시작일(ISO). 주면 period 무시하고 [start,end] 구간 분석
     end: str | None = None    # 직접 지정 종료일(ISO)
 
@@ -313,7 +312,7 @@ class RegimeReq(BaseModel):
 def regime_endpoint(req: RegimeReq):
     try:
         df = _slice_df(get_history(req.ticker, period=req.period), req.start, req.end)
-        params = _bt_params(req)
+        params = BacktestParams(strategy=req.strategy)
         return per_regime_stats(
             df["Close"], params,
             method=req.method,
@@ -321,7 +320,6 @@ def regime_endpoint(req: RegimeReq):
             n_states=req.n_states,
             ticker=req.ticker,
             period=req.period,
-            causal=req.causal,
         )
     except Exception as e:
         log.exception("regime failed")
@@ -342,18 +340,6 @@ class TrustReq(BaseModel):
     # 자산 분류 override — "auto" 시 ticker 로 자동 판별
     asset_class: str = "auto"
     leverage: int | None = None
-    regime_method: str = "rule"   # Trust 국면 견고성 채점에 쓸 국면 분류 ("rule"|"hmm")
-    regime_causal: bool = False   # hmm 일 때 인과(워크포워드) 디코딩 여부
-    # 무한매수법/밸류리밸런싱 파라미터 (strategy 가 해당일 때만 사용)
-    split: int = 40
-    take_profit_pct: float = 10.0
-    loc_offset_pct: float = 12.0
-    rebalance_days: int = 10
-    expected_return: float = 0.02
-    band_pct: float = 0.20
-    pool_target_pct: float = 0.50
-    initial_pool_pct: float = 0.50
-    biweekly_contrib: float = 0.0
     start: str | None = None  # 직접 지정 시작일(ISO). 주면 [start,end] 구간으로 신뢰도 평가
     end: str | None = None    # 직접 지정 종료일(ISO)
 
@@ -362,7 +348,7 @@ class TrustReq(BaseModel):
 def trust_endpoint(req: TrustReq):
     try:
         df = _slice_df(get_history(req.ticker, period=req.period), req.start, req.end)
-        params = _bt_params(req)
+        params = BacktestParams(strategy=req.strategy)
         return compute_trust_score(
             df["Close"], params,
             mdd_target_pct=req.mdd_target_pct,
@@ -373,8 +359,6 @@ def trust_endpoint(req: TrustReq):
             ticker=req.ticker,
             asset_class=req.asset_class,
             leverage=req.leverage,
-            regime_method=req.regime_method,
-            regime_causal=req.regime_causal,
         )
     except Exception as e:
         log.exception("trust failed")
@@ -382,29 +366,61 @@ def trust_endpoint(req: TrustReq):
 
 
 # ---------- Infinite Buying Method (무한매수법) ----------
+# variant="yeona"(연아무한매수법) 선택 시, 명시하지 않은 필드는 아래 프리셋으로 채움.
+YEONA_DEFAULTS = {
+    "split": 40,
+    "take_profit_pct": 13.0,   # 평단×1.13 정규장 익절
+    "loc_offset_pct": 10.0,    # 평단×1.10 이내 보통가 매수
+    "leave_shares": 1.0,       # 익절 시 1주 남김
+    "compound": False,         # 고정 일매수(복리 X)
+    "restart_buy_fraction": 0.5,  # 익절 직후 0.5분할 보통가 재매수(평단 재기준)
+}
+
+
 class InfiniteBuyingReq(BaseModel):
     tickers: list[str] = Field(default_factory=lambda: ["TQQQ", "SOXL"])
     period: str = "5y"
+    variant: str = "laoer"     # "laoer"(기본) | "yeona"(연아무한매수법)
     split: int = 40
     take_profit_pct: float = 10.0
     loc_offset_pct: float = 15.0
     initial_capital: float = 300_000_000.0
     fees: float = 0.0025      # 0.25% — CLAUDE.md 명세(InfiniteBuyingParams 기본값과 정합)
     slippage: float = 0.001   # 0.1%
-    start: str | None = None  # 직접 지정 시작일(ISO). 주면 [start,end] 구간만 백테스트
-    end: str | None = None    # 직접 지정 종료일(ISO)
+    leave_shares: float = 0.0          # 익절 시 남길 수량 (연아: 1)
+    compound: bool = True              # 익절 후 복리 재계산 여부 (연아: False)
+    ticker_weights: dict | None = None # 종목 자본 가중치 (연아: TQQQ 多)
+    restart_buy_fraction: float = 0.0  # 익절 직후 보통가 재매수 분할 (연아: 0.5)
+    start: str | None = None           # 직접 지정 시작일(ISO). 주면 [start,end] 구간만 백테스트
+    end: str | None = None             # 직접 지정 종료일(ISO)
 
 
 def _build_ib_params(req: "InfiniteBuyingReq") -> InfiniteBuyingParams:
-    """요청 → InfiniteBuyingParams."""
-    return InfiniteBuyingParams(
+    """요청 → InfiniteBuyingParams. variant='yeona'면 미지정 필드를 연아 프리셋으로 보정."""
+    set_fields = req.model_fields_set
+    kwargs = dict(
         split=req.split,
         take_profit_pct=req.take_profit_pct,
         loc_offset_pct=req.loc_offset_pct,
         initial_capital=req.initial_capital,
         fees=req.fees,
         slippage=req.slippage,
+        leave_shares=req.leave_shares,
+        compound=req.compound,
+        ticker_weights=req.ticker_weights,
+        variant=req.variant,
+        restart_buy_fraction=req.restart_buy_fraction,
     )
+    if req.variant == "yeona":
+        for k, v in YEONA_DEFAULTS.items():
+            if k not in set_fields:
+                kwargs[k] = v
+        # 종목 가중치 미지정 시: 실제 5월 매수 데이터 검증값 TQQQ:SOXL ≈ 73:27
+        if not req.ticker_weights:
+            up = [t.upper() for t in req.tickers]
+            if set(up) == {"TQQQ", "SOXL"}:
+                kwargs["ticker_weights"] = {"TQQQ": 0.73, "SOXL": 0.27}
+    return InfiniteBuyingParams(**kwargs)
 
 
 def _ticker_series(closes: dict, max_points: int = 1500) -> dict:
@@ -430,16 +446,30 @@ def backtest_infinite_buying(req: InfiniteBuyingReq):
     try:
         closes: dict = {}
         highs: dict = {}
+        opens: dict = {}
+        _cap = 0.0
         for t in req.tickers:
             df = _slice_df(get_history(t, period=req.period), req.start, req.end)
-            closes[t.upper()] = df["Close"]
-            if "High" in df.columns:
-                highs[t.upper()] = df["High"]
+            tk = t.upper()
+            closes[tk] = df["Close"]
+            if "High" in df.columns: highs[tk] = df["High"]
+            if "Open" in df.columns: opens[tk] = df["Open"]
+            if "Volume" in df.columns:
+                _dv = (df["Close"] * df["Volume"]).dropna()
+                if len(_dv):
+                    _cap += float(_dv.median())
         params = _build_ib_params(req)
-        result = run_infinite_buying(closes, params, highs=highs or None)
+        result = run_infinite_buying(closes, params, highs=highs or None, opens=opens or None)
+        try:
+            from app.backtest.enrich import enrich_result
+            enrich_result(result, next(iter(closes.values())) if closes else None)
+        except Exception:
+            log.warning("enrich_result(IB) failed", exc_info=True)
         strat_returns = result.pop("_strategy_returns", None)
         if strat_returns is not None and len(strat_returns) > 1:
             result["risk_metrics"] = compute_metrics(strat_returns)
+        if _cap > 0:  # Capacity(근사): 종목별 일평균 거래대금 합 × 1% 참여율
+            result["stats"]["capacity_usd"] = round(_cap * 0.01, 2)
         result["ticker_series"] = _ticker_series(closes)
         return result
     except Exception as e:
@@ -461,7 +491,7 @@ def infinite_buying_plan(req: InfiniteBuyingReq):
         raise HTTPException(500, str(e))
 
 
-# ---------- Value Rebalancing (밸류 리밸런싱 / VR) ----------
+# ---------- 밸류 리밸런싱(VR) — QLD 등 (P0: 과거 sma_cross 폴백 버그 수정) ----------
 class ValueRebalancingReq(BaseModel):
     tickers: list[str] = Field(default_factory=lambda: ["QLD"])
     period: str = "5y"
@@ -491,14 +521,26 @@ def _build_vr_params(req: "ValueRebalancingReq") -> ValueRebalancingParams:
 def backtest_value_rebalancing(req: ValueRebalancingReq):
     try:
         closes: dict = {}
+        _cap = 0.0
         for t in req.tickers:
             df = _slice_df(get_history(t, period=req.period), req.start, req.end)
             closes[t.upper()] = df["Close"]
+            if "Volume" in df.columns:
+                _dv = (df["Close"] * df["Volume"]).dropna()
+                if len(_dv):
+                    _cap += float(_dv.median())
         params = _build_vr_params(req)
         result = run_value_rebalancing(closes, params)
+        try:
+            from app.backtest.enrich import enrich_result
+            enrich_result(result, next(iter(closes.values())) if closes else None)
+        except Exception:
+            log.warning("enrich_result(VR) failed", exc_info=True)
         strat_returns = result.pop("_strategy_returns", None)
         if strat_returns is not None and len(strat_returns) > 1:
             result["risk_metrics"] = compute_metrics(strat_returns)
+        if _cap > 0:  # Capacity(근사): 일평균 거래대금 × 1% 참여율
+            result["stats"]["capacity_usd"] = round(_cap * 0.01, 2)
         result["ticker_series"] = _ticker_series(closes)
         return result
     except Exception as e:
@@ -516,6 +558,57 @@ def value_rebalancing_plan(req: ValueRebalancingReq):
         return latest_vr_plan(closes, _build_vr_params(req))
     except Exception as e:
         log.exception("value_rebalancing plan failed")
+        raise HTTPException(500, str(e))
+
+
+# ---------- 모멘텀 로테이션 (멀티자산 상대강도 랭킹) ----------
+class MomentumRotationReq(BaseModel):
+    tickers: list[str] = Field(default_factory=lambda: ["QQQ","XLK","XLF","XLE","XLV","XLY","TLT","GLD","SCHD","BIL"])
+    period: str = "10y"
+    lookback_days: int = 252
+    skip_recent_days: int = 21
+    top_n: int = 3
+    rebalance_days: int = 21
+    abs_momentum_gate: bool = True
+    cash_asset: str = "BIL"
+    initial_capital: float = 10_000.0
+    fees: float = 0.0025
+    slippage: float = 0.001
+    start: str | None = None
+    end: str | None = None
+
+
+@app.post("/backtest/momentum-rotation", dependencies=[Depends(require_internal_token)])
+def backtest_momentum_rotation(req: MomentumRotationReq):
+    try:
+        closes: dict = {}
+        for t in req.tickers:
+            df = _slice_df(get_history(t, period=req.period), req.start, req.end)
+            closes[t.upper()] = df["Close"]
+        params = MomentumRotationParams(
+            lookback_days=req.lookback_days,
+            skip_recent_days=req.skip_recent_days,
+            top_n=req.top_n,
+            rebalance_days=req.rebalance_days,
+            abs_momentum_gate=req.abs_momentum_gate,
+            cash_asset=req.cash_asset,
+            initial_capital=req.initial_capital,
+            fees=req.fees,
+            slippage=req.slippage,
+        )
+        result = run_momentum_rotation(closes, params)
+        try:
+            from app.backtest.enrich import enrich_result
+            enrich_result(result, next(iter(closes.values())) if closes else None)
+        except Exception:
+            log.warning("enrich_result(MR) failed", exc_info=True)
+        strat_returns = result.pop("_strategy_returns", None)
+        if strat_returns is not None and len(strat_returns) > 1:
+            result["risk_metrics"] = compute_metrics(strat_returns)
+        result["ticker_series"] = _ticker_series(closes)
+        return result
+    except Exception as e:
+        log.exception("momentum_rotation failed")
         raise HTTPException(500, str(e))
 
 
@@ -547,6 +640,9 @@ def infinite_buying_sizing(req: InfiniteBuyingSizingReq):
         # 데이터 로드 — 직접 지정(start/end) 또는 짧은 프리셋이면 워밍업(평단·분할매수 누적) 포함해 측정창으로 자른다.
         from datetime import date as _date, timedelta as _td
         closes: dict = {}
+        highs: dict = {}
+        opens: dict = {}
+        # 짧은 프리셋(2~6개월)도 워밍업 측정창으로 — fresh 단기는 익절이 안 나와 시드역산 불가(500 방지).
         _SHORT = {"2mo": 60, "3mo": 90, "6mo": 180}
         eff_start = req.start
         eff_end = req.end or _date.today().isoformat()
@@ -554,21 +650,27 @@ def infinite_buying_sizing(req: InfiniteBuyingSizingReq):
             eff_start = (_date.today() - _td(days=_SHORT[req.period])).isoformat()
         win_end = eff_end
         if eff_start:
-            warm_from = _date.fromisoformat(eff_start) - _td(days=120)   # 측정창 전 워밍업
+            s_d = _date.fromisoformat(eff_start)
+            e_d = _date.fromisoformat(win_end)
+            warm_from = s_d - _td(days=120)   # 측정창 전 워밍업(실거래처럼 포지션이 쌓인 상태에서 시작)
             yrs = (_date.today() - warm_from).days / 365.0 + 0.5
             fetch_period = "max" if yrs > 9 else "10y" if yrs > 4 else "5y" if yrs > 1.5 else "2y"
             for t in req.tickers:
-                df = get_history(t, period=fetch_period).loc[str(warm_from):win_end]
-                closes[t.upper()] = df["Close"]
+                df = get_history(t, period=fetch_period).loc[str(warm_from):str(e_d)]
+                tk = t.upper(); closes[tk] = df["Close"]
+                if "High" in df.columns: highs[tk] = df["High"]
+                if "Open" in df.columns: opens[tk] = df["Open"]
         else:
             for t in req.tickers:
                 df = get_history(t, period=req.period)
-                closes[t.upper()] = df["Close"]
+                tk = t.upper(); closes[tk] = df["Close"]
+                if "High" in df.columns: highs[tk] = df["High"]
+                if "Open" in df.columns: opens[tk] = df["Open"]
 
         # 참조 시드로 측정 (사용자 initial_capital 무시 — 시드를 '구하는' 게 목적)
         params = _build_ib_params(req)
         params.initial_capital = REFERENCE_SEED_USD
-        result = run_infinite_buying(closes, params)
+        result = run_infinite_buying(closes, params, highs=highs or None, opens=opens or None)
         result.pop("_strategy_returns", None)
         stats = result["stats"]
 
@@ -600,7 +702,12 @@ def infinite_buying_sizing(req: InfiniteBuyingSizingReq):
         required_usd = REFERENCE_SEED_USD * scale
 
         up = [t.upper() for t in req.tickers]
-        alloc = {t: required_usd / len(up) for t in up}
+        weights = params.ticker_weights
+        if weights:
+            wsum = sum(max(0.0, weights.get(t, 0.0)) for t in up) or 1.0
+            alloc = {t: required_usd * (max(0.0, weights.get(t, 0.0)) / wsum) for t in up}
+        else:
+            alloc = {t: required_usd / len(up) for t in up}
 
         per_ticker = {
             t: {
@@ -614,6 +721,7 @@ def infinite_buying_sizing(req: InfiniteBuyingSizingReq):
 
         return {
             "feasible": True,
+            "variant": params.variant,
             "period": period_label,
             "fx": req.fx,
             "split": params.split,
@@ -885,6 +993,80 @@ def data_funding(symbol: str, limit: int = 100):
         raise HTTPException(500, str(e))
 
 
+@app.get("/datasets/catalog", dependencies=[Depends(require_internal_token)])
+def datasets_catalog():
+    """오픈소스 데이터셋 카탈로그(QC Datasets 스타일). 조건부 소스 live 는 키 설정으로 결정."""
+    import os
+    from app.data.catalog import CATALOG
+    fred_ok = False
+    try:
+        from app.data import fred_client
+        fred_ok = bool(fred_client.available())
+    except Exception:
+        fred_ok = False
+    polygon_ok = bool(os.getenv("POLYGON_API_KEY"))
+    out = []
+    for d in CATALOG:
+        e = dict(d)
+        if d["id"] == "fred_macro":
+            e["live"] = fred_ok
+        elif d["id"] == "polygon_us":
+            e["live"] = polygon_ok
+        out.append(e)
+    return {
+        "datasets": out,
+        "available": {"yfinance": True, "binance": True, "fred": fred_ok, "polygon": polygon_ok},
+    }
+
+
+@app.get("/datasets/preview", dependencies=[Depends(require_internal_token)])
+def datasets_preview(id: str, symbol: str = "", period: str = "1y", interval: str = "1d", limit: int = 30):
+    """카탈로그 데이터셋의 *실데이터* 미리보기(yfinance/Binance/FRED 실호출 + 캐시)."""
+    from app.data.catalog import get as cat_get
+    d = cat_get(id)
+    if not d:
+        raise HTTPException(404, f"unknown dataset: {id}")
+    via = d.get("preview_via")
+    sym = (symbol or (d.get("sample_symbols") or [""])[0] or "").strip()
+    if not via:
+        raise HTTPException(400, f"'{d['name']}' 는 커넥터 준비중입니다(미리보기 불가).")
+
+    def _r(x):
+        try:
+            v = float(x)
+            return None if v != v else round(v, 4)
+        except Exception:
+            return None
+
+    try:
+        if via == "fred":
+            from app.data import fred_client
+            if not fred_client.available():
+                raise HTTPException(400, "FRED_API_KEY 미설정 — 키 등록 후 미리보기 가능")
+            df = fred_client.get_series(sym or "DGS10").tail(limit)
+            rows = [{"date": str(rr["date"])[:10], "series_id": rr["series_id"], "value": _r(rr["value"])} for _, rr in df.iterrows()]
+            return {"id": id, "symbol": sym, "columns": ["date", "series_id", "value"], "rows": rows[::-1]}
+        if via == "binance":
+            from app.data import binance_client
+            df = binance_client.get_klines(sym or "BTCUSDT", interval=interval, limit=limit)
+            rows = [{"timestamp": str(rr["timestamp"])[:19], "open": _r(rr["open"]), "high": _r(rr["high"]), "low": _r(rr["low"]), "close": _r(rr["close"]), "volume": _r(rr["volume"])} for _, rr in df.iterrows()]
+            return {"id": id, "symbol": sym, "columns": ["timestamp", "open", "high", "low", "close", "volume"], "rows": rows[::-1]}
+        # 기본: yfinance / polygon → get_history (캐시 사용)
+        df = get_history(sym or "AAPL", period=period, interval=interval).tail(limit)
+        rows = []
+        for idx, rr in df.iterrows():
+            vol = rr.get("Volume")
+            rows.append({"date": str(idx)[:10], "open": _r(rr.get("Open")), "high": _r(rr.get("High")),
+                         "low": _r(rr.get("Low")), "close": _r(rr.get("Close")),
+                         "volume": int(vol) if (vol == vol and vol is not None) else None})
+        return {"id": id, "symbol": sym, "columns": ["date", "open", "high", "low", "close", "volume"], "rows": rows[::-1]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("datasets_preview failed")
+        raise HTTPException(500, f"미리보기 실패: {e}")
+
+
 @app.post("/data/collect", dependencies=[Depends(require_internal_token)])
 def data_collect(req: DataCollectReq):
     """수동 데이터 수집 트리거. 백그라운드에서 비동기 실행."""
@@ -1053,6 +1235,7 @@ def lean_backtest(req: LeanBacktestReq):
             "equity_curve": result.equity_curve,
             "trades_count": result.trades_count,
             "elapsed_seconds": result.elapsed_seconds,
+            "extra_charts": result.extra_charts or {},
         }
     except HTTPException:
         raise
@@ -1108,6 +1291,7 @@ def lean_backtest_start(req: LeanBacktestReq):
                 "equity_curve": result.equity_curve,
                 "trades_count": result.trades_count,
                 "elapsed_seconds": result.elapsed_seconds,
+                "extra_charts": result.extra_charts or {},
             })
         except Exception as e:  # noqa: BLE001
             log.exception("lean/backtest/start job failed")
@@ -1130,7 +1314,15 @@ def lean_backtest_status(job_id: str, since: int = 0):
 
 @app.get("/lean/health", dependencies=[Depends(require_internal_token)])
 def lean_health():
-    """Lean 실행 환경 준비 상태 (Docker 데몬 / lean CLI / 이미지)."""
+    """Lean 실행 환경 준비 상태 (Docker 데몬 / lean CLI / 이미지).
+
+    docker info·docker images·lean --version 호출이 합쳐 수초(관측 ~5.6s) 걸려 매 호출 재실행 시
+    프론트(엔진 메뉴 열 때 1회 조회)가 stale/지연으로 ✗ 표시됨 → 결과를 30s TTL 캐시한다.
+    """
+    import time as _t
+    _c = globals().setdefault("_LEAN_HEALTH_CACHE", {"ts": 0.0, "data": None})
+    if _c["data"] is not None and (_t.monotonic() - _c["ts"]) < 30:
+        return _c["data"]
     try:
         import app.lean  # noqa: F401  — sys.path 주입
         from kis_backtest.lean.executor import LeanExecutor, LEAN_IMAGE
@@ -1139,13 +1331,18 @@ def lean_health():
                 "error": f"lean executor import 실패: {e}"}
     docker = LeanExecutor.check_docker()
     lean_cli = LeanExecutor.check_lean_cli()
-    image = LeanExecutor.check_image() if docker else False  # docker 죽었으면 이미지 조회 스킵
-    return {
+    image = LeanExecutor.check_image() if docker else False
+    version_info = LeanExecutor.get_lean_version() if lean_cli else {"build": "latest", "raw": "", "channel": "master"}
+    result = {
         "ready": bool(docker and lean_cli and image),
         "docker": docker,
         "lean_cli": lean_cli,
         "image": image,
         "image_name": LEAN_IMAGE,
+        "version": version_info,
     }
+    _c["ts"] = _t.monotonic()
+    _c["data"] = result
+    return result
 
 
