@@ -336,8 +336,9 @@ export default function ProposalsPage() {
                 <div className="prop-actions" style={{ display: "flex", gap: 6 }}>
                   <button disabled={busyId === p.id} onClick={() => onAmend(p)}
                     style={{
-                      background: "#fff", color: "#4338CA", fontWeight: 700, fontSize: 12,
-                      border: "1px solid #C7D2FE", borderRadius: 8, padding: "8px 12px",
+                      background: "linear-gradient(135deg, #86efac 0%, #4ade80 50%, #22c55e 100%)",
+                      color: "#fff", fontWeight: 700, fontSize: 12,
+                      border: "none", borderRadius: 8, padding: "8px 14px",
                       cursor: busyId === p.id ? "wait" : "pointer",
                       display: "inline-flex", alignItems: "center", gap: 4,
                     }}>

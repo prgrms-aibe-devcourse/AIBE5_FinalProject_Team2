@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useMemo } from "react";
+﻿import React, { useEffect, useState, useMemo } from "react";
 import { Wallet } from "lucide-react";
-import binanceLogo from "../assets/binance.png";
+import binanceLogo from "../assets/binance.webp";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import { useLanguage } from "../i18n/useLanguage";
 import {
