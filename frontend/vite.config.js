@@ -68,6 +68,14 @@ export default defineConfig(({ command }) => ({
           if (id.includes('node_modules/lucide-react/')) {
             return 'vendor-icons';
           }
+          // 상태관리
+          if (id.includes('node_modules/zustand/')) {
+            return 'vendor-zustand';
+          }
+          // Google OAuth (Login/Signup 에서만 사용)
+          if (id.includes('node_modules/@react-oauth/') || id.includes('node_modules/oauth4webapi/')) {
+            return 'vendor-oauth';
+          }
         },
       },
     },
