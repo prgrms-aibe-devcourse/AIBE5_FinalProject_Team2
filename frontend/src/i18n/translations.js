@@ -827,8 +827,8 @@ const translations = {
       },
       withdraw: {
         title: "Are you sure you want to withdraw?",
-        desc: "All account data (profile, applications, settings) will be reset and cannot be recovered.",
-        canRejoin: "After withdrawal, you can re-register as a partner or client.",
+        desc: "All data including workspaces, strategy settings, and AI chat history will be deleted and cannot be recovered.",
+        canRejoin: "After withdrawal, you can re-register anytime with the same email.",
         cancel: "Cancel",
         confirm: "Withdraw",
       },
@@ -1090,6 +1090,7 @@ const translations = {
         UNREAD: "Unread",
       },
       create: "New Proposal",
+      amend: "Amend",
       createModal: {
         title: "Create Manual Order Proposal",
         subtitle: "Create a PENDING proposal directly.",
@@ -1989,8 +1990,8 @@ const translations = {
       },
       withdraw: {
         title: "정말 탈퇴하시겠습니까?",
-        desc: "계정의 모든 데이터(프로필, 지원 내역, 설정)가 초기화되며 복구할 수 없습니다.",
-        canRejoin: "탈퇴 후 파트너 또는 클라이언트로 새로 가입할 수 있습니다.",
+        desc: "워크스페이스·전략 설정·AI 대화 내역 등 모든 데이터가 삭제되며 복구할 수 없습니다.",
+        canRejoin: "탈퇴 후 동일한 이메일로 언제든지 다시 가입하실 수 있습니다.",
         cancel: "취소",
         confirm: "탈퇴하기",
       },
@@ -2252,6 +2253,7 @@ const translations = {
         UNREAD: "읽지 않음",
       },
       create: "수동 제안",
+      amend: "주문 정정",
       createModal: {
         title: "수동 주문 제안 생성",
         subtitle: "사용자가 직접 PENDING 제안을 생성합니다",
@@ -3152,8 +3154,8 @@ const translations = {
       },
       withdraw: {
         title: "确定要注销账户吗？",
-        desc: "账户的所有数据（个人资料、申请记录、设置）将被重置，无法恢复。",
-        canRejoin: "注销后可以重新注册为合作伙伴或客户。",
+        desc: "包括工作区、策略设置和AI对话记录在内的所有数据将被删除，无法恢复。",
+        canRejoin: "注销后可以随时使用相同邮箱重新注册。",
         cancel: "取消",
         confirm: "注销",
       },
