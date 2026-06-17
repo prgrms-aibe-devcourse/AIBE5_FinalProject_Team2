@@ -1,4 +1,4 @@
-package com.DevBridge.devbridge.domain.strategy.service;
+﻿package com.DevBridge.devbridge.domain.strategy.service;
 
 import com.DevBridge.devbridge.domain.notification.entity.Notification;
 import com.DevBridge.devbridge.domain.notification.service.NotificationService;
@@ -15,8 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 
 /**
- * ?ъ슜??援щ룆 議고쉶/?앹꽦/留뚮즺 泥섎━.
- * Toss 寃곗젣 肄쒕갚?먯꽌 activatePro() ?몄텧.
+ * 사용자 구독 조회/생성/만료 처리.
+ * Toss 결제 완료 후 activatePro() 호출.
  */
 @Slf4j
 @Service
@@ -27,7 +27,7 @@ public class SubscriptionService {
     private final UserRepository userRepository;
     private final NotificationService notificationService;
 
-    /** ?ъ슜?먯쓽 ?꾩옱 ?깃툒 (?쒖꽦 Pro媛 ?덇퀬 留뚮즺 ?덈릱?쇰㈃ PRO, 洹???FREE). */
+    /** 사용자의 현재 등급 (활성 Pro가 있고 만료 안됐으면 PRO, 그외 FREE). */
     @Transactional(readOnly = true)
     public Subscription.Tier currentTier(Long userId) {
         return repo.findFirstByUserIdAndStatusOrderByExpiresAtDesc(userId, Subscription.Status.ACTIVE)
@@ -37,8 +37,8 @@ public class SubscriptionService {
     }
 
     /**
-     * ?꾩옱 ?쒖꽦 援щ룆 ?뷀떚??諛섑솚 (?놁쑝硫?null).
-     * amountKrw 湲곕컲?쇰줈 ?꾨줎?몄뿉 STANDARD/PREMIUM ?쒖떆 ?곗뼱瑜?怨꾩궛?????ъ슜.
+     * 현재 활성 구독 엔티티 반환 (없으면 null).
+     * amountKrw 기반으로 결제건에 STANDARD/PREMIUM 표시 레이블을 계산할 때 사용.
      */
     @Transactional(readOnly = true)
     public Subscription findActiveSub(Long userId) {
@@ -48,8 +48,8 @@ public class SubscriptionService {
     }
 
     /**
-     * amountKrw 湲곕컲?쇰줈 ?꾨줎???쒖떆 ?곗뼱瑜?諛섑솚.
-     * DB Tier??PRO ?⑥씪?댁?留?寃곗젣 湲덉븸?쇰줈 STANDARD/PREMIUM 援щ텇.
+     * amountKrw 기반으로 결제 시 표시 레이블을 반환.
+     * DB Tier는 PRO 단일이지만 결제 금액으로 STANDARD/PREMIUM 구분.
      */
     public static String deriveTierDisplay(Subscription sub) {
         if (sub == null) return "FREE";
@@ -101,7 +101,6 @@ public class SubscriptionService {
         return saved;
     }
 
-    /** 留뚮즺 ?쇨큵 泥섎━ (?ㅼ?以꾨윭?먯꽌 留ㅼ떆媛??몄텧 媛??. */
     /** 만료 처리 (매시간 실행). */
     @Scheduled(cron = "0 0 * * * *")
     @Transactional
