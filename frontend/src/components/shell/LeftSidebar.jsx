@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+﻿import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Home, Layers, BarChart3, Activity, ShieldCheck,
@@ -7,18 +7,19 @@ import {
   Laptop, FileCode, Database, TerminalSquare, FolderOpen, CreditCard,
   PenLine, ChevronLeft, ChevronDown, PanelLeftOpen, CircleDollarSign, CircleHelp,
 } from "lucide-react";
-import logoIcon from "../../assets/main_logo.png";
+import logoIcon from "../../assets/main_logo.webp";
 import { HEROES, getCurrentHeroKey, getCurrentHeroSrc, setCurrentHeroKey } from "../../alpha/heroAssets";
 import { listWorkspaces, createWorkspace } from "../../alpha/alphaApi";
 import LoginRequiredModal from "./LoginRequiredModal";
 import CreateWorkspaceModal from "../../alpha/CreateWorkspaceModal";
 import SettingsModal from "./SettingsModal";
-import SubscriptionModal from "./SubscriptionModal";
+const SubscriptionModal = lazy(() => import("./SubscriptionModal"));
 import { useLanguage } from "../../i18n/useLanguage";
 import { useTheme } from "../../alpha/ThemeContext";
 import { authApi } from "../../api/auth.api";
 import useStore from "../../store/useStore";
 import { useNotificationStore } from "../../store/useNotificationStore";
+import Toast from "../common/Toast";
 
 const THEME_PRESETS = [
   { key: "heli",  name: "Heli (기본)",   swatch: "linear-gradient(135deg,#BFDBFE,#A5B4FC,#C4B5FD)" },
@@ -57,7 +58,8 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   const loc = useLocation();
   const { theme, themeKey, setThemeKey } = useTheme();
   const { lang, setLang, t } = useLanguage();
-  const unreadCount        = useNotificationStore((s) => s.notifications.filter((n) => !n.read).length);
+  const notifications      = useNotificationStore((s) => s.notifications);
+  const unreadCount        = notifications.filter((n) => !n.read).length;
   const fetchNotifications = useNotificationStore((s) => s.fetch);
 
   const [showLogin, setShowLogin]     = useState(false);
@@ -87,6 +89,9 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   // Developer flyout (collapsed only)
   const [devMenuOpen, setDevMenuOpen] = useState(false);
   const [devBtnTop, setDevBtnTop]     = useState(160);
+
+  const seenIdsRef      = useRef(null); // null = 초기 로드 전
+  const [notiToast, setNotiToast] = useState(null);
 
   const langRef         = useRef(null);
   const gearRef         = useRef(null);
@@ -118,6 +123,24 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
     return () => clearInterval(id);
   }, [fetchNotifications]);
 
+  /* ── 새 알림 도착 감지 → 토스트 ── */
+  useEffect(() => {
+    if (notifications.length === 0) return;
+    if (seenIdsRef.current === null) {
+      seenIdsRef.current = new Set(notifications.map((n) => n.id));
+      return;
+    }
+    const newOnes = notifications.filter((n) => !seenIdsRef.current.has(n.id));
+    if (newOnes.length === 0) return;
+    newOnes.forEach((n) => seenIdsRef.current.add(n.id));
+    const latest = newOnes[0];
+    setNotiToast({
+      title: latest.title + (newOnes.length > 1 ? ` 외 ${newOnes.length - 1}개` : ""),
+      body: latest.body,
+      type: latest.type,
+    });
+  }, [notifications]);
+
   /* ── load workspaces ── */
   const loadWorkspaces = () =>
     listWorkspaces()
@@ -129,7 +152,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   }, [expanded]);
 
   useEffect(() => {
-    if (wsMenuOpen && isAuthed) loadWorkspaces();
+    if (wsMenuOpen && isAuthed && workspaces.length === 0) loadWorkspaces();
   }, [wsMenuOpen]);
 
   /* ── global click-outside / event listeners ── */
@@ -341,6 +364,14 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   /* ─────────────────────────────────────────────────── */
   return (
     <>
+      {notiToast && (
+        <Toast
+          title={notiToast.title}
+          body={notiToast.body}
+          type={notiToast.type}
+          onClose={() => setNotiToast(null)}
+        />
+      )}
       <aside
         data-tut-sidebar
         style={{
@@ -731,7 +762,9 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
 
       <LoginRequiredModal open={showLogin} onClose={() => setShowLogin(false)} />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-      <SubscriptionModal open={subOpen} onClose={() => setSubOpen(false)} />
+      <Suspense fallback={null}>
+        <SubscriptionModal open={subOpen} onClose={() => setSubOpen(false)} />
+      </Suspense>
 
       <CreateWorkspaceModal
         open={newStrategyOpen}

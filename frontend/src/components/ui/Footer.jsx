@@ -1,6 +1,6 @@
-import { useLanguage } from "../../i18n/useLanguage";
+﻿import { useLanguage } from "../../i18n/useLanguage";
 import { useNavigate } from "react-router-dom";
-import devBridgeLogo from "../../assets/main_logo.png";
+import devBridgeLogo from "../../assets/main_logo.webp";
 
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
