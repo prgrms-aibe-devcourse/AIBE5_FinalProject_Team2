@@ -21,7 +21,7 @@ const STATUS_COLOR = {
   GOAL_SET:   { bar: "#3B82F6", bg: "#EFF6FF", text: "#1D4ED8" },
   FORMALIZED: { bar: "#8B5CF6", bg: "#F5F3FF", text: "#6D28D9" },
   TESTED:     { bar: "#10B981", bg: "#ECFDF5", text: "#047857" },
-  LIVE:       { bar: "#F59E0B", bg: "#FFFBEB", text: "#B45309" },
+  LIVE:       { bar: "#22C55E", bg: "#F0FDF4", text: "#16A34A" },
 };
 
 export default function WorkspaceList() {
@@ -40,6 +40,7 @@ export default function WorkspaceList() {
     const v = localStorage.getItem(PRIMARY_KEY);
     return v ? Number(v) : null;
   });
+  const [wsFilter, setWsFilter] = useState("all");
   const autoPromptedRef = useRef(false);
 
   const setPrimary = (id) => {
@@ -119,6 +120,16 @@ export default function WorkspaceList() {
     finally { setDeleteTarget(null); }
   };
 
+  const filteredItems = (items || []).filter(w => {
+    if (wsFilter === "live") return w.status === "LIVE";
+    if (wsFilter === "notlive") return w.status !== "LIVE";
+    return true;
+  }).slice().sort((a, b) => {
+    if (a.id === primaryId) return -1;
+    if (b.id === primaryId) return 1;
+    return 0;
+  });
+
   return (
     <div style={{ padding: "36px 40px 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
       <style>{`
@@ -190,23 +201,62 @@ export default function WorkspaceList() {
         </div>
       )}
 
+      {/* ====== 필터 탭 ====== */}
+      {items !== null && items.length > 0 && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+          {[
+            { key: "all",     label: "전체",   count: items.length },
+            { key: "live",    label: "운용 중", count: items.filter(w => w.status === "LIVE").length },
+            { key: "notlive", label: "준비 중", count: items.filter(w => w.status !== "LIVE").length },
+          ].map(({ key, label, count }) => {
+            const active = wsFilter === key;
+            return (
+              <button key={key} onClick={() => setWsFilter(key)} style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "7px 15px", borderRadius: 20, border: "none",
+                background: active
+                  ? "linear-gradient(135deg,#60a5fa 0%,#6366f1 100%)"
+                  : "rgba(148,163,184,0.12)",
+                color: active ? "white" : "#475569",
+                fontSize: 13, fontWeight: active ? 700 : 500,
+                cursor: "pointer",
+                boxShadow: active ? "0 3px 12px rgba(99,102,241,0.28)" : "none",
+                transition: "all 0.15s",
+              }}>
+                {label}
+                {count > 0 && (
+                  <span style={{
+                    background: active ? "rgba(255,255,255,0.25)" : "rgba(100,116,139,0.14)",
+                    color: active ? "white" : "#64748B",
+                    borderRadius: 10, padding: "0 6px",
+                    fontSize: 11, fontWeight: 700, lineHeight: "18px",
+                  }}>{count}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* ====== 내 워크스페이스 목록 ====== */}
       <div style={{ display: "grid", gap: 10, marginTop: 24 }}>
-        {(items || [])
-          .slice()
-          .sort((a, b) => {
-            if (a.id === primaryId) return -1;
-            if (b.id === primaryId) return 1;
-            return 0;
-          })
-          .map(w => {
+        {filteredItems.length === 0 && wsFilter !== "all" && (
+          <div style={{
+            padding: 32, textAlign: "center",
+            background: "white", border: "1px dashed #E2E8F0", borderRadius: 14,
+            color: "#94A3B8", fontSize: 13, fontWeight: 500,
+          }}>
+            {wsFilter === "live" ? "운용 중인 워크스페이스가 없습니다." : "준비 중인 워크스페이스가 없습니다."}
+          </div>
+        )}
+        {filteredItems.map(w => {
             const isPrimary = w.id === primaryId;
             const sc = STATUS_COLOR[w.status] || STATUS_COLOR.DRAFT;
             return (
           <div key={w.id}
             style={{
               background: "#ffffff",
-              border: isPrimary ? "none" : "1px solid #E2E8F0",
+              border: isPrimary ? "1px solid #FDE68A" : "1px solid #E2E8F0",
               borderRadius: 14,
               display: "flex", alignItems: "stretch",
               boxShadow: isPrimary
@@ -223,11 +273,11 @@ export default function WorkspaceList() {
               {/* 상태 아이콘 원형 */}
               <div style={{
                 width: 42, height: 42, borderRadius: 12, flexShrink: 0,
-                background: isPrimary ? "#FEF3C7" : sc.bg,
+                background: isPrimary ? "#FEF3C7" : w.status === "LIVE" ? "#F0FDF4" : "#F1F5F9",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 boxShadow: "none",
               }}>
-                <Layers size={18} color={isPrimary ? "#B45309" : sc.bar} strokeWidth={2.2} />
+                <Layers size={18} color={isPrimary ? "#B45309" : w.status === "LIVE" ? "#22C55E" : "#94A3B8"} strokeWidth={2.2} />
               </div>
 
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -235,14 +285,12 @@ export default function WorkspaceList() {
                   <span style={{ fontSize: 15, fontWeight: 800, color: "#0F172A" }}>{w.name}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  {w.status !== "LIVE" && (
-                    <span style={{
-                      fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
-                      background: isPrimary ? "#FFF8E1" : sc.bg,
-                      color: isPrimary ? "#1C1400" : sc.text,
-                      border: `1px solid ${isPrimary ? "#FFBE0B" : sc.bar}55`,
-                    }}>{STATUS_LABEL[w.status] || w.status}</span>
-                  )}
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                    background: isPrimary ? "#FFF8E1" : sc.bg,
+                    color: isPrimary ? "#1C1400" : sc.text,
+                    border: `1px solid ${isPrimary ? "#FFBE0B" : sc.bar}55`,
+                  }}>{STATUS_LABEL[w.status] || w.status}</span>
                   <span style={{ fontSize: 11, color: "#94A3B8" }}>
                     수정 {new Date(w.updatedAt).toLocaleDateString("ko-KR")}
                   </span>

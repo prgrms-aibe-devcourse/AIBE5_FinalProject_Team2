@@ -1,13 +1,13 @@
-// Alpha-Helix 사용자 아바타(Hero) 자산 인덱스
+﻿// Alpha-Helix 사용자 아바타(Hero) 자산 인덱스
 // LeftSidebar 드롭다운/ChatPanel 어시스턴트 아바타에서 공통 사용
-import heliLovely  from "../assets/lovely_heli.png";
-import heliStar    from "../assets/heli_star.png";
-import heliCoffee  from "../assets/heli_coffee.png";
-import heliNight   from "../assets/heli_night.png";
-import heliMap     from "../assets/heli_map.png";
-import heliForest  from "../assets/heli_forest.png";
-import heliWork    from "../assets/heli_work.png";
-import heliBook    from "../assets/heli_book.png";
+import heliLovely  from "../assets/lovely_heli.webp";
+import heliStar    from "../assets/heli_star.webp";
+import heliCoffee  from "../assets/heli_coffee.webp";
+import heliNight   from "../assets/heli_night.webp";
+import heliMap     from "../assets/heli_map.webp";
+import heliForest  from "../assets/heli_forest.webp";
+import heliWork    from "../assets/heli_work.webp";
+import heliBook    from "../assets/heli_book.webp";
 
 export const HEROES = [
   { key: "work",    label: "업무",   src: heliWork   },

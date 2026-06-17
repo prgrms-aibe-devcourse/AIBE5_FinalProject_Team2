@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+﻿import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, TrendingUp, ArrowRight, Pencil, Check, X, CircleUser, BarChart3, Award, Layers, Target, BookOpenText } from "lucide-react";
 import { listWorkspaces, getWorkspace, createWorkspace } from "../alpha/alphaApi";
@@ -7,7 +7,7 @@ import { useTheme } from "../alpha/ThemeContext";
 import { useLanguage } from "../i18n/useLanguage";
 import useStore from "../store/useStore";
 import { profileApi } from "../api/profile.api";
-import heliFace from "../assets/heli_face.png";
+import heliFace from "../assets/heli_face.webp";
 import { getCurrentHeroSrc } from "../alpha/heroAssets";
 
 const F = "'Pretendard', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";

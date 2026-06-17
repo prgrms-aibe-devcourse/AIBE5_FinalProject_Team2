@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+﻿import { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { Send, ChevronRight, Mic } from "lucide-react";
-import heliBase  from "../../assets/heli_ai_base.png";
-import heliWait  from "../../assets/heli_ai_wait.png";
-import heliSorry from "../../assets/heli_ai_sorry.png";
-import heliFace  from "../../assets/heli_face.png";
+import heliBase  from "../../assets/heli_ai_base.webp";
+import heliWait  from "../../assets/heli_ai_wait.webp";
+import heliSorry from "../../assets/heli_ai_sorry.webp";
+import heliFace  from "../../assets/heli_face.webp";
 import { chatWithAI, langInstruction } from "../../lib/aiClient";
 import { useLanguage } from "../../i18n/useLanguage";
 import ModelPicker from "../ai/ModelPicker";

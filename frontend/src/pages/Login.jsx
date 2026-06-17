@@ -1,6 +1,6 @@
 import { useMemo, useRef, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useGoogleLogin } from "@react-oauth/google";
+import { useGoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import useStore from "../store/useStore";
 import { authApi } from "../api";
@@ -544,4 +544,7 @@ function Login() {
   );
 }
 
-export default Login;
+const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "000000000000-unconfigured.apps.googleusercontent.com";
+export default function LoginWithGoogle() {
+  return <GoogleOAuthProvider clientId={CLIENT_ID}><Login /></GoogleOAuthProvider>;
+}

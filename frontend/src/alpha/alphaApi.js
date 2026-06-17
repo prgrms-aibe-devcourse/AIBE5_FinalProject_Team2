@@ -63,6 +63,9 @@ export const leanBacktestStart  = (body) => api.post("/lean/backtest/start", bod
 export const leanBacktestStatus = (jobId, since = 0) =>
   api.get(`/lean/backtest/status/${jobId}`, { params: { since } }).then(r => r.data);
 export const getLeanHealth      = () => api.get("/lean/health").then(r => r.data); // { enabled, docker, lean_cli, image, ready }
+// QC식 다중 노드 관리: 노드 풀 상태 + 잡 큐/이력
+export const getLeanNodes       = () => api.get("/lean/nodes").then(r => r.data);            // { nodes:[{id,name,tier,slots,active,idle}] }
+export const getLeanQueue       = (limit = 50) => api.get("/lean/queue", { params: { limit } }).then(r => r.data); // { running, queued, total_slots, jobs:[{job_id,status,phase,node_id,meta,elapsed_seconds}] }
 
 // Claude Code 에이전트 — 헤드리스 claude CLI 로 워크스페이스 코드 편집 → ChangeSet(PENDING) + 내레이션
 export const runClaudeAgent = (wsId, request) =>
@@ -138,6 +141,8 @@ export const approveProposal     = (id) => api.post(`/proposals/${id}/approve`).
 export const rejectProposal      = (id, reason) => api.post(`/proposals/${id}/reject`, { reason }).then(r => r.data);
 // 주문 정정 — PENDING 제안의 수량/단가/주문유형/방향/사유 부분 수정 (들어온 키만 갱신)
 export const amendProposal       = (id, body) => api.patch(`/proposals/${id}`, body).then(r => r.data);
+// 가격 소급 보정 — fillAvgPrice·limitPrice 모두 null인 EXECUTED 제안에 현재 시세 채움
+export const backfillProposalPrices = () => api.post("/proposals/backfill-prices").then(r => r.data);
 
 // Quant Developer IDE Git 연동
 export const getGitStatus            = () => api.get("/alpha/git/status").then(r => r.data);

@@ -33,7 +33,14 @@ export function derivePosition(p) {
   let mv = Number(p.market_value);
   let pnl = Number(p.unrealized_pnl);
   const cost = avg * qty;
-  if (!Number.isFinite(mv) || mv === 0) mv = (now > 0 ? now * qty : cost + (Number.isFinite(pnl) ? pnl : 0));
+  if (!Number.isFinite(mv) || mv === 0) {
+    if (now > 0) mv = now * qty;
+    // cost > 0일 때만 cost+pnl 사용 — avg_price=0(KIS 데이터 누락)이면 pnl만 남아 음수가 되므로 제외
+    else if (cost > 0) mv = cost + (Number.isFinite(pnl) ? pnl : 0);
+    // else: mv = 0 (현재가/매수가 모두 불명, 아래 clamp로 0 처리)
+  }
+  // 주식 평가금액은 음수 불가 (KIS 데이터 오류 방어)
+  mv = Math.max(0, mv);
   if (!Number.isFinite(pnl)) pnl = mv - cost;
   const pct = cost > 0 ? (pnl / cost) * 100 : 0;
   const currency = p.currency || "USD";
@@ -55,7 +62,8 @@ export function summarizeBalance(bal, brokerType) {
 }
 
 // 계좌 자산을 KRW 로 환산(종합 자산 합산용)
-export function acctTotalKrw(sum) {
-  const usd = sum.mv + sum.cashUsd;
-  return usd * FX_KRW_PER_USD + sum.cashKrw;
+// pendingKrw/pendingUsd: T+2 미결제 매도 대금(KIS prsm_deposit_amt 반영 전 보정용)
+export function acctTotalKrw(sum, pendingKrw = 0, pendingUsd = 0) {
+  const usd = sum.mv + sum.cashUsd + pendingUsd;
+  return usd * FX_KRW_PER_USD + sum.cashKrw + pendingKrw;
 }

@@ -109,3 +109,13 @@ export async function fetchSubscription() {
     return { tier: "FREE", priceKrw: 9900 };
   }
 }
+
+export async function cancelSubscription() {
+  const res = await fetch("/api/subscription/cancel", {
+    method: "POST",
+    credentials: "include",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "해지 요청에 실패했습니다.");
+  return data;
+}

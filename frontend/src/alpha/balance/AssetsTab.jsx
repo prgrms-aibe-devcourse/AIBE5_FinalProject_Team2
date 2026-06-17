@@ -43,7 +43,7 @@ function CurrencyToggle({ showKrw, setShowKrw }) {
 
 /** 이미지1 — 자산 개요(계좌별 카드) */
 function Overview({ accountsData, loading, refreshing, onReload, onOpen, showKrw, setShowKrw }) {
-  const totalKrw = accountsData.reduce((s, d) => s + acctTotalKrw(d.sum), 0);
+  const totalKrw = accountsData.reduce((s, d) => s + acctTotalKrw(d.sum, d.pendingKrw ?? 0, d.pendingUsd ?? 0), 0);
   const totalUsd = totalKrw / FX_KRW_PER_USD;
   const pnlUsd = accountsData.reduce((s, d) => s + d.sum.pnl, 0);
   const costUsd = accountsData.reduce((s, d) => s + d.sum.cost, 0);
@@ -93,8 +93,11 @@ function Overview({ accountsData, loading, refreshing, onReload, onOpen, showKrw
 
 function AccountCard({ data, onOpen, showKrw }) {
   const { acct, sum, bal } = data;
-  const totalKrw = acctTotalKrw(sum);
-  const totalUsd = sum.mv + sum.cashUsd + sum.cashKrw / FX_KRW_PER_USD;
+  const pendingKrw = data.pendingKrw ?? 0;
+  const pendingUsd = data.pendingUsd ?? 0;
+  const hasPending = pendingKrw > 0 || pendingUsd > 0;
+  const totalKrw = acctTotalKrw(sum, pendingKrw, pendingUsd);
+  const totalUsd = sum.mv + sum.cashUsd + pendingUsd + sum.cashKrw / FX_KRW_PER_USD + pendingKrw / FX_KRW_PER_USD;
   const pnlKrw = sum.pnl * FX_KRW_PER_USD;
   const fail = !bal;
 
@@ -116,6 +119,13 @@ function AccountCard({ data, onOpen, showKrw }) {
         <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>{totalFmt}</div>
         {fail ? <div style={{ fontSize: 12, color: "#f59e0b" }}>잔고 조회 실패</div>
           : <div style={{ fontSize: 13, fontWeight: 700, color: pnlColor(sum.pnl) }}>{pnlFmt} ({fmtPct(sum.pct)})</div>}
+        {hasPending && (
+          <div style={{ fontSize: 11, color: "#6366f1", marginTop: 3, fontWeight: 600 }}>
+            T+2 정산 예정 {showKrw
+              ? fmtKrw(pendingKrw + pendingUsd * FX_KRW_PER_USD)
+              : fmtUsd(pendingUsd + pendingKrw / FX_KRW_PER_USD)} 포함
+          </div>
+        )}
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <CardBtn icon={<Receipt size={14} />} label="거래내역" onClick={onOpen} />
@@ -139,10 +149,12 @@ const CardBtn = ({ icon, label, onClick, primary }) => (
 /** 이미지2/3/4 — 계좌 상세(보유종목 표/카드 토글) */
 function AccountDetail({ data, onBack, onOrder, showKrw }) {
   const { acct, sum } = data;
+  const pendingKrw = data.pendingKrw ?? 0;
+  const pendingUsd = data.pendingUsd ?? 0;
   const [mode, setMode] = useState("card");
 
-  const totalKrw = acctTotalKrw(sum);
-  const totalUsd = sum.mv + sum.cashUsd + sum.cashKrw / FX_KRW_PER_USD;
+  const totalKrw = acctTotalKrw(sum, pendingKrw, pendingUsd);
+  const totalUsd = sum.mv + sum.cashUsd + pendingUsd + sum.cashKrw / FX_KRW_PER_USD + pendingKrw / FX_KRW_PER_USD;
   const pnlKrw = sum.pnl * FX_KRW_PER_USD;
 
   const totalFmt = showKrw ? fmtKrw(totalKrw) : fmtUsd(totalUsd);

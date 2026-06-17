@@ -129,7 +129,7 @@ export default function OrderAmendModal({ open, proposal, loading, canceling, er
   const labelStyle = { fontSize: 11.5, fontWeight: 700, color: theme.textMuted, display: "block", marginBottom: 6, letterSpacing: 0.2 };
   const inputStyle = {
     width: "100%", padding: "11px 13px", borderRadius: 10, border: `1.5px solid ${theme.panelBorder}`,
-    fontSize: 13.5, outline: "none", color: theme.text, boxSizing: "border-box", background: theme.bg,
+    fontSize: 13.5, outline: "none", color: theme.text, boxSizing: "border-box", background: theme.panel,
   };
 
   return (
@@ -215,13 +215,13 @@ export default function OrderAmendModal({ open, proposal, loading, canceling, er
         <div style={{ display: "grid", gridTemplateColumns: isMarket ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 14 }}>
           <div>
             <label style={labelStyle}>수량 {isCrypto ? "(분수 가능)" : "(주)"}</label>
-            <input type="number" step={isCrypto ? "any" : "1"} min={isCrypto ? "0.0001" : "1"} placeholder="0"
+            <input className="amend-input" type="number" step={isCrypto ? "any" : "1"} min={isCrypto ? "0.0001" : "1"} placeholder="0"
               value={qty} onChange={(e) => setQty(e.target.value)} disabled={busy} style={inputStyle} />
           </div>
           {!isMarket && (
             <div>
               <label style={labelStyle}>단가 ({priceUnit})</label>
-              <input type="number" step="any" min="0" placeholder="0.00"
+              <input className="amend-input" type="number" step="any" min="0" placeholder="0.00"
                 value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} disabled={busy} style={inputStyle} />
             </div>
           )}
@@ -239,7 +239,7 @@ export default function OrderAmendModal({ open, proposal, loading, canceling, er
         {/* 사유 */}
         <div style={{ marginBottom: 4 }}>
           <label style={labelStyle}>사유 <span style={{ color: theme.textMuted, fontWeight: 400 }}>(선택)</span></label>
-          <input placeholder="예: 진입가 정정" value={rationale} onChange={(e) => setRationale(e.target.value)} disabled={busy} style={inputStyle} />
+          <input className="amend-input" placeholder="예: 진입가 정정" value={rationale} onChange={(e) => setRationale(e.target.value)} disabled={busy} style={inputStyle} />
         </div>
 
         {error && (
@@ -295,6 +295,8 @@ export default function OrderAmendModal({ open, proposal, loading, canceling, er
       <style>{`
         @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
         .spin { animation: spin 1s linear infinite; }
+        .amend-input:focus { border-color: #6366F1 !important; box-shadow: 0 0 0 3px rgba(99,102,241,0.14); }
+        .amend-input::placeholder { color: #94A3B8; }
       `}</style>
     </div>
   );
