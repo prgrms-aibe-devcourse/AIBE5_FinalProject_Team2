@@ -37,4 +37,12 @@ public class NotificationService {
         return notificationRepository.existsByUserAndNotificationTypeAndCreatedAtAfter(
                 user, type, LocalDateTime.now().minusHours(withinHours));
     }
+
+    /** 중복 발송 방지용: 특정 엔티티에 대해 최근 withinMinutes 분 내에 같은 타입의 알림이 이미 존재하는지 확인. */
+    @Transactional(readOnly = true)
+    public boolean existsRecentForEntity(User user, Notification.NotificationType type,
+                                         String entityType, Long entityId, int withinMinutes) {
+        return notificationRepository.existsByUserAndNotificationTypeAndRelatedEntityTypeAndRelatedEntityIdAndCreatedAtAfter(
+                user, type, entityType, entityId, LocalDateTime.now().minusMinutes(withinMinutes));
+    }
 }

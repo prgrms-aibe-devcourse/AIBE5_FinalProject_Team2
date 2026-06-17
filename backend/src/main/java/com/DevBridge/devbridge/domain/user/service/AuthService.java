@@ -29,7 +29,7 @@ public class AuthService {
         if (!emailVerificationService.consumeVerified(request.getEmail())) {
             throw new RuntimeException("이메일 인증이 필요합니다.");
         }
-        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+        if (userRepository.findByEmailAndDeletedFalse(request.getEmail()).isPresent()) {
             throw new RuntimeException("이미 사용 중인 이메일입니다.");
         }
         if (userRepository.findByUsername(request.getUsername()).isPresent()) {
