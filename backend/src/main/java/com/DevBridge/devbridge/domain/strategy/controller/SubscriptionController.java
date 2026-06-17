@@ -52,6 +52,7 @@ public class SubscriptionController {
         java.util.Map<String, Object> resp = new java.util.LinkedHashMap<>();
         resp.put("tier", tierDisplay);
         resp.put("expiresAt", sub.getExpiresAt().toString());
+        resp.put("amountKrw", sub.getAmountKrw());
         java.time.LocalDateTime startedAt = sub.getStartedAt() != null
                 ? sub.getStartedAt()
                 : (sub.getExpiresAt() != null ? sub.getExpiresAt().minusDays(30) : null);
@@ -111,6 +112,19 @@ public class SubscriptionController {
             return ResponseEntity.badRequest().body(Map.of("error", "결제 처리 중 중복이 감지되었습니다. 잠시 후 구독 상태를 확인해 주세요."));
         } catch (RuntimeException e) {
             log.warn("[Subscription] confirm 실패 userId={} orderId={}: {}", uid, orderId, e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /** 구독 즉시 해지. */
+    @PostMapping("/cancel")
+    public ResponseEntity<?> cancel() {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return ResponseEntity.status(401).build();
+        try {
+            subscriptionService.cancel(uid);
+            return ResponseEntity.ok(Map.of("message", "구독이 해지되었습니다."));
+        } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }

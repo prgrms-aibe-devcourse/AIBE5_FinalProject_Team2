@@ -1588,10 +1588,13 @@ public class AlphaHelixService {
                 resp.put("liveNews", toLiveNews(ans.sources()));
                 recordLog(ws.getId(), "AI", "BRIEFING", "Living Briefing 생성 (Perplexity·" + sessionKind + ")", null);
                 try {
-                    notificationService.create(ws.getUser(), Notification.NotificationType.BRIEFING_GENERATED,
-                            "Living Briefing 도착",
-                            sessionLabel + " 브리핑이 생성되었습니다. 지금 확인해보세요.",
-                            "WORKSPACE", ws.getId());
+                    if (!notificationService.existsRecentForEntity(ws.getUser(),
+                            Notification.NotificationType.BRIEFING_GENERATED, "WORKSPACE", ws.getId(), 60)) {
+                        notificationService.create(ws.getUser(), Notification.NotificationType.BRIEFING_GENERATED,
+                                "Living Briefing 도착",
+                                sessionLabel + " 브리핑이 생성되었습니다. 지금 확인해보세요.",
+                                "WORKSPACE", ws.getId());
+                    }
                 } catch (Exception e) {
                     log.warn("[Briefing] 알림 전송 실패 (무시): {}", e.getMessage());
                 }
@@ -1622,10 +1625,13 @@ public class AlphaHelixService {
         String text = callAi(uid, system, input, "briefing_fallback");
         recordLog(ws.getId(), "AI", "BRIEFING", "Living Briefing 생성 (fallback)", null);
         try {
-            notificationService.create(ws.getUser(), Notification.NotificationType.BRIEFING_GENERATED,
-                    "Living Briefing 도착",
-                    sessionLabel + " 브리핑이 생성되었습니다. 지금 확인해보세요.",
-                    "WORKSPACE", ws.getId());
+            if (!notificationService.existsRecentForEntity(ws.getUser(),
+                    Notification.NotificationType.BRIEFING_GENERATED, "WORKSPACE", ws.getId(), 60)) {
+                notificationService.create(ws.getUser(), Notification.NotificationType.BRIEFING_GENERATED,
+                        "Living Briefing 도착",
+                        sessionLabel + " 브리핑이 생성되었습니다. 지금 확인해보세요.",
+                        "WORKSPACE", ws.getId());
+            }
         } catch (Exception e) {
             log.warn("[Briefing] 알림 전송 실패 (무시): {}", e.getMessage());
         }

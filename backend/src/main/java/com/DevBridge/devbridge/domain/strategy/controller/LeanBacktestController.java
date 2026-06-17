@@ -132,6 +132,36 @@ public class LeanBacktestController {
         }
     }
 
+    /** Lean 노드 풀 상태(QC 노드 패널용) — 노드별 slots/active/idle. */
+    @GetMapping("/nodes")
+    public ResponseEntity<?> nodes() {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauthorized();
+        if (!leanEnabled) return disabled();
+        try {
+            return ResponseEntity.ok(analytics.leanNodes());
+        } catch (Exception e) {
+            log.error("lean/nodes failed", e);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        }
+    }
+
+    /** Lean 잡 큐/이력(QC 백테스트 목록용) — running/queued + 총 슬롯 + 최근 잡. */
+    @GetMapping("/queue")
+    public ResponseEntity<?> queue(@RequestParam(defaultValue = "50") int limit) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauthorized();
+        if (!leanEnabled) return disabled();
+        try {
+            return ResponseEntity.ok(analytics.leanQueue(limit));
+        } catch (Exception e) {
+            log.error("lean/queue failed", e);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        }
+    }
+
     /** Lean 실행환경 준비 상태 + 활성 플래그. (flag off·analytics down 여도 진단 위해 항상 200 응답) */
     @GetMapping("/health")
     public ResponseEntity<?> health() {
