@@ -8,7 +8,7 @@
  */
 import { useEffect, useState, useCallback, useRef } from "react";
 import { CircleDollarSign } from "lucide-react";
-import { listBrokerAccounts, getBrokerBalance } from "./alphaApi";
+import { listBrokerAccounts, getBrokerBalance, listProposals } from "./alphaApi";
 import { summarizeBalance } from "./balance/util";
 import AssetsTab from "./balance/AssetsTab";
 import BalancePnlTab from "./balance/BalancePnlTab";
@@ -36,7 +36,7 @@ export default function BalanceAccountPage() {
     if (cachedAccts && cachedAccts.length > 0) {
       const cachedRes = cachedAccts.map((acct) => {
         const bal = brokerCache.getBalance(acct.env, acct.brokerType);
-        return { acct, bal, sum: summarizeBalance(bal, acct.brokerType) };
+        return { acct, bal, sum: summarizeBalance(bal, acct.brokerType), pendingKrw: 0, pendingUsd: 0 };
       });
       setAccountsData(cachedRes);
       setLoading(false);
@@ -46,7 +46,10 @@ export default function BalanceAccountPage() {
     }
 
     try {
-      const accts = await listBrokerAccounts();
+      const [accts, allProposals] = await Promise.all([
+        listBrokerAccounts(),
+        listProposals().catch(() => []),
+      ]);
       const list = Array.isArray(accts) ? accts : [];
       brokerCache.setAccounts(list);
       const res = await Promise.all(list.map(async (acct) => {
@@ -59,7 +62,28 @@ export default function BalanceAccountPage() {
           return { acct, bal: cached ?? null, sum: summarizeBalance(cached ?? null, acct.brokerType) };
         }
       }));
-      setAccountsData(res);
+
+      // T+2 미결제 매도 대금 계산 (당일~2일 이내 EXECUTED 매도)
+      // KIS는 체결 즉시 포지션이 사라지지만 예수금(prsm_deposit_amt)은 T+2 후 반영됨 → 총 자산 감소 방지
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 2);
+      const pendingByAcct = {};
+      for (const p of (Array.isArray(allProposals) ? allProposals : [])) {
+        if (p.side !== "SELL" || p.status !== "EXECUTED") continue;
+        if (new Date(p.executedAt || p.createdAt) < cutoff) continue;
+        const price = Number(p.fillAvgPrice ?? p.limitPrice);
+        const qty = Number(p.qtyDecimal ?? p.qty);
+        if (!(price > 0) || !(qty > 0)) continue;
+        const accId = String(p.brokerAccountId);
+        if (!pendingByAcct[accId]) pendingByAcct[accId] = { krw: 0, usd: 0 };
+        // 한국 종목: 티커가 숫자로만 구성 (예: "005930")
+        if (/^\d+$/.test(p.ticker || "")) pendingByAcct[accId].krw += price * qty;
+        else pendingByAcct[accId].usd += price * qty;
+      }
+
+      setAccountsData(res.map((item) => {
+        const pend = pendingByAcct[String(item.acct.id)] ?? { krw: 0, usd: 0 };
+        return { ...item, pendingKrw: pend.krw, pendingUsd: pend.usd };
+      }));
     } catch { setAccountsData([]); }
     finally { setLoading(false); setRefreshing(false); }
   }, []);

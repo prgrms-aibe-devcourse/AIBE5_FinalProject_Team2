@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { listProposals } from "../alphaApi";
+import { listProposals, backfillProposalPrices } from "../alphaApi";
 import { pnlColor, fmtPct, FX_KRW_PER_USD, acctLabel } from "./util";
 
 const todayStr = (d = new Date()) => d.toISOString().slice(0, 10);
@@ -14,15 +14,33 @@ export default function BalancePnlTab({ accountsData }) {
   const [from, setFrom] = useState(daysAgoStr(30));
   const [to, setTo] = useState(todayStr());
   const [orders, setOrders] = useState(null);
+  const [backfilling, setBackfilling] = useState(false);
 
   const accts = accountsData.map((d) => d.acct);
   useEffect(() => { if (!acctId && accts.length) setAcctId(String(accts[0].id)); }, [accts, acctId]);
+
+  const loadOrders = () => {
+    listProposals().then((r) => setOrders(Array.isArray(r) ? r : [])).catch(() => setOrders([]));
+  };
 
   useEffect(() => {
     let alive = true;
     listProposals().then((r) => { if (alive) setOrders(Array.isArray(r) ? r : []); }).catch(() => alive && setOrders([]));
     return () => { alive = false; };
   }, []);
+
+  const handleBackfill = async () => {
+    setBackfilling(true);
+    try {
+      const res = await backfillProposalPrices();
+      alert(`가격 보정 완료: ${res.filled}건 갱신, ${res.skipped}건 건너뜀`);
+      loadOrders();
+    } catch {
+      alert("가격 보정 실패: 서버 오류");
+    } finally {
+      setBackfilling(false);
+    }
+  };
 
   const acct = accts.find((a) => String(a.id) === String(acctId));
   const data = accountsData.find((d) => String(d.acct.id) === String(acctId));
@@ -35,10 +53,15 @@ export default function BalancePnlTab({ accountsData }) {
     const list = orders
       .filter((p) => String(p.brokerAccountId) === String(acct.id) && (p.status === "EXECUTED" || p.fillStatus === "FILLED"))
       .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    if (process.env.NODE_ENV !== "production") {
+      const all = orders.filter((p) => String(p.brokerAccountId) === String(acct.id));
+      console.log("[PnL] acct.id=", acct.id, "전체 제안", all.length, "건 / EXECUTED 필터 후", list.length, "건");
+      list.forEach((o) => console.log("  →", o.side, o.ticker, "limitPrice=", o.limitPrice, "fillAvgPrice=", o.fillAvgPrice, "status=", o.status));
+    }
     const lots = {}; const closed = [];
     for (const o of list) {
-      const t = o.ticker; const qty = Number(o.qtyDecimal ?? o.qty); const price = Number(o.limitPrice);
-      if (!t || !(qty > 0) || !(price >= 0)) continue;
+      const t = o.ticker; const qty = Number(o.qtyDecimal ?? o.qty); const price = Number(o.fillAvgPrice ?? o.limitPrice);
+      if (!t || !(qty > 0) || !(price > 0)) continue;
       if (o.side === "BUY") (lots[t] = lots[t] || []).push({ qty, price, stockName: o.stockName });
       else if (o.side === "SELL") {
         let remain = qty; const q = lots[t] || [];
@@ -60,6 +83,16 @@ export default function BalancePnlTab({ accountsData }) {
     const byTicker = Object.values(byMap).map((r) => ({ ...r, sellAvg: r.sellAmt / r.qty, buyAvg: r.buyAmt / r.qty, pct: r.buyAmt > 0 ? (r.pnl / r.buyAmt) * 100 : 0 }));
     return { total: inRange.reduce((s, c) => s + c.pnl, 0), byTicker, closed: inRange };
   }, [orders, acct, from, to]);
+
+  // EXECUTED 제안 중 가격이 없는 건이 있으면 보정 버튼 표시
+  const hasNullPriceExecuted = useMemo(() => {
+    if (!orders || !acct) return false;
+    return orders.some((p) =>
+      String(p.brokerAccountId) === String(acct.id) &&
+      p.status === "EXECUTED" &&
+      p.fillAvgPrice == null && p.limitPrice == null
+    );
+  }, [orders, acct]);
 
   const seg = (val, set, opts) => (
     <div style={{ display: "inline-flex", background: "#F1F5F9", borderRadius: 8, padding: 3 }}>
@@ -100,7 +133,7 @@ export default function BalancePnlTab({ accountsData }) {
 
       {!data ? <div style={{ color: "#64748b", padding: 20 }}>계좌를 선택하세요.</div>
         : sub === "잔고" ? <BalanceSub data={data} curMode={curMode} />
-          : sub === "실현손익" ? <RealizedSub realized={realized} fmtMoney={fmtMoney} />
+          : sub === "실현손익" ? <RealizedSub realized={realized} fmtMoney={fmtMoney} hasNullPriceExecuted={hasNullPriceExecuted} onBackfill={handleBackfill} backfilling={backfilling} />
             : <TrendSub realized={realized} fmtMoney={fmtMoney} />}
     </div>
   );
@@ -166,7 +199,7 @@ function BalanceSub({ data, curMode }) {
   );
 }
 
-function RealizedSub({ realized, fmtMoney }) {
+function RealizedSub({ realized, fmtMoney, hasNullPriceExecuted, onBackfill, backfilling }) {
   const td = { padding: "10px", fontSize: 12.5, textAlign: "right", borderTop: "1px solid #F1F5F9" };
   return (
     <div>
@@ -174,6 +207,16 @@ function RealizedSub({ realized, fmtMoney }) {
         <span style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>실현손익</span>
         <span style={{ fontSize: 22, fontWeight: 800, color: pnlColor(realized.total) }}>{fmtMoney(realized.total)}</span>
       </div>
+      {hasNullPriceExecuted && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>
+          <span style={{ fontSize: 12.5, color: "#92400e", flex: 1 }}>
+            가격 정보가 없는 체결 내역이 있습니다. 현재 시세로 근사 보정하면 실현손익이 표시됩니다.
+          </span>
+          <button onClick={onBackfill} disabled={backfilling} style={{ padding: "6px 14px", background: "#6366f1", color: "white", border: "none", borderRadius: 7, fontSize: 12.5, fontWeight: 700, cursor: backfilling ? "not-allowed" : "pointer", opacity: backfilling ? 0.6 : 1, whiteSpace: "nowrap" }}>
+            {backfilling ? "보정 중…" : "가격 보정"}
+          </button>
+        </div>
+      )}
       {realized.byTicker.length === 0
         ? <div style={{ color: "#64748b", padding: 24, textAlign: "center" }}>해당 기간 실현손익 내역이 없습니다.</div>
         : (
