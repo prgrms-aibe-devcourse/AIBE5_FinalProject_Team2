@@ -1,26 +1,20 @@
 import { useState, useEffect, useRef } from "react";
 import { Image as ImageIcon, Type, Trash2, Save, HelpCircle, Smile } from "lucide-react";
 import StickerPickerModal from "./VisionBoard.StickerPickerModal";
+import { getVisionBoard, saveVisionBoard } from "../api/visionBoard.api";
 
-const STORAGE = "alpha.visionBoard.v2";
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const MEMO_COLORS = [
   "#FEF9C3", "#DBEAFE", "#DCFCE7", "#FCE7F3",
   "#EDE9FE", "#FFF7ED", "#FFEDD5", "#F0FDF4",
 ];
 
-function load() {
-  try { return JSON.parse(localStorage.getItem(STORAGE) || "[]"); } catch { return []; }
-}
-function save(items) {
-  try { localStorage.setItem(STORAGE, JSON.stringify(items)); } catch {}
-}
-
 let _id = Date.now();
 const uid = () => ++_id;
 
 export default function VisionBoard() {
-  const [items, setItems]         = useState(load);
+  const [items, setItems]         = useState([]);
+  const [loading, setLoading]     = useState(true);
   const [selected, setSelected]   = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [showText, setShowText]   = useState(false);
@@ -39,18 +33,31 @@ export default function VisionBoard() {
 
   useEffect(() => { itemsRef.current = items; }, [items]);
 
+  // 마운트 시 DB에서 로드
+  useEffect(() => {
+    getVisionBoard()
+      .then(data => { setItems(data); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
   // items가 초기 로드 이후에 바뀔 때만 dirty 표시
   const isFirst = useRef(true);
   useEffect(() => {
+    if (loading) return;
     if (isFirst.current) { isFirst.current = false; return; }
     setDirty(true);
-  }, [items]);
+  }, [items, loading]);
 
-  const handleSave = () => {
-    save(itemsRef.current);
-    setDirty(false);
-    setSavedAnim(true);
-    setTimeout(() => setSavedAnim(false), 1800);
+  const handleSave = async () => {
+    try {
+      await saveVisionBoard(itemsRef.current);
+      setDirty(false);
+      setSavedAnim(true);
+      setTimeout(() => setSavedAnim(false), 1800);
+    } catch {
+      alert("저장에 실패했습니다. 다시 시도해주세요.");
+    }
   };
 
   /* ── 전역 마우스 핸들러 ── */
@@ -272,7 +279,7 @@ export default function VisionBoard() {
             icon={<Save size={13} />}
             label="저장"
             primary
-            disabled={!dirty}
+            disabled={!dirty || loading}
           />
         </div>
       </div>
@@ -324,8 +331,19 @@ export default function VisionBoard() {
             userSelect: "none",
           }}
         >
+          {/* 로딩 중 */}
+          {loading && (
+            <div style={{
+              position: "absolute", top: "38%", left: "50%",
+              transform: "translate(-50%,-50%)",
+              textAlign: "center", pointerEvents: "none",
+            }}>
+              <div style={{ fontSize: 14, color: "#94A3B8" }}>불러오는 중...</div>
+            </div>
+          )}
+
           {/* 빈 상태 힌트 */}
-          {items.length === 0 && (
+          {!loading && items.length === 0 && (
             <div style={{
               position: "absolute", top: "38%", left: "50%",
               transform: "translate(-50%,-50%)",
@@ -342,7 +360,7 @@ export default function VisionBoard() {
             </div>
           )}
 
-          {items.map(it => (
+          {!loading && items.map(it => (
             <Sticker
               key={it.id}
               item={it}
