@@ -12,7 +12,7 @@ import { useTheme } from "./ThemeContext";
 import claudeBotImg from "../assets/claudecode-color.svg";
 import {
   getWorkspace, listWorkspaces, createWorkspace, selectStrategyCandidate, runBacktest, runRegime, runTrust, saveCode, queueOrders,
-  getDataStatus, getDataPreview, getDatasetsCatalog, getDatasetPreview, leanBacktestStart, leanBacktestStatus, leanListStrategies, getLeanHealth,
+  getDataStatus, getDataPreview, getDatasetsCatalog, getDatasetPreview, leanBacktestStart, leanBacktestStatus, leanListStrategies, getLeanHealth, getLeanNodes, getLeanQueue,
   runClaudeAgentStart, runClaudeAgentStatus, resetClaudeSession, runImproveProposal, runCompareBacktest,
   getWorkspaceGitStatus, getWorkspaceFileTree, pullWorkspaceFile, deleteWorkspaceFile,
   listBrokerAccounts, getBinanceBalance, getWorkspaceCommit,
@@ -1164,14 +1164,19 @@ function LiveDashboard({ wsId, done, strategyName, autoRestart, onStop }) {
   const [stopping, setStopping] = useState(false);
 
   useEffect(() => {
-    const fetchBal = () => getBrokerBalance(done.env, done.brokerType).then(b => {
-      setBal(b);
-      const val = b?.net_assets ?? b?.cash_usd ?? null;
-      if (val != null) setLiveEq(prev => [...prev.slice(-288), { date: new Date().toISOString(), value: Number(val) }]);
-    }).catch(() => {});
+    const fetchBal = () => {
+      if (document.hidden) return;
+      getBrokerBalance(done.env, done.brokerType).then(b => {
+        setBal(b);
+        const val = b?.net_assets ?? b?.cash_usd ?? null;
+        if (val != null) setLiveEq(prev => [...prev.slice(-288), { date: new Date().toISOString(), value: Number(val) }]);
+      }).catch(() => {});
+    };
     fetchBal();
     const t = setInterval(fetchBal, 5000);
-    return () => clearInterval(t);
+    const onVisible = () => { if (!document.hidden) fetchBal(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVisible); };
   }, [done.env, done.brokerType]);
 
   const handleStop = async () => {
@@ -2642,6 +2647,8 @@ export default function DeveloperLab() {
   const engineMenuRef = useRef(null);
   const leanJobRef = useRef(null);   // 현재 폴링 중인 Lean job_id (새 실행 시 이전 폴링 취소)
   const [leanHealth, setLeanHealth] = useState(null);  // Lean 실행환경 준비 상태(Docker/CLI/이미지)
+  const [leanNodes, setLeanNodes] = useState([]);      // Lean 노드 풀 상태(QC 노드 패널)
+  const [leanQueue, setLeanQueue] = useState(null);    // Lean 잡 큐/이력(QC 백테스트 목록)
   const [leanChannel, setLeanChannel] = useState("master"); // "master" | "foundation"
   // 실행 위치(로컬 자가호스팅 / 클라우드 관리형) + 구독 티어 게이팅
   const [execLoc, setExecLoc] = useState("cloud");     // "cloud" | "local"
@@ -3102,8 +3109,15 @@ export default function DeveloperLab() {
     if (engine !== "lean") return;
     let alive = true;
     const fetchHealth = () => getLeanHealth()
-      .then(h => { if (alive) setLeanHealth(h); })
-      .catch(() => { if (alive) setLeanHealth({ analytics: false, ready: false }); });
+      .then(h => {
+        if (!alive) return;
+        setLeanHealth(h);
+        if (h && h.ready) {   // 준비됐을 때만 노드/큐 폴링(미준비 시 503 노이즈 방지)
+          getLeanNodes().then(d => { if (alive) setLeanNodes(d.nodes || []); }).catch(() => {});
+          getLeanQueue().then(d => { if (alive) setLeanQueue(d); }).catch(() => {});
+        } else { setLeanNodes([]); setLeanQueue(null); }
+      })
+      .catch(() => { if (alive) { setLeanHealth({ analytics: false, ready: false }); setLeanNodes([]); setLeanQueue(null); } });
     fetchHealth();
     const id = setInterval(fetchHealth, 10000);
     return () => { alive = false; clearInterval(id); };
@@ -4192,6 +4206,39 @@ export default function DeveloperLab() {
                         ))}
                       </div>
                       {!leanHealth?.ready && <div style={{fontSize:10,color:"#fbbf24",marginTop:7,lineHeight:1.6}}>Lean 미준비 — Docker + analytics venv 의 lean CLI 설치가 필요합니다.</div>}
+                      {/* QC식 노드 풀 + 큐 관리 (준비됐을 때) */}
+                      {leanHealth?.ready && (
+                        <div style={{marginTop:9, borderTop:"1px solid rgba(255,255,255,0.06)", paddingTop:8}}>
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5}}>
+                            <span style={{fontSize:9.5,color:"#a78bfa",fontWeight:800,letterSpacing:"0.06em"}}>🖥 노드 풀</span>
+                            {leanQueue && <span style={{fontSize:9.5,color:"#64748b"}}>실행 {leanQueue.running} · 대기 {leanQueue.queued} · 슬롯 {leanQueue.total_slots}</span>}
+                          </div>
+                          {leanNodes.map(n => (
+                            <div key={n.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"3px 0",fontSize:10.5}}>
+                              <span style={{display:"flex",alignItems:"center",gap:5,color:"#cbd5e1"}}>
+                                <span style={{width:7,height:7,borderRadius:999,background:n.active>0?"#fbbf24":"#4ade80"}}/>
+                                {n.name} <span style={{color:"#64748b",fontSize:9}}>{n.tier}</span>
+                              </span>
+                              <span style={{color:"#94A3B8",fontSize:9.5}}>{n.active}/{n.slots} 사용</span>
+                            </div>
+                          ))}
+                          {leanQueue?.jobs?.length>0 && (
+                            <div style={{marginTop:6}}>
+                              <div style={{fontSize:9,color:"#64748b",fontWeight:700,marginBottom:3}}>최근 백테스트</div>
+                              {leanQueue.jobs.slice(0,6).map(j => (
+                                <div key={j.job_id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"2px 0",fontSize:10}}>
+                                  <span style={{color:"#94A3B8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:140}}>
+                                    {j.meta?.strategy_id || j.job_id}
+                                  </span>
+                                  <span style={{fontSize:9,fontWeight:700,color:j.status==="done"?"#4ade80":j.status==="error"?"#f87171":j.status==="running"?"#fbbf24":"#64748b"}}>
+                                    {j.status}{j.elapsed_seconds!=null?` · ${j.elapsed_seconds}s`:""}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                   {engine==="lean" && leanStrategies.length>0 && (
