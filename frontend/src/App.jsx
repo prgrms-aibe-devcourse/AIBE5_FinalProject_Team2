@@ -1,16 +1,6 @@
 import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
-import { GoogleOAuthProvider } from "@react-oauth/google";
 import AppShell from "./components/shell/AppShell";
-
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-// 구글 키가 빌드에 없으면(예: HTTP 자가배포) OAuth 초기화가 "Missing required parameter client_id" 로
-// 렌더 중 크래시한다. 더미(형식만 유효한) client_id 로 크래시만 막고, 실제 구글 버튼은 Login 에서 숨긴다.
-export const GOOGLE_ENABLED = !!GOOGLE_CLIENT_ID;
-const SAFE_GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID || "000000000000-unconfigured.apps.googleusercontent.com";
-function WithGoogle({ children }) {
-  return <GoogleOAuthProvider clientId={SAFE_GOOGLE_CLIENT_ID}>{children}</GoogleOAuthProvider>;
-}
 
 function RedirectKeepQuery({ to }) {
   const loc = useLocation();
@@ -96,8 +86,8 @@ function App() {
           </Route>
         </Route>
 
-        <Route path="/login"                   element={<WithGoogle><Login /></WithGoogle>} />
-        <Route path="/signup"                  element={<WithGoogle><Signup /></WithGoogle>} />
+        <Route path="/login"                   element={<Login />} />
+        <Route path="/signup"                  element={<Signup />} />
         <Route path="/oauth/kakao/callback"    element={<OAuthKakaoCallback />} />
         <Route path="/oauth/github/callback"   element={<OAuthGithubCallback />} />
         <Route path="/loading"                 element={<Loading />} />
