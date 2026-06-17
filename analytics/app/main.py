@@ -55,7 +55,12 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """스케줄러들 시작."""
+    """스케줄러들 + Lean 노드 풀 시작."""
+    try:
+        from app.lean.jobs import init_cluster
+        init_cluster()              # Lean 노드 풀(큐 + 디스패처) 기동
+    except Exception as e:          # noqa: BLE001
+        log.warning("Lean 클러스터 기동 실패: %s", e)
     if os.getenv("DISABLE_RETRAIN_SCHEDULER", "0") != "1":
         start_scheduler()           # XGBoost 재학습
         start_data_scheduler()      # 시장 데이터 수집
@@ -1246,26 +1251,22 @@ def lean_backtest(req: LeanBacktestReq):
 
 @app.post("/lean/backtest/start", dependencies=[Depends(require_internal_token)])
 def lean_backtest_start(req: LeanBacktestReq):
-    """Lean 백테스트를 백그라운드 잡으로 시작 → job_id 즉시 반환.
+    """Lean 백테스트를 노드 풀 큐에 제출 → job_id 즉시 반환.
 
-    /lean/backtest/status/{job_id} 로 진행 로그(단계 + lean stdout)를 폴링한다.
-    동기 /lean/backtest 와 동일 엔진을 쓰되, progress_cb 로 진행을 잡에 누적한다.
+    빈 슬롯이 있으면 워커가 즉시 실행, 없으면 큐 대기(QC 노드 부족 시 큐와 동일 동작 — 컨테이너 폭주 방지).
+    /lean/backtest/status/{job_id} 로 진행 로그(단계 + lean stdout)와 queue_position 을 폴링한다.
     """
-    import threading
-    from app.lean.jobs import create_job
+    from app.lean.jobs import cluster
     from app.lean.runner import run_lean_backtest, LeanBacktestRequest
 
-    job = create_job()
-
-    def _cb(level: str, msg: str):
-        if level == "phase":
-            job.set_phase(msg)
-        elif level == "lean":
-            job.log("info", f"[lean] {msg}")
-        else:
-            job.log(level, msg)
-
-    def _run():
+    def _run_with_job(job):
+        def _cb(level: str, msg: str):
+            if level == "phase":
+                job.set_phase(msg)
+            elif level == "lean":
+                job.log("info", f"[lean] {msg}")
+            else:
+                job.log(level, msg)
         try:
             request = LeanBacktestRequest(
                 strategy_id=req.strategy_id,
@@ -1298,18 +1299,37 @@ def lean_backtest_start(req: LeanBacktestReq):
             job.log("error", str(e))
             job.finish_err(str(e))
 
-    threading.Thread(target=_run, name=f"lean-job-{job.job_id}", daemon=True).start()
-    return {"job_id": job.job_id, "status": "running"}
+    meta = {
+        "strategy_id": req.strategy_id, "symbols": req.symbols, "market": req.market,
+        "start_date": req.start_date, "end_date": req.end_date,
+    }
+    job = cluster.submit(meta, _run_with_job)
+    return {"job_id": job.job_id, "status": job.status,
+            "queue_position": cluster.queue_position(job.job_id)}
 
 
 @app.get("/lean/backtest/status/{job_id}", dependencies=[Depends(require_internal_token)])
 def lean_backtest_status(job_id: str, since: int = 0):
-    """잡 진행 상태 + since 커서 이후 증분 로그 + 완료 시 결과."""
+    """잡 진행 상태 + since 커서 이후 증분 로그 + 완료 시 결과 + queue_position."""
     from app.lean.jobs import get_job
     job = get_job(job_id)
     if job is None:
         raise HTTPException(404, f"job not found: {job_id}")
     return job.snapshot(since=since)
+
+
+@app.get("/lean/nodes", dependencies=[Depends(require_internal_token)])
+def lean_nodes():
+    """Lean 노드 풀 상태(QC 노드 패널용) — 노드별 slots/active/idle."""
+    from app.lean.jobs import cluster
+    return {"nodes": cluster.snapshot_nodes()}
+
+
+@app.get("/lean/queue", dependencies=[Depends(require_internal_token)])
+def lean_queue(limit: int = 50):
+    """Lean 잡 큐/이력(QC 백테스트 목록용) — running/queued 수 + 총 슬롯 + 최근 잡 목록."""
+    from app.lean.jobs import cluster
+    return cluster.snapshot_queue(limit=limit)
 
 
 @app.get("/lean/health", dependencies=[Depends(require_internal_token)])
