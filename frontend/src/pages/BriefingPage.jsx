@@ -904,6 +904,7 @@ export default function BriefingPage() {
   const username = (typeof window !== "undefined" &&
     (localStorage.getItem("username") || localStorage.getItem("dbName"))) || "trader";
   const loadedRef = useRef(false);
+  const inFlightRef = useRef(new Set()); // 실제 진행 중 wsId 추적 (state 비동기 문제 방지)
 
   const [strategies, setStrategies] = useState([]);
   const [briefings, setBriefings] = useState({});
@@ -926,6 +927,8 @@ export default function BriefingPage() {
     setBusyIds(prev => { const s = new Set(prev); val ? s.add(id) : s.delete(id); return s; });
 
   const generateOne = async (wsId) => {
+    if (inFlightRef.current.has(wsId)) return; // 이미 생성 중이면 중복 호출 차단
+    inFlightRef.current.add(wsId);
     setBusy(wsId, true);
     try {
       const b = await runBriefing(wsId);
@@ -933,8 +936,20 @@ export default function BriefingPage() {
       setBriefings(prev => ({ ...prev, [wsId]: rec }));
       try { localStorage.setItem(cacheKey(wsId), JSON.stringify(rec)); } catch (_) {}
     } catch (e) {
-      setBriefings(prev => ({ ...prev, [wsId]: { error: e?.response?.data?.error || e.message } }));
+      const errMsg = e?.response?.data?.error || e.message;
+      const isCooldown = e?.response?.status === 429 || e?.response?.data?.cooldown;
+      if (isCooldown) {
+        // 쿨다운 응답이면 캐시 유지(에러로 덮어쓰지 않음)
+        const remainMin = e?.response?.data?.remainMinutes;
+        if (remainMin) {
+          const h = Math.floor(remainMin / 60), m = remainMin % 60;
+          setCooldownModal({ time: h > 0 ? `${h}h ${m}m` : `${m}m` });
+        }
+      } else {
+        setBriefings(prev => ({ ...prev, [wsId]: { error: errMsg } }));
+      }
     } finally {
+      inFlightRef.current.delete(wsId);
       setBusy(wsId, false);
     }
   };
@@ -962,18 +977,20 @@ export default function BriefingPage() {
       });
       setBriefings(cached);
 
-      // 캐시 없거나 만료된 워크스페이스만 자동 생성. 표시 대상(LIVE 우선)에 한정하고,
+      // LIVE 워크스페이스가 없으면 브리핑 자동 생성 건너뜀.
       // 각 ~1분 걸리는 Perplexity 호출이 동시에 폭주하지 않도록 '순차'(await)로 한 개씩 실행.
       const liveItems = items.filter(s => s.status === "LIVE");
-      const target = liveItems.length > 0 ? liveItems : items;
-      // 시간창 게이팅: 대표 3회/그 외 2회 창을 넘겼고 캐시가 그 창 이전일 때만 생성.
-      const stale = target.filter(s => {
-        const b = cached[s.id];
-        const ts = b?.generatedAt ? (typeof b.generatedAt === "number" ? b.generatedAt : Date.parse(b.generatedAt)) : 0;
-        return shouldRegen(s.id === primaryId, ts);
-      });
-      for (let i = 0; i < stale.length; i++) {
-        await generateOne(stale[i].id);   // 순차: 한 번에 하나씩 (동시 폭주 방지)
+      if (liveItems.length > 0) {
+        // 시간창 게이팅 + 3시간 쿨다운: 두 조건 모두 충족할 때만 자동 생성.
+        const stale = liveItems.filter(s => {
+          const b = cached[s.id];
+          const ts = b?.generatedAt ? (typeof b.generatedAt === "number" ? b.generatedAt : Date.parse(b.generatedAt)) : 0;
+          if (ts && Date.now() - ts < COOLDOWN_MS) return false; // 3시간 이내 생성됐으면 건너뜀
+          return shouldRegen(s.id === primaryId, ts);
+        });
+        for (let i = 0; i < stale.length; i++) {
+          await generateOne(stale[i].id); // 순차: 한 번에 하나씩 (동시 폭주 방지)
+        }
       }
     } catch (e) {
       setErr(e?.response?.data?.error || e.message);
@@ -1003,9 +1020,8 @@ export default function BriefingPage() {
   }, []);
 
   const liveOnly = strategies.filter(s => s.status === "LIVE");
-  const baseList = liveOnly.length > 0 ? liveOnly : strategies;
-  // 대표를 맨 앞으로 정렬 (대표=펼침, 나머지=접힘).
-  const showList = [...baseList].sort((a, b) =>
+  // 대표를 맨 앞으로 정렬 (대표=펼침, 나머지=접힘). LIVE 없으면 빈 배열.
+  const showList = [...liveOnly].sort((a, b) =>
     (b.id === primaryId ? 1 : 0) - (a.id === primaryId ? 1 : 0));
 
   return (
@@ -1136,25 +1152,50 @@ export default function BriefingPage() {
       )}
 
       {!loading && strategies.length > 0 && liveOnly.length === 0 && (
-        <div style={{ padding: "12px 16px", background: "#FEF9C3", border: "1px solid #FCD34D", borderRadius: 10, color: "#713f12", fontSize: 13, marginBottom: 16, fontWeight: 500 }}>
-          {t("briefing.noLive")}
+        <div style={{ padding: "36px 28px", background: "white", border: "1px solid #E2E8F0", borderRadius: 16, textAlign: "center" }}>
+          <div style={{
+            width: 60, height: 60, borderRadius: 18, margin: "0 auto 16px",
+            background: "linear-gradient(135deg,#dcfce7 0%,#bbf7d0 100%)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 14px rgba(34,197,94,0.18)",
+          }}>
+            <Radio size={28} color="#16a34a" />
+          </div>
+          <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0F172A", margin: "0 0 8px" }}>
+            운용 중인 전략이 없어요
+          </h3>
+          <p style={{ fontSize: 13, color: "#64748B", lineHeight: 1.75, margin: "0 0 22px" }}>
+            브리핑은 <b style={{ color: "#16a34a" }}>LIVE 상태</b>인 워크스페이스를 기준으로 생성됩니다.<br />
+            워크스페이스 목록에서 전략을 LIVE로 전환해 주세요.
+          </p>
+          <button onClick={() => nav("/alpha")} style={{
+            padding: "10px 22px", borderRadius: 9, border: "none",
+            background: "linear-gradient(135deg,#22c55e 0%,#16a34a 100%)",
+            color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", gap: 6,
+            boxShadow: "0 3px 10px rgba(34,197,94,0.3)",
+          }}>
+            <ArrowRight size={14} /> 워크스페이스에서 LIVE 설정하기
+          </button>
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
-        {showList.map(s => (
-          <BriefingCard
-            key={s.id}
-            s={s}
-            briefingData={briefings[s.id]}
-            busy={busyIds.has(s.id)}
-            onRefresh={() => handleRefreshOne(s.id)}
-            onNavigate={() => nav(`/alpha/w/${s.id}`)}
-            t={t}
-            isPrimary={s.id === primaryId}
-          />
-        ))}
-      </div>
+      {liveOnly.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
+          {showList.map(s => (
+            <BriefingCard
+              key={s.id}
+              s={s}
+              briefingData={briefings[s.id]}
+              busy={busyIds.has(s.id)}
+              onRefresh={() => handleRefreshOne(s.id)}
+              onNavigate={() => nav(`/alpha/w/${s.id}`)}
+              t={t}
+              isPrimary={s.id === primaryId}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
