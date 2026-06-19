@@ -20,6 +20,7 @@ import {
   getDeveloperAccess, getBrokerBalance,
 } from "./alphaApi";
 import GitPanel from "./GitPanel";
+import LeanCloudQueue from "./LeanCloudQueue";
 import TerminalTabs from "./TerminalTabs";
 import { TrendLineChart, SubIndicatorChart, calcSMA, calcEMA, calcBollinger } from "./tabs/helpers";
 import RepoExplorer from "./RepoExplorer";
@@ -2793,7 +2794,7 @@ export default function DeveloperLab() {
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor = "e-resize";
     document.body.style.userSelect = "none";
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
@@ -2817,7 +2818,7 @@ export default function DeveloperLab() {
       document.body.style.userSelect = "";
       try { localStorage.setItem("ah.workbench.actBarWidth", String(latest)); } catch (_) {}
     };
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor = "e-resize";
     document.body.style.userSelect = "none";
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
@@ -3672,7 +3673,7 @@ export default function DeveloperLab() {
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor = "e-resize";
   }, [claudeDockW]);
 
   // 입력창 세로 높이 드래그 (위로 끌면 커짐)
@@ -3946,7 +3947,7 @@ export default function DeveloperLab() {
         }}>
           {/* 가로 리사이즈 핸들 */}
           <div onMouseDown={handleActResizeMouseDown}
-            style={{position:"absolute",top:0,right:0,width:8,height:"100%",cursor:"col-resize",zIndex:10,
+            style={{position:"absolute",top:0,right:0,width:8,height:"100%",cursor:"e-resize",zIndex:10,
               display:"flex",alignItems:"center",justifyContent:"center",background:"transparent"}}
             onMouseEnter={e=>{e.currentTarget.firstChild.style.background="rgba(255,255,255,0.45)";}}
             onMouseLeave={e=>{e.currentTarget.firstChild.style.background="rgba(255,255,255,0.15)";}}>
@@ -4002,7 +4003,7 @@ export default function DeveloperLab() {
             position:"relative",
           }}>
             <div ref={sideDragRef} onMouseDown={handleSideResizeMouseDown}
-              style={{position:"absolute",top:0,right:0,width:8,height:"100%",cursor:"col-resize",zIndex:10,
+              style={{position:"absolute",top:0,right:0,width:8,height:"100%",cursor:"e-resize",zIndex:10,
                 display:"flex",alignItems:"center",justifyContent:"center",background:"transparent"}}
               onMouseEnter={e=>{e.currentTarget.firstChild.style.background="rgba(255,255,255,0.45)";}}
               onMouseLeave={e=>{e.currentTarget.firstChild.style.background="rgba(255,255,255,0.15)";}}>
@@ -4239,6 +4240,13 @@ export default function DeveloperLab() {
                           )}
                         </div>
                       )}
+                    </div>
+                  )}
+                  {/* ☁ 클라우드 큐 (v2 · K8s 멀티테넌트) — additive, v1 UI 와 병행 */}
+                  {engine==="lean" && (
+                    <div style={{margin:"6px 12px 6px"}}>
+                      <div style={{fontSize:10,color:"#a78bfa",fontWeight:800,letterSpacing:"0.06em",marginBottom:6}}>☁ 클라우드 큐 (v2 · K8s 멀티테넌트)</div>
+                      <LeanCloudQueue/>
                     </div>
                   )}
                   {engine==="lean" && leanStrategies.length>0 && (
@@ -4678,7 +4686,7 @@ export default function DeveloperLab() {
         {claudeOpen && (
           <>
             <div onMouseDown={handleClaudeDockResizeMouseDown}
-              style={{width:12, flexShrink:0, cursor:"col-resize", background:"#0f1117",
+              style={{width:12, flexShrink:0, cursor:"e-resize", background:"#0f1117",
                 display:"flex",alignItems:"center",justifyContent:"center",zIndex:6}}
               onMouseEnter={e=>{e.currentTarget.firstChild.style.background="rgba(255,255,255,0.45)";}}
               onMouseLeave={e=>{e.currentTarget.firstChild.style.background="rgba(255,255,255,0.15)";}}>
