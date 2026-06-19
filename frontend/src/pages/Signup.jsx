@@ -67,7 +67,14 @@ function Signup() {
 
   const videoRef = useRef(null);
   useEffect(() => {
-    if (videoRef.current) videoRef.current.playbackRate = 0.55;
+    const v = videoRef.current;
+    if (!v) return;
+    v.playbackRate = 0.55;
+    const onTimeUpdate = () => {
+      if (v.duration && v.currentTime >= v.duration - 0.2) v.currentTime = 0;
+    };
+    v.addEventListener("timeupdate", onTimeUpdate);
+    return () => v.removeEventListener("timeupdate", onTimeUpdate);
   }, []);
 
   const [form, setFormRaw] = useState(() => signupFormData || {
@@ -90,6 +97,25 @@ function Signup() {
   const [codeValue, setCodeValue] = useState("");
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const timerRef = useRef(null);
+
+  const CODE_TTL = 300; // 5분 (백엔드 app.verify.code-ttl-minutes 와 동일)
+
+  const startTimer = () => {
+    clearInterval(timerRef.current);
+    setTimeLeft(CODE_TTL);
+    timerRef.current = setInterval(() => {
+      setTimeLeft(t => {
+        if (t <= 1) { clearInterval(timerRef.current); return 0; }
+        return t - 1;
+      });
+    }, 1000);
+  };
+
+  useEffect(() => () => clearInterval(timerRef.current), []);
+
+  const fmtTime = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
   const set = (f, v) => setFormRaw(prev => ({ ...prev, [f]: v }));
 
@@ -97,6 +123,8 @@ function Signup() {
     setEmailVerified(false);
     setCodeSent(false);
     setCodeValue("");
+    clearInterval(timerRef.current);
+    setTimeLeft(0);
   };
 
   const handleSendCode = async () => {
@@ -106,6 +134,7 @@ function Signup() {
       await authApi.sendVerificationCode(form.idEmail);
       setCodeSent(true);
       setCodeValue("");
+      startTimer();
     } catch (e) {
       alert(e?.response?.data?.error || "메일 발송에 실패했습니다.");
     } finally {
@@ -120,6 +149,8 @@ function Signup() {
       await authApi.checkVerificationCode(form.idEmail, codeValue);
       setEmailVerified(true);
       setCodeSent(false);
+      clearInterval(timerRef.current);
+      setTimeLeft(0);
     } catch (e) {
       alert(e?.response?.data?.error || "인증번호가 틀렸습니다.");
     } finally {
@@ -376,6 +407,28 @@ function Signup() {
                   >
                     {verifying ? "확인 중…" : "확인"}
                   </button>
+                </div>
+              )}
+
+              {/* 인증 유효시간 타이머 */}
+              {codeSent && !emailVerified && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  {timeLeft > 0 ? (
+                    <>
+                      <span style={{ fontSize: 11, color: "#94A3B8", fontFamily: F }}>유효시간</span>
+                      <span style={{
+                        fontSize: 12, fontWeight: 700, fontFamily: F,
+                        color: timeLeft <= 60 ? "#EF4444" : timeLeft <= 120 ? "#F97316" : "#3B82F6",
+                        minWidth: 36,
+                      }}>
+                        {fmtTime(timeLeft)}
+                      </span>
+                    </>
+                  ) : (
+                    <span style={{ fontSize: 11, color: "#EF4444", fontWeight: 600, fontFamily: F }}>
+                      인증 시간이 만료되었습니다. 재발송해 주세요.
+                    </span>
+                  )}
                 </div>
               )}
 

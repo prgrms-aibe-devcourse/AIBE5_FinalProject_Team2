@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Bell, CheckCheck, Trash2, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useTheme } from "../alpha/ThemeContext";
 import { useNotificationStore } from "../store/useNotificationStore";
 import { useLanguage } from "../i18n/useLanguage";
@@ -12,6 +13,14 @@ const TYPE_CFG = {
 };
 
 const FILTER_KEYS = ["all", "unread", "backtest", "briefing", "order", "system"];
+
+function getNavTarget(n) {
+  if (n.type === "backtest" && n.relatedEntityId && n.relatedEntityType === "WORKSPACE") return `/alpha/w/${n.relatedEntityId}?tab=report`;
+  if (n.type === "backtest" && n.relatedEntityId && n.relatedEntityType === "STRATEGY")  return `/alpha/w/${n.relatedEntityId}?tab=report`;
+  if (n.type === "briefing") return "/briefing";
+  if (n.type === "order"    && n.relatedEntityId) return `/alpha/w/${n.relatedEntityId}?tab=proposals`;
+  return null;
+}
 
 function timeAgo(iso, t) {
   const d = Date.now() - new Date(iso).getTime();
@@ -41,6 +50,7 @@ function groupByDate(list, t) {
 export default function NotificationsPage() {
   const { t } = useLanguage();
   const { theme } = useTheme();
+  const nav = useNavigate();
   const { notifications, loading, fetch, markRead, markAllRead, remove, clearAll } = useNotificationStore();
   const [filter, setFilter]   = useState("all");
 
@@ -59,9 +69,8 @@ export default function NotificationsPage() {
   const groups = groupByDate(filtered, t);
 
   const filterCount = (key) => {
-    if (key === "all")    return notifications.length;
-    if (key === "unread") return unread;
-    return notifications.filter(n => n.type === key).length;
+    if (key === "all" || key === "unread") return unread;
+    return notifications.filter(n => n.type === key && !n.read).length;
   };
 
   return (
@@ -185,7 +194,7 @@ export default function NotificationsPage() {
                     return (
                       <div
                         key={n.id}
-                        onClick={() => markRead(n.id)}
+                        onClick={() => { markRead(n.id); const tgt = getNavTarget(n); if (tgt) nav(tgt); }}
                         onMouseEnter={() => setHovered(n.id)}
                         onMouseLeave={() => setHovered(null)}
                         style={{
@@ -251,32 +260,52 @@ export default function NotificationsPage() {
 
                         <div style={{
                           display: "flex", flexDirection: "column",
-                          alignItems: "flex-end", gap: 10, flexShrink: 0,
+                          alignItems: "flex-end", gap: 8, flexShrink: 0,
                         }}>
                           {!n.read && (
                             <span style={{
                               width: 8, height: 8, borderRadius: "50%",
-                              background: cfg.color, display: "block",
+                              background: cfg.color, display: "block", flexShrink: 0,
                               animation: "ah-pulse 2s ease-in-out infinite",
                             }} />
                           )}
-                          <button
-                            onClick={e => { e.stopPropagation(); remove(n.id); }}
-                            onMouseEnter={() => setDelHov(n.id)}
-                            onMouseLeave={() => setDelHov(null)}
-                            style={{
-                              width: 28, height: 28, borderRadius: 8, border: "none",
-                              background: delHov === n.id ? "#FEE2E2" : "#F1F5F9",
-                              color:      delHov === n.id ? "#EF4444" : "#94A3B8",
-                              cursor: "pointer",
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              opacity: isHov ? 1 : 0,
-                              transition: "opacity 0.12s, background 0.12s, color 0.12s",
-                              pointerEvents: isHov ? "auto" : "none",
-                            }}
-                          >
-                            <X size={13} />
-                          </button>
+                          <div style={{
+                            display: "flex", gap: 6, alignItems: "center",
+                            opacity: isHov ? 1 : 0,
+                            transition: "opacity 0.12s",
+                            pointerEvents: isHov ? "auto" : "none",
+                          }}>
+                            {!n.read && (
+                              <button
+                                onClick={e => { e.stopPropagation(); markRead(n.id); }}
+                                title="읽음으로 표시"
+                                style={{
+                                  height: 28, padding: "0 10px", borderRadius: 8, border: "none",
+                                  background: cfg.bg, color: cfg.color,
+                                  fontSize: 12, fontWeight: 600, cursor: "pointer",
+                                  display: "flex", alignItems: "center", gap: 4,
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                ✓ 읽음
+                              </button>
+                            )}
+                            <button
+                              onClick={e => { e.stopPropagation(); remove(n.id); }}
+                              onMouseEnter={() => setDelHov(n.id)}
+                              onMouseLeave={() => setDelHov(null)}
+                              style={{
+                                width: 28, height: 28, borderRadius: 8, border: "none",
+                                background: delHov === n.id ? "#FEE2E2" : "#F1F5F9",
+                                color:      delHov === n.id ? "#EF4444" : "#94A3B8",
+                                cursor: "pointer",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                transition: "background 0.12s, color 0.12s",
+                              }}
+                            >
+                              <X size={13} />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );

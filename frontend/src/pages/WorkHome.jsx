@@ -45,30 +45,30 @@ function greeting() {
 // 오늘의 말씀 — 잠언·시편을 섞어, 계정별로 다른 순서로 매일 한 구절씩 순환.
 // (구절 수 < 365라, 1년이면 모든 구절을 여러 번 보게 된다)
 const VERSES = [
-  { ref: "잠언 3:5-6", text: "너는 마음을 다하여 여호와를 신뢰하고 네 명철을 의지하지 말라. 네 모든 길에서 그를 인정하라 그리하면 네 길을 지도하시리라." },
-  { ref: "잠언 16:3", text: "너의 행사를 여호와께 맡기라 그리하면 네가 경영하는 것이 이루어지리라." },
-  { ref: "잠언 16:9", text: "사람이 마음으로 자기의 길을 계획할지라도 그의 걸음을 인도하시는 이는 여호와시니라." },
-  { ref: "잠언 21:5", text: "부지런한 자의 경영은 풍부함에 이를 것이나 조급한 자는 궁핍함에 이를 따름이니라." },
-  { ref: "잠언 13:11", text: "망령되이 얻은 재물은 줄어가고 손으로 모은 것은 늘어가느니라." },
-  { ref: "잠언 24:16", text: "의인은 일곱 번 넘어질지라도 다시 일어나려니와 악인은 재앙으로 말미암아 엎드러지느니라." },
-  { ref: "잠언 4:23", text: "모든 지킬 만한 것 중에 더욱 네 마음을 지키라 생명의 근원이 이에서 남이니라." },
-  { ref: "잠언 19:21", text: "사람의 마음에는 많은 계획이 있어도 오직 여호와의 뜻만이 완전히 서리라." },
-  { ref: "잠언 22:29", text: "네가 자기의 일에 능숙한 사람을 보았느냐 이러한 사람은 왕 앞에 설 것이요 천한 자 앞에 서지 아니하리라." },
-  { ref: "잠언 11:25", text: "구제를 좋아하는 자는 풍족하여질 것이요 남을 윤택하게 하는 자는 자기도 윤택하여지리라." },
-  { ref: "잠언 15:22", text: "의논이 없으면 경영이 무너지고 지략이 많으면 경영이 성립하느니라." },
-  { ref: "잠언 27:23", text: "네 양 떼의 형편을 부지런히 살피며 네 소 떼에게 마음을 두라." },
-  { ref: "시편 23:1", text: "여호와는 나의 목자시니 내게 부족함이 없으리로다." },
-  { ref: "시편 27:14", text: "너는 여호와를 기다릴지어다 강하고 담대하며 여호와를 기다릴지어다." },
-  { ref: "시편 37:5", text: "네 길을 여호와께 맡기라 그를 의지하면 그가 이루시리로다." },
-  { ref: "시편 37:7", text: "여호와 앞에 잠잠하고 참고 기다리라." },
-  { ref: "시편 46:1", text: "하나님은 우리의 피난처시요 힘이시니 환난 중에 만날 큰 도움이시라." },
-  { ref: "시편 90:17", text: "주의 영광을 우리 자손에게 나타내사 우리의 손이 행한 일을 우리에게 견고하게 하소서." },
-  { ref: "시편 121:1-2", text: "내가 산을 향하여 눈을 들리라 나의 도움이 어디서 올까. 나의 도움은 천지를 지으신 여호와에게서로다." },
-  { ref: "시편 126:5", text: "눈물을 흘리며 씨를 뿌리는 자는 기쁨으로 거두리로다." },
-  { ref: "시편 1:3", text: "그는 시냇가에 심은 나무가 철을 따라 열매를 맺으며 그가 하는 모든 일이 다 형통하리로다." },
-  { ref: "시편 31:24", text: "여호와를 바라는 너희들아 강하고 담대하라." },
-  { ref: "시편 16:8", text: "내가 여호와를 항상 내 앞에 모심이여 그가 나의 오른쪽에 계시므로 내가 흔들리지 아니하리로다." },
-  { ref: "시편 28:7", text: "여호와는 나의 힘과 나의 방패이시니 내 마음이 그를 의지하여 도움을 얻었도다." },
+  { ref: "Proverbs 3:5-6", text: "Trust in the LORD with all your heart, and do not lean on your own understanding. In all your ways acknowledge him, and he will make straight your paths." },
+  { ref: "Proverbs 16:3", text: "Commit your work to the LORD, and your plans will be established." },
+  { ref: "Proverbs 16:9", text: "The heart of man plans his way, but the LORD establishes his steps." },
+  { ref: "Proverbs 21:5", text: "The plans of the diligent lead surely to abundance, but everyone who is hasty comes only to poverty." },
+  { ref: "Proverbs 13:11", text: "Wealth gained hastily will dwindle, but whoever gathers little by little will increase it." },
+  { ref: "Proverbs 24:16", text: "For the righteous falls seven times and rises again, but the wicked stumble in times of calamity." },
+  { ref: "Proverbs 4:23", text: "Keep your heart with all vigilance, for from it flow the springs of life." },
+  { ref: "Proverbs 19:21", text: "Many are the plans in the mind of a man, but it is the purpose of the LORD that will stand." },
+  { ref: "Proverbs 22:29", text: "Do you see a man skillful in his work? He will stand before kings; he will not stand before obscure men." },
+  { ref: "Proverbs 11:25", text: "Whoever brings blessing will be enriched, and one who waters will himself be watered." },
+  { ref: "Proverbs 15:22", text: "Without counsel plans fail, but with many advisers they succeed." },
+  { ref: "Proverbs 27:23", text: "Know well the condition of your flocks, and give attention to your herds." },
+  { ref: "Psalm 23:1", text: "The LORD is my shepherd; I shall not want." },
+  { ref: "Psalm 27:14", text: "Wait for the LORD; be strong, and let your heart take courage; wait for the LORD!" },
+  { ref: "Psalm 37:5", text: "Commit your way to the LORD; trust in him, and he will act." },
+  { ref: "Psalm 37:7", text: "Be still before the LORD and wait patiently for him." },
+  { ref: "Psalm 46:1", text: "God is our refuge and strength, a very present help in trouble." },
+  { ref: "Psalm 90:17", text: "Let the favor of the Lord our God be upon us, and establish the work of our hands upon us." },
+  { ref: "Psalm 121:1-2", text: "I lift up my eyes to the hills. From where does my help come? My help comes from the LORD, who made heaven and earth." },
+  { ref: "Psalm 126:5", text: "Those who sow in tears shall reap with shouts of joy!" },
+  { ref: "Psalm 1:3", text: "He is like a tree planted by streams of water that yields its fruit in its season, and in all that he does, he prospers." },
+  { ref: "Psalm 31:24", text: "Be strong, and let your heart take courage, all you who wait for the LORD!" },
+  { ref: "Psalm 16:8", text: "I have set the LORD always before me; because he is at my right hand, I shall not be shaken." },
+  { ref: "Psalm 28:7", text: "The LORD is my strength and my shield; in him my heart trusts, and I am helped." },
 ];
 function _hashStr(s) {
   let h = 0;
@@ -83,22 +83,22 @@ function getTodayVerse(seedStr) {
 
 // 첫 번째 선물 — 투자 그루들의 명언 (계정별·날짜별로 섞여 1년간 순환).
 const GURU_QUOTES = [
-  { ref: "워런 버핏", text: "남들이 욕심낼 때 두려워하고, 남들이 두려워할 때 욕심내라." },
-  { ref: "워런 버핏", text: "가격은 당신이 내는 것이고, 가치는 당신이 얻는 것이다." },
-  { ref: "워런 버핏", text: "주식시장은 인내심 없는 자의 돈을 인내심 있는 자에게 옮기는 도구다." },
-  { ref: "찰리 멍거", text: "큰돈은 사고파는 데 있지 않고, 기다리는 데 있다." },
-  { ref: "벤저민 그레이엄", text: "단기적으로 시장은 투표기지만, 장기적으로는 저울이다." },
-  { ref: "벤저민 그레이엄", text: "투자자의 가장 큰 적은 바로 자기 자신이다." },
-  { ref: "피터 린치", text: "당신이 무엇을 가졌는지, 왜 가졌는지를 알아라." },
-  { ref: "피터 린치", text: "조정을 예측하려다 잃은 돈이, 조정 자체로 잃은 돈보다 훨씬 많다." },
-  { ref: "존 보글", text: "건초더미에서 바늘을 찾지 말고, 건초더미를 통째로 사라." },
-  { ref: "필립 피셔", text: "주식을 사기 가장 좋은 때는 좋은 회사를 찾았을 때다." },
-  { ref: "존 템플턴", text: "강세장은 비관 속에서 태어나 회의 속에 자라고, 낙관 속에 무르익어 행복 속에 죽는다." },
-  { ref: "하워드 막스", text: "남들과 다르게, 그리고 더 옳게 생각해야 한다." },
-  { ref: "레이 달리오", text: "고통 + 성찰 = 발전." },
-  { ref: "제시 리버모어", text: "돈은 사고파는 데서가 아니라, 앉아서 기다리는 데서 벌린다." },
-  { ref: "세스 클라먼", text: "위험은 변동성이 아니라, 영구적인 자본 손실의 가능성이다." },
-  { ref: "앙드레 코스톨라니", text: "우량주를 사서 수면제를 먹고, 10년 뒤에 깨어나라." },
+  { ref: "Warren Buffett", text: "Be fearful when others are greedy, and greedy when others are fearful." },
+  { ref: "Warren Buffett", text: "Price is what you pay. Value is what you get." },
+  { ref: "Warren Buffett", text: "The stock market is a device for transferring money from the impatient to the patient." },
+  { ref: "Charlie Munger", text: "The big money is not in the buying and the selling, but in the waiting." },
+  { ref: "Benjamin Graham", text: "In the short run the market is a voting machine, but in the long run it is a weighing machine." },
+  { ref: "Benjamin Graham", text: "The investor's chief problem, and even his worst enemy, is likely to be himself." },
+  { ref: "Peter Lynch", text: "Know what you own, and know why you own it." },
+  { ref: "Peter Lynch", text: "Far more money has been lost preparing for corrections than in the corrections themselves." },
+  { ref: "John Bogle", text: "Don't look for the needle in the haystack. Just buy the haystack." },
+  { ref: "Philip Fisher", text: "The best time to buy a stock is when you have found a truly great company." },
+  { ref: "John Templeton", text: "Bull markets are born on pessimism, grow on skepticism, mature on optimism, and die on euphoria." },
+  { ref: "Howard Marks", text: "You can't do the same things others do and expect to outperform — think different, and better." },
+  { ref: "Ray Dalio", text: "Pain + Reflection = Progress." },
+  { ref: "Jesse Livermore", text: "It was never my thinking that made the big money. It was always my sitting." },
+  { ref: "Seth Klarman", text: "Risk is not volatility; it is the possibility of permanent loss of capital." },
+  { ref: "André Kostolany", text: "Buy blue chips, take sleeping pills, and wake up rich in ten years." },
 ];
 function getTodayGuru(seedStr) {
   const now = new Date();
@@ -136,36 +136,49 @@ function KpiCard({ label, value, sub, positive, icon: Icon }) {
 
 // ── 막대 차트 ──────────────────────────────────────────────────────────────
 function BtBarChart({ items }) {
+  const containerRef = useRef(null);
+  const [containerW, setContainerW] = useState(460);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ro = new ResizeObserver(entries => {
+      setContainerW(entries[0].contentRect.width || 460);
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
   if (!items || items.length === 0) return (
-    <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#CBD5E1", fontSize: 13 }}>
+    <div ref={containerRef} style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#CBD5E1", fontSize: 13 }}>
       백테스트 결과가 없습니다
     </div>
   );
 
-  const vals = items.map(s => s.bt?.cagr ?? s.bt?.totalReturn ?? 0);
-  const CH = 180;
-  const PAD_V = 26;
-  // 0을 항상 포함해 maxVal >= 0, minVal <= 0 보장
+  const vals = items.map(s => s.bt?.totalReturn ?? s.bt?.cagr ?? 0);
+  const CH    = 180;
+  const PAD_V = 24;
+  const PADL  = 16;
+  const PADR  = 16;
+  const SLOT  = (containerW - PADL - PADR) / items.length;
+  const barW  = Math.min(SLOT * 0.60, 72); // 1~2개여도 너무 넓어지지 않도록 최대 72px 고정
+  const barOffset = (SLOT - barW) / 2;
+  const svgW  = containerW;
   const maxVal = Math.max(...vals, 0);
   const minVal = Math.min(...vals, 0);
   const totalSpan = (maxVal - minVal) || 1;
-  // 제로선 위치: 양수 영역 비율에 따라 비례 배치
   const zeroY = PAD_V + (maxVal / totalSpan) * (CH - 2 * PAD_V);
   const posScale = maxVal > 0 ? (zeroY - PAD_V) / maxVal : 1;
   const negScale = minVal < 0 ? (CH - PAD_V - zeroY) / Math.abs(minVal) : 1;
-  const barW = Math.max(20, Math.min(56, Math.floor(280 / items.length) - 16));
-  const gap = Math.max(16, Math.floor(80 / items.length));
-  const PADL = 24;
-  const svgW = Math.max(320, items.length * (barW + gap) + gap + PADL);
 
   return (
-    <div style={{ overflowX: "auto", marginTop: 8 }}>
-      <svg width={svgW} height={CH + 36} style={{ display: "block", fontFamily: F }}>
+    <div ref={containerRef} style={{ marginTop: 8 }}>
+      <svg width={svgW} height={CH + 40}
+        style={{ display: "block", fontFamily: F, overflow: "visible" }}>
         <line x1={0} y1={zeroY} x2={svgW} y2={zeroY} stroke="#E2E8F0" strokeWidth={1} strokeDasharray="4 3" />
         <text x={4} y={zeroY - 5} fontSize={9} fill="#94A3B8">0%</text>
         {items.map((s, i) => {
           const v = vals[i];
-          const x = PADL + gap / 2 + i * (barW + gap);
+          const x = PADL + i * SLOT + barOffset;
           const barH = Math.max(Math.abs(v) * (v >= 0 ? posScale : negScale), 3);
           const barY = v >= 0 ? zeroY - barH : zeroY;
           const clr = v >= 0 ? "#22c55e" : "#ef4444";
@@ -177,7 +190,7 @@ function BtBarChart({ items }) {
               <text x={x + barW / 2} y={lblY} textAnchor="middle" fontSize={10} fontWeight={700} fill={clr}>
                 {v >= 0 ? "+" : ""}{v.toFixed(1)}%
               </text>
-              <text x={x + barW / 2} y={CH + 16} textAnchor="middle" fontSize={10} fill="#64748B">{nm}</text>
+              <text x={x + barW / 2} y={CH + 18} textAnchor="middle" fontSize={11} fill="#64748B">{nm}</text>
             </g>
           );
         })}
@@ -198,7 +211,7 @@ function StrategyListPanel({ items, onNav, featuredId }) {
     <div style={{ display: "flex", flexDirection: "column" }}>
       {sorted.map((s, i) => {
         const isFeatured = s.id === featuredId;
-        const v = s.bt?.cagr ?? s.bt?.totalReturn;
+        const v = s.bt?.totalReturn ?? s.bt?.cagr;
         const vStr = v != null ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(1)}%` : "—";
         const vColor = v != null ? (Number(v) >= 0 ? "#16A34A" : "#DC2626") : "#94A3B8";
         let badge, bColor, bBg;
@@ -217,7 +230,7 @@ function StrategyListPanel({ items, onNav, featuredId }) {
           onMouseEnter={e => e.currentTarget.style.background = isFeatured ? "#EDE9FE" : "#F8FAFC"}
           onMouseLeave={e => e.currentTarget.style.background = isFeatured ? "#F5F3FF" : "transparent"}
           >
-            <span style={{ fontSize: 13, color: isFeatured ? "#A5B4FC" : "#CBD5E1", flexShrink: 0 }}>—</span>
+            <span style={{ fontSize: 13, color: isFeatured ? "#4338CA" : "#475569", flexShrink: 0 }}>•</span>
             <span style={{
               flex: 1, fontSize: 14, fontWeight: isFeatured ? 700 : 600,
               color: isFeatured ? "#4F46E5" : "#0F172A",
@@ -246,17 +259,14 @@ function BestStrategyMetrics({ s }) {
   const fp = (v) => v != null ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(1)}%` : "—";
   const fn = (v) => v != null ? Number(v).toFixed(2) : "—";
   const rows = [
-    { label: "연환산 수익률", value: fp(bt.cagr ?? bt.totalReturn), color: (bt.cagr ?? bt.totalReturn) >= 0 ? "#16A34A" : "#DC2626" },
+    { label: "총 수익률",    value: fp(bt.totalReturn ?? bt.cagr),   color: (bt.totalReturn ?? bt.cagr ?? 0) >= 0 ? "#16A34A" : "#DC2626" },
+    { label: "연환산(CAGR)", value: fp(bt.cagr),                     color: (bt.cagr ?? 0) >= 0 ? "#16A34A" : "#DC2626" },
     { label: "MDD",          value: fp(bt.mdd),                     color: (() => { const a = Math.abs(Number(bt.mdd)); return a <= 15 ? "#16A34A" : a <= 25 ? "#D97706" : "#DC2626"; })() },
     { label: "샤프 비율",    value: fn(bt.sharpe),                   color: "#0F172A" },
     { label: "승률",         value: bt.winRate != null ? `${Number(bt.winRate).toFixed(1)}%` : "—", color: "#0F172A" },
   ];
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        <span style={{ fontSize: 13, color: "#64748B" }}>{s.name}</span>
-        {s.riskTone && <ToneBadge tone={s.riskTone} />}
-      </div>
       {rows.map(r => (
         <div key={r.label} style={{
           display: "flex", justifyContent: "space-between", alignItems: "center",
@@ -416,35 +426,43 @@ export default function WorkHome() {
   const [draft, setDraft] = useState("");
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createModalName, setCreateModalName] = useState("");
+  const [createModalError, setCreateModalError] = useState("");
   const [creating, setCreating] = useState(false);
 
   const startEdit = () => { setDraft(slogan || firstGoal || ""); setEditGoal(true); };
   const saveEdit = () => { setSlogan(draft.trim()); setEditGoal(false); };
 
-  const onNewWs = () => { setCreateModalName(""); setCreateModalOpen(true); };
+  const onNewWs = () => { setCreateModalName(""); setCreateModalError(""); setCreateModalOpen(true); };
   const onConfirmCreate = async () => {
-    if (!createModalName.trim()) return;
+    const trimmed = createModalName.trim();
+    if (!trimmed) return;
+    const duplicate = strategies.some(s => s.name?.trim().toLowerCase() === trimmed.toLowerCase());
+    if (duplicate) { setCreateModalError("같은 이름의 워크스페이스가 이미 있어요."); return; }
+    setCreateModalError("");
     setCreateModalOpen(false);
     setCreating(true);
     try {
-      const w = await createWorkspace(createModalName.trim());
+      const w = await createWorkspace(trimmed);
       nav(`/alpha/w/${w.id}`);
     } catch (e) {
-      alert(t("workhome.createFailed", { err: e?.response?.data?.error || e.message }));
+      const msg = e?.response?.data?.error || e.message;
+      if (e?.response?.status === 409) { setCreateModalOpen(true); setCreateModalError(msg); }
+      else alert("생성 실패: " + msg);
     } finally { setCreating(false); }
   };
 
   // ── 대시보드 집계 ──────────────────────────────────────────────────────
   const testedItems = strategies.filter(s => s.bt);
+  const recentTestedItems = [...testedItems].sort((a, b) => b.id - a.id).slice(0, 5);
   const testedCount = testedItems.length;
   const activeCount = strategies.filter(s => s.status === "LIVE").length;
   const untestedCount = strategies.filter(s => !s.bt && s.status !== "LIVE").length;
   const bestStrategy = testedItems.reduce((best, s) => {
-    const v = s.bt.cagr ?? s.bt.totalReturn ?? -Infinity;
-    const bv = best ? (best.bt.cagr ?? best.bt.totalReturn ?? -Infinity) : -Infinity;
+    const v = s.bt.totalReturn ?? s.bt.cagr ?? -Infinity;
+    const bv = best ? (best.bt.totalReturn ?? best.bt.cagr ?? -Infinity) : -Infinity;
     return v > bv ? s : best;
   }, null);
-  const bestReturnVal = bestStrategy?.bt?.cagr ?? bestStrategy?.bt?.totalReturn;
+  const bestReturnVal = bestStrategy?.bt?.totalReturn ?? bestStrategy?.bt?.cagr;
   const bestReturnStr = bestReturnVal != null
     ? `${Number(bestReturnVal) >= 0 ? "+" : ""}${Number(bestReturnVal).toFixed(1)}%`
     : "—";
@@ -452,7 +470,42 @@ export default function WorkHome() {
   const avgSharpe = validSharpes.length > 0
     ? validSharpes.reduce((a, b) => a + b, 0) / validSharpes.length : null;
   const avgSharpeStr = avgSharpe != null ? Number(avgSharpe).toFixed(2) : "—";
-  const featuredStrategy = strategies[0] || null;
+  const quoteRef = useRef(null);
+  const [quoteW, setQuoteW] = useState(320);
+  useEffect(() => {
+    if (!quoteRef.current) return;
+    const ro = new ResizeObserver(entries => {
+      setQuoteW(entries[0].contentRect.width || 320);
+    });
+    ro.observe(quoteRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const [primaryWsId, setPrimaryWsId] = useState(() => {
+    const v = localStorage.getItem("alpha.primaryWsId");
+    return v ? Number(v) : null;
+  });
+  useEffect(() => {
+    const handler = (e) => setPrimaryWsId(e?.detail?.id ?? null);
+    window.addEventListener("alpha:primary-change", handler);
+    return () => window.removeEventListener("alpha:primary-change", handler);
+  }, []);
+  const featuredStrategy =
+    (primaryWsId && strategies.find(s => s.id === primaryWsId)) ||
+    strategies[0] ||
+    null;
+
+  // 최근 워크스페이스 목록 정렬: 대표(1개) → LIVE → 최근순, 최대 5개
+  const recentWorkspaces = (() => {
+    const primary = primaryWsId ? strategies.find(s => s.id === primaryWsId) : null;
+    const lives = strategies
+      .filter(s => s.status === "LIVE" && s.id !== (primary?.id ?? -1))
+      .sort((a, b) => b.id - a.id);
+    const rest = strategies
+      .filter(s => s.id !== (primary?.id ?? -1) && s.status !== "LIVE")
+      .sort((a, b) => b.id - a.id);
+    return [...(primary ? [primary] : []), ...lives, ...rest].slice(0, 5);
+  })();
 
   return (
     <div style={{ padding: "36px 40px 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)", fontFamily: F, color: "#0F172A" }}>
@@ -602,25 +655,28 @@ export default function WorkHome() {
         </section>
 
         {/* 오른쪽 — 오늘의 선물 포스트잇 (붙여준 것처럼 위로 솟음): 투자 그루 명언 + 성경 한 절 */}
-        {(() => { const g = getTodayGuru(username); const v = getTodayVerse(username); return (
-          <div style={{ position: "relative", alignSelf: "stretch" }}>
+        {(() => { const g = getTodayGuru(username); const v = getTodayVerse(username);
+          const qScale = Math.min(1, quoteW / 320);
+          return (
+          <div ref={quoteRef} style={{ position: "relative", alignSelf: "stretch" }}>
           <section style={{
             position: "absolute", left: 0, right: 0, bottom: 0,
             background: "linear-gradient(165deg,#FCF6CC 0%,#F7EEB2 100%)",
             borderRadius: 14,
             padding: "20px 18px 22px",
             boxShadow: "0 14px 30px rgba(168,146,46,0.3), inset 0 1px 0 rgba(255,255,255,0.55)",
-            fontFamily: "'Gaegu', 'Nanum Pen Script', cursive",
+            fontFamily: "'Nanum Pen Script', 'Gaegu', cursive",
+            overflow: "hidden",
           }}>
-            {/* 선물 ① 투자 그루의 명언 */}
-            <p style={{ margin: "4px 0 0", fontSize: 16.5, lineHeight: 1.36, color: "#3f3a14" }}>"{g.text}"</p>
-            <p style={{ margin: "3px 0 0", fontSize: 13.5, color: "#9b8a2a", textAlign: "right" }}>— {g.ref}</p>
+            {/* 선물 ① 투자 그루의 명언 (영어 원문 · Caveat 손글씨) */}
+            <p style={{ margin: "2px 0 0", fontFamily: "'Caveat', cursive", fontSize: 23 * qScale, fontWeight: 500, lineHeight: 1.18, color: "#3f3a14" }}>"{g.text}"</p>
+            <p style={{ margin: "1px 0 0", fontFamily: "'Caveat', cursive", fontSize: 17 * qScale, color: "#9b8a2a", textAlign: "right" }}>— {g.ref}</p>
             <div style={{ height: 1, background: "rgba(155,138,42,0.32)", margin: "9px 2px" }} />
-            {/* 선물 ② 성경 한 절 (잠언·시편) */}
-            <p style={{ margin: "0", fontSize: 16.5, lineHeight: 1.36, color: "#3f3a14" }}>"{v.text}"</p>
-            <p style={{ margin: "3px 0 0", fontSize: 13.5, color: "#9b8a2a", textAlign: "right" }}>— {v.ref}</p>
+            {/* 선물 ② 성경 한 절 (영어 · Caveat 손글씨, 명언과 통일) */}
+            <p style={{ margin: "0", fontFamily: "'Caveat', cursive", fontSize: 21 * qScale, fontWeight: 500, lineHeight: 1.2, color: "#3f3a14" }}>"{v.text}"</p>
+            <p style={{ margin: "1px 0 0", fontFamily: "'Caveat', cursive", fontSize: 16 * qScale, color: "#9b8a2a", textAlign: "right" }}>— {v.ref}</p>
             {/* 받는 사람 */}
-            <p style={{ margin: "12px 0 0", fontSize: 18.5, color: "#1d4ed8", textAlign: "right", lineHeight: 1.1 }}>{username}에게</p>
+            <p style={{ margin: "12px 0 0", fontSize: 18.5 * qScale, color: "#1d4ed8", textAlign: "right", lineHeight: 1.1 }}>{username}에게</p>
           </section>
           </div>
         ); })()}
@@ -680,17 +736,20 @@ export default function WorkHome() {
       {/* ── ② 차트 + ③ 전략 목록 ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1fr", gap: 18, marginBottom: 18 }}>
         <div style={panelCard}>
-          <h3 style={panelTitle}>전략별 백테스트 수익률 비교</h3>
-          <BtBarChart items={testedItems} />
+          <h3 style={panelTitle}>워크스페이스별 백테스트 수익률 비교</h3>
+          <BtBarChart items={recentTestedItems} />
         </div>
         <div style={panelCard}>
-          <h3 style={panelTitle}>전략 목록</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <h3 style={{ ...panelTitle, margin: 0 }}>최근 워크스페이스 목록</h3>
+            <span style={{ fontSize: 11, color: "#94A3B8", fontWeight: 500 }}>최대 5개</span>
+          </div>
           {strategies.length === 0 && !loading ? (
             <div style={{ color: "#CBD5E1", fontSize: 13, padding: "16px 0" }}>
-              아직 전략이 없습니다. 새 전략을 만들어보세요.
+              아직 워크스페이스가 없습니다. 새로 만들어보세요.
             </div>
           ) : (
-            <StrategyListPanel items={strategies} onNav={(id) => nav(`/alpha/w/${id}`)} featuredId={featuredStrategy?.id} />
+            <StrategyListPanel items={recentWorkspaces} onNav={(id) => nav(`/alpha/w/${id}`)} featuredId={primaryWsId} />
           )}
         </div>
       </div>
@@ -699,11 +758,15 @@ export default function WorkHome() {
       {featuredStrategy && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
           <div style={panelCard}>
-            <h3 style={panelTitle}>대표 워크스페이스 주요 지표 <span style={{ fontWeight: 500, color: "#6366F1", fontSize: 13 }}>· {featuredStrategy.name}</span></h3>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+              <h3 style={{ ...panelTitle, margin: 0 }}>대표 워크스페이스 주요 지표</h3>
+              <span style={{ fontWeight: 500, color: "#6366F1", fontSize: 13 }}>· {featuredStrategy.name}</span>
+              {featuredStrategy.riskTone && <ToneBadge tone={featuredStrategy.riskTone} />}
+            </div>
             <BestStrategyMetrics s={featuredStrategy} />
           </div>
           <div style={panelCard}>
-            <h3 style={panelTitle}>대표 전략 백테스트 수익 곡선 <span style={{ fontWeight: 500, color: "#6366F1", fontSize: 13 }}>· {featuredStrategy.name}</span></h3>
+            <h3 style={panelTitle}>대표 워크스페이스 수익 곡선 <span style={{ fontWeight: 500, color: "#6366F1", fontSize: 13 }}>· {featuredStrategy.name}</span></h3>
             <EquityCurveChart data={featuredStrategy.equityCurve} />
           </div>
         </div>
@@ -712,9 +775,10 @@ export default function WorkHome() {
       <CreateWorkspaceModal
         open={createModalOpen}
         name={createModalName}
-        onChange={e => setCreateModalName(e.target.value)}
+        onChange={v => { setCreateModalName(v); setCreateModalError(""); }}
         onConfirm={onConfirmCreate}
-        onClose={() => setCreateModalOpen(false)}
+        onClose={() => { setCreateModalOpen(false); setCreateModalError(""); }}
+        error={createModalError}
       />
     </div>
   );
