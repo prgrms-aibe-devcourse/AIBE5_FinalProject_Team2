@@ -165,6 +165,10 @@ function HeliAvatar({ src, size = 36 }) {
 }
 
 export default function RightChatDock({ open, onClose, width = 380, onResize }) {
+  const [dockTop, setDockTop] = useState(() => {
+    const saved = parseInt(localStorage.getItem("aiDockTop") || "0", 10);
+    return saved >= 0 && saved <= 600 ? saved : 0;
+  });
   const { lang } = useLanguage();
   const loc = useLocation();
   // 워크스페이스는 두 화면(/alpha/w/:id 와 /strategy/:id)에서 보이므로 둘 다 매칭. 라우트가 없으면 lastWsId 폴백.
@@ -225,6 +229,12 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
     return () => window.removeEventListener("alpha:open-chat", handler);
   }, []);
 
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, loading, goalMode]);
+
   const fillExampleAnswer = () => {
     const example =
       "⭐ 한 번에 답변드릴게요\n" +
@@ -272,7 +282,27 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor = "e-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  const startTopResize = (e) => {
+    e.preventDefault();
+    const startY = e.clientY, startTop = dockTop;
+    const onMove = (ev) => {
+      const next = Math.min(Math.max(0, startTop + (ev.clientY - startY)), window.innerHeight * 0.7);
+      setDockTop(next);
+      localStorage.setItem("aiDockTop", String(Math.round(next)));
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "s-resize";
     document.body.style.userSelect = "none";
   };
 
@@ -290,7 +320,7 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "row-resize";
+    document.body.style.cursor = "s-resize";
     document.body.style.userSelect = "none";
   };
 
@@ -444,7 +474,7 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
 
   return (
     <aside data-tut-chat style={{
-      position: "fixed", right: 0, top: 0, bottom: 0,
+      position: "fixed", right: 0, top: dockTop, bottom: 0,
       width: open ? width : 0,
       background: "#f5f7ff",
       borderLeft: open ? "1px solid #e8eeff" : "none",
@@ -479,11 +509,21 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
         .heli-send-btn:not(:disabled):hover { opacity: 0.88 !important; transform: scale(1.05) !important; }
       `}</style>
 
-      {/* 리사이즈 핸들 */}
+      {/* 가로 리사이즈 핸들 */}
       {open && (
         <div onMouseDown={startResize} style={{
           position: "absolute", left: 0, top: 0, bottom: 0, width: 4,
-          cursor: "col-resize", zIndex: 5,
+          cursor: "e-resize", zIndex: 5,
+        }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(74,123,247,0.2)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+        />
+      )}
+      {/* 세로 리사이즈 핸들 (상단 엣지) */}
+      {open && (
+        <div onMouseDown={startTopResize} style={{
+          position: "absolute", left: 4, right: 0, top: 0, height: 4,
+          cursor: "s-resize", zIndex: 5,
         }}
           onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(74,123,247,0.2)"; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
@@ -670,11 +710,11 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
         {/* 세로 리사이즈 핸들 */}
         <div onMouseDown={startVerticalResize} style={{
           height: 14, display: "flex", alignItems: "center", justifyContent: "center",
-          cursor: "row-resize", marginBottom: 8,
+          cursor: "s-resize", marginBottom: 8,
         }}>
           <div style={{ width: 36, height: 3, borderRadius: 2, background: "#e2e8f0" }} />
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "flex-end" }}>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -697,42 +737,44 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
               transition: "border-color 0.15s ease",
             }}
           />
-          {/* 🎤 음성 입력 (연하늘 · 듣는 중엔 빨강 펄스) */}
-          <button
-            onClick={toggleMic}
-            title={listening ? "음성 입력 중지" : "음성으로 입력"}
-            style={{
-              width: 44, height: 44, borderRadius: 12, border: "none", flexShrink: 0,
-              background: listening ? "#FCA5A5" : "#BAE6FD", cursor: "pointer",
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              transition: "background 0.15s ease",
-            }}
-            onMouseEnter={(e) => { if (!listening) e.currentTarget.style.background = "#7DD3FC"; }}
-            onMouseLeave={(e) => { if (!listening) e.currentTarget.style.background = "#BAE6FD"; }}
-          >
-            <Mic size={18} color={listening ? "#7f1d1d" : "#0C4A6E"} className={listening ? "heli-loading-img" : ""} />
-          </button>
-          {/* 전송 (연하늘 + 호버) */}
-          <button
-            data-tutorial-id="tutorial-chat-send-btn"
-            onClick={send}
-            disabled={loading || !input.trim()}
-            className="heli-send-btn"
-            style={{
-              width: 44, height: 44,
-              borderRadius: 12, border: "none",
-              background: !input.trim() || loading ? "#e2e8f0" : "#7DD3FC",
-              cursor: !input.trim() || loading ? "not-allowed" : "pointer",
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              flexShrink: 0,
-              transition: "background 0.15s ease",
-              boxShadow: input.trim() && !loading ? "0 4px 12px rgba(56,189,248,0.35)" : "none",
-            }}
-            onMouseEnter={(e) => { if (input.trim() && !loading) e.currentTarget.style.background = "#38BDF8"; }}
-            onMouseLeave={(e) => { if (input.trim() && !loading) e.currentTarget.style.background = "#7DD3FC"; }}
-          >
-            <Send size={18} color={!input.trim() || loading ? "#94a3b8" : "#0C4A6E"} />
-          </button>
+          {/* 버튼 세로 스택 — textarea 높이와 맞춤 (34+6+34=74 ≈ 72px) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+            {/* 🎤 음성 입력 */}
+            <button
+              onClick={toggleMic}
+              title={listening ? "음성 입력 중지" : "음성으로 입력"}
+              style={{
+                width: 34, height: 34, borderRadius: 10, border: "none",
+                background: listening ? "#FCA5A5" : "#BAE6FD", cursor: "pointer",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                transition: "background 0.15s ease",
+              }}
+              onMouseEnter={(e) => { if (!listening) e.currentTarget.style.background = "#7DD3FC"; }}
+              onMouseLeave={(e) => { if (!listening) e.currentTarget.style.background = "#BAE6FD"; }}
+            >
+              <Mic size={15} color={listening ? "#7f1d1d" : "#0C4A6E"} className={listening ? "heli-loading-img" : ""} />
+            </button>
+            {/* 전송 */}
+            <button
+              data-tutorial-id="tutorial-chat-send-btn"
+              onClick={send}
+              disabled={loading || !input.trim()}
+              className="heli-send-btn"
+              style={{
+                width: 34, height: 34,
+                borderRadius: 10, border: "none",
+                background: !input.trim() || loading ? "#e2e8f0" : "#7DD3FC",
+                cursor: !input.trim() || loading ? "not-allowed" : "pointer",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                transition: "background 0.15s ease",
+                boxShadow: input.trim() && !loading ? "0 4px 12px rgba(56,189,248,0.35)" : "none",
+              }}
+              onMouseEnter={(e) => { if (input.trim() && !loading) e.currentTarget.style.background = "#38BDF8"; }}
+              onMouseLeave={(e) => { if (input.trim() && !loading) e.currentTarget.style.background = "#7DD3FC"; }}
+            >
+              <Send size={15} color={!input.trim() || loading ? "#94a3b8" : "#0C4A6E"} />
+            </button>
+          </div>
         </div>
       </div>
     </aside>

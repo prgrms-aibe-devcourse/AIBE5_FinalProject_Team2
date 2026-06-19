@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import logoIcon from "../../assets/main_logo.webp";
 import { HEROES, getCurrentHeroKey, getCurrentHeroSrc, setCurrentHeroKey } from "../../alpha/heroAssets";
-import { listWorkspaces, createWorkspace } from "../../alpha/alphaApi";
+import { listWorkspaces, createWorkspace, getPendingCount } from "../../alpha/alphaApi";
 import LoginRequiredModal from "./LoginRequiredModal";
 import CreateWorkspaceModal from "../../alpha/CreateWorkspaceModal";
 import SettingsModal from "./SettingsModal";
@@ -79,6 +79,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   const [logoHover, setLogoHover] = useState(false);
   const [newStrategyOpen, setNewStrategyOpen] = useState(false);
   const [newStrategyName, setNewStrategyName] = useState("");
+  const [newStrategyError, setNewStrategyError] = useState("");
 
   // Workspace flyout (collapsed only)
   const [wsMenuOpen, setWsMenuOpen]   = useState(false);
@@ -92,6 +93,19 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
 
   const seenIdsRef      = useRef(null); // null = 초기 로드 전
   const [notiToast, setNotiToast] = useState(null);
+  const [pendingCount, setPendingCount] = useState(0);
+
+  const refreshPendingCount = () => {
+    getPendingCount().then(d => setPendingCount(d?.count ?? 0)).catch(() => {});
+  };
+
+  useEffect(() => {
+    refreshPendingCount();
+    const id = setInterval(refreshPendingCount, 30_000);
+    const onUpdate = () => refreshPendingCount();
+    window.addEventListener("alpha:proposal-updated", onUpdate);
+    return () => { clearInterval(id); window.removeEventListener("alpha:proposal-updated", onUpdate); };
+  }, []);
 
   const langRef         = useRef(null);
   const gearRef         = useRef(null);
@@ -109,19 +123,21 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   const devCloseTimer = useRef(null);
   const themeCloseTimer = useRef(null);
 
-  const isAuthed = !!localStorage.getItem("dbId");
+  const dbId = useStore((s) => s.dbId);
+  const isAuthed = !!dbId;
   const inAlpha    = loc.pathname === "/alpha" || loc.pathname.startsWith("/alpha/w/");
   const inDeveloper = loc.pathname === "/alpha/developer" || loc.pathname.startsWith("/alpha/developer/");
 
   // Developer IDE 페이지에서 nav 섹션 기본 접기
   // (navCollapsed 제거됨 — DeveloperLab 툴바의 [|>] 버튼으로 전체 사이드바 토글)
 
-  /* ── 미읽은 알림 배지: 앱 시작 시 즉시 fetch + 30초 폴링 ── */
+  /* ── 미읽은 알림 배지: 로그인 후 즉시 fetch + 30초 폴링 ── */
   useEffect(() => {
+    if (!isAuthed) return;
     fetchNotifications();
     const id = setInterval(fetchNotifications, 30_000);
     return () => clearInterval(id);
-  }, [fetchNotifications]);
+  }, [fetchNotifications, isAuthed]);
 
   /* ── 새 알림 도착 감지 → 토스트 ── */
   useEffect(() => {
@@ -254,18 +270,25 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   const handleNewStrategy = () => {
     if (!isAuthed) { setShowLogin(true); return; }
     setNewStrategyName("");
+    setNewStrategyError("");
     setNewStrategyOpen(true);
   };
 
   const handleConfirmNewStrategy = async () => {
-    if (!newStrategyName.trim()) return;
+    const trimmed = newStrategyName.trim();
+    if (!trimmed) return;
+    const duplicate = workspaces.some(w => w.name?.trim().toLowerCase() === trimmed.toLowerCase());
+    if (duplicate) { setNewStrategyError("같은 이름의 워크스페이스가 이미 있어요."); return; }
+    setNewStrategyError("");
     setNewStrategyOpen(false);
     try {
-      const w = await createWorkspace(newStrategyName.trim());
+      const w = await createWorkspace(trimmed);
       setWorkspaces(prev => [{ id: w.id, name: w.name }, ...prev]);
       nav(`/alpha/w/${w.id}`);
     } catch (e) {
-      alert("생성 실패: " + (e?.response?.data?.error || e.message));
+      const msg = e?.response?.data?.error || e.message;
+      if (e?.response?.status === 409) { setNewStrategyOpen(true); setNewStrategyError(msg); }
+      else alert("생성 실패: " + msg);
     }
   };
 
@@ -320,7 +343,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
               background: heroKey === h.key ? "#EFF6FF" : "transparent",
               border: heroKey === h.key ? "2px solid #6366f1" : "1px solid #E2E8F0",
               cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-            <img src={h.src} alt={h.label} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+            <img src={h.src} alt={h.label} style={{ width: "100%", height: "100%", objectFit: h.key === "sleep" ? "cover" : "contain", borderRadius: h.key === "sleep" ? "50%" : 0 }} />
           </button>
         ))}
       </div>
@@ -383,7 +406,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           zIndex: 1000, overflow: "hidden",
           transition: `width 0.26s ${EASE}`,
           fontFamily: "'Inter','Pretendard',-apple-system,BlinkMacSystemFont,sans-serif",
-          cursor: !expanded ? "pointer" : "default",
+          cursor: !expanded ? "e-resize" : "default",
         }}
         onMouseEnter={() => setSidebarHover(true)}
         onMouseLeave={() => setSidebarHover(false)}
@@ -506,7 +529,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           <NavItem
             expanded={expanded}
             icon={<Home size={24} strokeWidth={loc.pathname === "/workhome" ? 2.4 : 1.9} />}
-            label="홈"
+            label="대시보드"
             active={loc.pathname === "/workhome"}
             onClick={() => go("/workhome")}
           />
@@ -563,6 +586,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
             active={loc.pathname === "/alpha/proposals"}
             tutorialId="tutorial-sidebar-proposals"
             onClick={() => go("/alpha/proposals")}
+            badge={pendingCount}
           />
 
           {/* Developer */}
@@ -643,7 +667,16 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
             <div style={{ position: "relative", display: "inline-flex" }}>
               <Bell size={expanded ? 18 : 22} />
               {unreadCount > 0 && (
-                <span style={{ position: "absolute", top: -3, right: -3, width: 8, height: 8, borderRadius: "50%", background: "#EF4444", border: "1.5px solid transparent" }} />
+                <span style={{
+                  position: "absolute", top: -6, right: -6,
+                  minWidth: 16, height: 16, borderRadius: 9999,
+                  background: "#EF4444", color: "white",
+                  fontSize: 10, fontWeight: 800, lineHeight: "16px",
+                  padding: "0 4px", textAlign: "center",
+                  border: "1.5px solid white", pointerEvents: "none",
+                }}>
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
               )}
             </div>
           </SideIconBtn>
@@ -705,6 +738,8 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
             </div>
           )}
         </div>
+
+
       </aside>
 
       {/* Hero flyout — aside 바깥 fixed (overflow:hidden 회피) */}
@@ -769,9 +804,10 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
       <CreateWorkspaceModal
         open={newStrategyOpen}
         name={newStrategyName}
-        onChange={setNewStrategyName}
+        onChange={v => { setNewStrategyName(v); setNewStrategyError(""); }}
         onConfirm={handleConfirmNewStrategy}
-        onClose={() => setNewStrategyOpen(false)}
+        onClose={() => { setNewStrategyOpen(false); setNewStrategyError(""); }}
+        error={newStrategyError}
       />
 
       {/* Workspace flyout — collapsed only */}
@@ -872,7 +908,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
 }
 
 /* ─── NavItem: unified icon + sliding text ──────────── */
-function NavItem({ icon, label, active = false, expanded, onClick, tutorialId }) {
+function NavItem({ icon, label, active = false, expanded, onClick, tutorialId, badge }) {
   const [hover, setHover] = useState(false);
   const { theme } = useTheme();
   return (
@@ -907,8 +943,20 @@ function NavItem({ icon, label, active = false, expanded, onClick, tutorialId })
       )}
 
       {/* Icon — always visible, fixed width */}
-      <span style={{ flexShrink: 0, width: 22, display: "inline-flex", justifyContent: "center", alignItems: "center" }}>
+      <span style={{ flexShrink: 0, width: 22, display: "inline-flex", justifyContent: "center", alignItems: "center", position: "relative" }}>
         {icon}
+        {badge > 0 && (
+          <span style={{
+            position: "absolute", top: -6, right: -8,
+            minWidth: 16, height: 16, borderRadius: 9999,
+            background: "#EF4444", color: "white",
+            fontSize: 10, fontWeight: 800, lineHeight: "16px",
+            padding: "0 4px", textAlign: "center",
+            border: "1.5px solid transparent", pointerEvents: "none",
+          }}>
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
       </span>
 
       {/* Label — slides in/out */}

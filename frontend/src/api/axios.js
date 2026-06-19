@@ -64,8 +64,8 @@ function clearAuthState() {
 }
 
 function redirectToLogin() {
-  if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-    window.location.assign('/login');
+  if (typeof window !== 'undefined' && window.location.pathname !== '/home') {
+    window.location.assign('/home');
   }
 }
 
