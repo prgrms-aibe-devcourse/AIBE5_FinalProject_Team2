@@ -1,6 +1,6 @@
 import { Layers, X } from "lucide-react";
 
-export default function CreateWorkspaceModal({ open, name, onChange, onConfirm, onClose }) {
+export default function CreateWorkspaceModal({ open, name, onChange, onConfirm, onClose, error }) {
   if (!open) return null;
   return (
     <div data-tutorial-modal-root onClick={onClose} style={{
@@ -57,16 +57,19 @@ export default function CreateWorkspaceModal({ open, name, onChange, onConfirm, 
             placeholder="예: 5년 후 월 300만원 현금흐름"
             style={{
               width: "100%", padding: "12px 14px", borderRadius: 10,
-              border: "1.5px solid #C7D2FE", fontSize: 14, outline: "none",
+              border: `1.5px solid ${error ? "#f87171" : "#C7D2FE"}`, fontSize: 14, outline: "none",
               boxSizing: "border-box", color: "#0F172A",
               transition: "border-color 0.15s",
             }}
-            onFocus={e => e.target.style.borderColor = "#6366f1"}
-            onBlur={e => e.target.style.borderColor = "#C7D2FE"}
+            onFocus={e => e.target.style.borderColor = error ? "#ef4444" : "#6366f1"}
+            onBlur={e => e.target.style.borderColor = error ? "#f87171" : "#C7D2FE"}
           />
-          <p style={{ margin: "10px 0 0", fontSize: 12, color: "#94A3B8", lineHeight: 1.6 }}>
-            이름은 나중에 AI와 대화하면서 자동으로 목표에 맞게 구체화됩니다.
-          </p>
+          {error
+            ? <p style={{ margin: "8px 0 0", fontSize: 12, color: "#ef4444", fontWeight: 600 }}>⚠️ {error}</p>
+            : <p style={{ margin: "10px 0 0", fontSize: 12, color: "#94A3B8", lineHeight: 1.6 }}>
+                이름은 나중에 AI와 대화하면서 자동으로 목표에 맞게 구체화됩니다.
+              </p>
+          }
         </div>
 
         {/* 푸터 */}

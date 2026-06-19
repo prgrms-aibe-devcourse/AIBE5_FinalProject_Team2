@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Layers, BarChart3, Activity, ShieldCheck,
-  ScrollText, Play, RefreshCw,
+  ScrollText, Play,
   AlertTriangle, FileText, Bot, MessageCircle,
 } from "lucide-react";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
@@ -14,6 +14,7 @@ import ReportPanel from "./tabs/ReportPanel";
 import RegimePanel from "./tabs/RegimePanel";
 import TrustPanel from "./tabs/TrustPanel";
 import LogPanel from "./tabs/LogPanel";
+import StrategyRequiredModal from "./StrategyRequiredModal";
 
 // 메인 탭(상단 가운데) — AI 대화 탭은 우측 Heli 패널로 상시 노출되어 제거
 const TABS = [
@@ -62,6 +63,7 @@ export default function Workspace() {
   const [runningAll, setRunningAll] = useState(false);
   const [newStratHint, setNewStratHint] = useState(false);
   const [runHover, setRunHover] = useState(false);
+  const [stratRequired, setStratRequired] = useState(false);
 
   // 우측 전략 요약 패널 가로 폭 (드래그로 조절)
   const [rightW, setRightW] = useState(() => {
@@ -86,7 +88,7 @@ export default function Workspace() {
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor = "e-resize";
     document.body.style.userSelect = "none";
   };
 
@@ -121,8 +123,7 @@ export default function Workspace() {
   const onTopBacktest = async () => {
     if (runningBT) return;
     if (!ws?.strategyConfig) {
-      alert("먼저 Strategy를 정형화해야 백테스트를 실행할 수 있어요. (파라미터 수정 → Goal → Strategy)");
-      setTab("config");
+      setStratRequired(true);
       return;
     }
     setRunningBT(true);
@@ -150,8 +151,7 @@ export default function Workspace() {
     if (runningAll || runningBT) return;
     const cands = Array.isArray(ws?.strategyConfig?.candidates) ? ws.strategyConfig.candidates : [];
     if (!ws?.strategyConfig || cands.length === 0) {
-      alert("먼저 전략 후보를 만들고 선택해야 전체 분석을 실행할 수 있어요. (전략 카드 탭 → Goal → Strategy)");
-      setTab("config");
+      setStratRequired(true);
       return;
     }
     setRunningAll(true);
@@ -249,7 +249,18 @@ export default function Workspace() {
   const fmtNum = (v) => v != null ? Number(v).toFixed(2) : "—";
 
   // Strategy Card 탭 상단 요약 3카드 (백테스트 요약 · 현재 레짐 · Trust Score 요약)
-  const topSummaryBar = (
+  const topSummaryBar = !hasGoal ? (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 10,
+      padding: "11px 16px", marginBottom: 20, borderRadius: 10,
+      background: "#F8FAFC", border: "1px solid #E2E8F0",
+    }}>
+      <span style={{ fontSize: 15, flexShrink: 0 }}>🎯</span>
+      <span style={{ fontSize: 12.5, color: "#64748B" }}>
+        아래 <b style={{ color: "#374151" }}>GOAL PROFILE</b>을 먼저 정형화하면 백테스트 · 국면 분석 · Trust Score를 사용할 수 있어요.
+      </span>
+    </div>
+  ) : (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
 
       {/* ── 백테스트 요약 ── */}
@@ -286,13 +297,15 @@ export default function Workspace() {
         ) : (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8 }}>
             <span style={{ fontSize: 13, color: "#CBD5E1" }}>백테스트를 실행해보세요</span>
-            <button onClick={onTopBacktest} disabled={runningBT} style={{
-              display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 8,
-              border: "none", background: theme.accentGradient || theme.accent, color: "white",
-              fontSize: 12, fontWeight: 700, cursor: runningBT ? "wait" : "pointer", alignSelf: "flex-start",
-            }}>
-              <Play size={12} /> {runningBT ? "실행 중…" : "백테스트 실행"}
-            </button>
+            {hasGoal && (
+              <button onClick={onTopBacktest} disabled={runningBT} style={{
+                display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 8,
+                border: "none", background: theme.accentGradient || theme.accent, color: "white",
+                fontSize: 12, fontWeight: 700, cursor: runningBT ? "wait" : "pointer", alignSelf: "flex-start",
+              }}>
+                <Play size={12} /> {runningBT ? "실행 중…" : "백테스트 실행"}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -316,13 +329,15 @@ export default function Workspace() {
         ) : (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 8 }}>
             <span style={{ fontSize: 13, color: "#CBD5E1" }}>국면 분석을 실행해보세요</span>
-            <button onClick={() => setTab("regime")} style={{
-              display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 8,
-              border: "1px solid #C7D2FE", background: "#EEF2FF", color: "#4338CA",
-              fontSize: 12, fontWeight: 700, cursor: "pointer", alignSelf: "flex-start",
-            }}>
-              <Activity size={12} /> Regime 분석하기
-            </button>
+            {hasGoal && (
+              <button onClick={() => setTab("regime")} style={{
+                display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 13px", borderRadius: 8,
+                border: "1px solid #C7D2FE", background: "#EEF2FF", color: "#4338CA",
+                fontSize: 12, fontWeight: 700, cursor: "pointer", alignSelf: "flex-start",
+              }}>
+                <Activity size={12} /> Regime 분석하기
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -346,10 +361,12 @@ export default function Workspace() {
               background: `${trustColor}18`, color: trustColor }}>
               {trustGrade} Confidence
             </span>
-          : <button onClick={() => setTab("trust")} style={{ padding: "3px 9px", borderRadius: 5, border: "1px solid #E2E8F0",
-              background: "transparent", color: "#64748B", fontSize: 11.5, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start" }}>
-              측정하기 →
-            </button>
+          : hasGoal
+            ? <button onClick={() => setTab("trust")} style={{ padding: "3px 9px", borderRadius: 5, border: "1px solid #E2E8F0",
+                background: "transparent", color: "#64748B", fontSize: 11.5, fontWeight: 600, cursor: "pointer", alignSelf: "flex-start" }}>
+                측정하기 →
+              </button>
+            : null
         }
       </div>
 
@@ -358,15 +375,20 @@ export default function Workspace() {
 
   return (
     <>
+    <StrategyRequiredModal
+      open={stratRequired}
+      onClose={() => setStratRequired(false)}
+      onGoConfig={() => { setStratRequired(false); setTab("config"); }}
+    />
     <style>{`
       @keyframes wsfade { from { opacity: 0; } to { opacity: 1; } }
     `}</style>
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 44px)", background: theme.bg }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh / var(--app-zoom, 1.1) - var(--alpha-top-h, 44px))", background: theme.bg }}>
       {/* ============================== 본문 ============================== */}
       <main
         key={id}
         data-tutorial-workspace-main
-        style={{ display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, animation: "wsfade 0.25s ease" }}
+        style={{ display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, flex: 1, minHeight: 0, animation: "wsfade 0.25s ease" }}
       >
         {/* 상단: 전략 이름 + 액션 */}
         <div style={{
@@ -432,10 +454,6 @@ export default function Workspace() {
               </div>
             )}
           </div>
-          <button onClick={reload} title="새로고침" style={{
-            background: "transparent", border: `1px solid ${theme.panelBorder}`,
-            padding: 8, borderRadius: 8, color: theme.text, cursor: "pointer",
-          }}><RefreshCw size={14} /></button>
         </div>
 
         {newStratHint && (
