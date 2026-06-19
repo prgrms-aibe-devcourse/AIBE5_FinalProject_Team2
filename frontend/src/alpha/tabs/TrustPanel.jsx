@@ -261,8 +261,55 @@ export default function TrustPanel({ id, ws, onChange }) {
             </div>
           </Card>
           {trust.details && <TrustDetailsCard details={trust.details} theme={theme} />}
+          <TrustReadout trust={trust} theme={theme} />
         </>
       )}
     </div>
+  );
+}
+
+/** Trust 검증 결과를 친근한 줄글 한 단락으로 해석 — 딱딱한 검증 상세 아래에 '쉽게 풀어보면'. */
+function TrustReadout({ trust, theme }) {
+  const score = trust.trust_score;
+  if (score == null) return null;
+  const grade = score >= 75 ? { word: "믿고 맡겨도 될 만한", color: "#10b981" }
+    : score >= 60 ? { word: "실전에 써볼 만한", color: "#3b82f6" }
+    : score >= 45 ? { word: "아직은 보통 수준의", color: "#f59e0b" }
+    : { word: "더 다듬어야 할", color: "#ef4444" };
+  const KO = {
+    generalization: "미래에도 통할지(일반화)",
+    regime_robustness: "어떤 장에서도 버티는 힘",
+    parameter_stability: "설정이 흔들려도 견디는 안정성",
+    risk_control: "손실을 통제하는 능력",
+    statistical_confidence: "수익이 운이 아니란 통계적 근거",
+  };
+  const arr = Object.entries(trust.sub_scores || {}).map(([k, v]) => ({ k, label: KO[k] || k, v: Number(v) }));
+  const best = arr.length ? arr.reduce((a, b) => (b.v > a.v ? b : a)) : null;
+  const worst = arr.length ? arr.reduce((a, b) => (b.v < a.v ? b : a)) : null;
+  const wf = trust.details?.walk_forward || trust.details?.walkForward || trust.details?.wf || {};
+  const isS = wf.is_sharpe ?? wf.in_sample_sharpe;
+  const oosS = wf.oos_sharpe ?? wf.out_of_sample_sharpe;
+  const n = (x) => Number(x).toFixed(2);
+  let wfSentence = null;
+  if (isS != null && oosS != null && !isNaN(Number(isS)) && !isNaN(Number(oosS))) {
+    wfSentence = Number(oosS) >= Number(isS)
+      ? <>특히 한 번도 학습에 쓰지 않은 미래 구간에서 오히려 더 좋게 나왔어요(과거 {n(isS)} → 미래{" "}
+          <b style={{ color: "#10b981" }}>{n(oosS)}</b>). 과거 데이터에만 억지로 맞춘 '과적합' 걱정은 적다는 신호예요.{" "}</>
+      : <>과거 구간에선 {n(isS)}였는데 처음 보는 미래 구간에선 <b>{n(oosS)}</b>로 다소 내려왔어요(차이 {n(Number(isS) - Number(oosS))}).
+          과거에 살짝 맞춰진 부분이 있을 수 있으니 실거래에선 기대를 조금 낮춰 잡는 게 안전해요.{" "}</>;
+  }
+  return (
+    <Card title="🗣️ 쉽게 풀어보면" theme={theme} titleSize={20}>
+      <p style={{ margin: 0, fontSize: 13.5, lineHeight: 2, color: theme.text, wordBreak: "keep-all" }}>
+        쉽게 말하면, 이 전략의 종합 신뢰점수는 <b style={{ color: grade.color }}>{score}점</b>으로{" "}
+        <b style={{ color: grade.color }}>{grade.word}</b> 수준이에요.{" "}
+        {wfSentence}
+        {best && worst && best.k !== worst.k && <>다섯 가지 검증 중 <b>{best.label}</b>이 가장 든든하고({best.v}점),{" "}
+          <b>{worst.label}</b>이 상대적으로 약한 편({worst.v}점)이라 거길 보완하면 점수가 더 올라가요.{" "}</>}
+        {trust.overfitting_penalty < 0 && <>과적합 패널티가 {trust.overfitting_penalty}점 붙은 것도 참고하고요.{" "}</>}
+        숫자가 좋아도 결국 <b>약한 고리에서 얼마나 안 깨지느냐</b>가 실전 생존을 좌우하니, 위 검증 탭에서 가장 낮은 항목을
+        한 번 더 들여다보는 걸 권해요.
+      </p>
+    </Card>
   );
 }
