@@ -23,6 +23,10 @@ export default function BalanceAccountPage() {
   const [accountsData, setAccountsData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [tradesAcctId, setTradesAcctId] = useState(""); // 거래내역 버튼 → 매매내역 탭 계좌 prefilter
+  const [primaryAcctId, setPrimaryAcctId] = useState(() => {
+    try { return localStorage.getItem("alpha.balance.primaryAcct") || ""; } catch { return ""; }
+  });
 
   // 주문 체결 알림이 새로 오면 자동 재조회
   const orderFillCount = useNotificationStore(
@@ -52,18 +56,8 @@ export default function BalanceAccountPage() {
       ]);
       const list = Array.isArray(accts) ? accts : [];
       brokerCache.setAccounts(list);
-      const res = await Promise.all(list.map(async (acct) => {
-        try {
-          const bal = await getBrokerBalance(acct.env, acct.brokerType);
-          brokerCache.setBalance(acct.env, acct.brokerType, bal);
-          return { acct, bal, sum: summarizeBalance(bal, acct.brokerType) };
-        } catch {
-          const cached = brokerCache.getBalance(acct.env, acct.brokerType);
-          return { acct, bal: cached ?? null, sum: summarizeBalance(cached ?? null, acct.brokerType) };
-        }
-      }));
 
-      // T+2 미결제 매도 대금 계산 (당일~2일 이내 EXECUTED 매도)
+      // T+2 미결제 매도 대금 계산 (당일~2일 이내 EXECUTED 매도) — 잔고 fetch 전에 미리 산출
       // KIS는 체결 즉시 포지션이 사라지지만 예수금(prsm_deposit_amt)은 T+2 후 반영됨 → 총 자산 감소 방지
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 2);
       const pendingByAcct = {};
@@ -79,14 +73,39 @@ export default function BalanceAccountPage() {
         if (/^\d+$/.test(p.ticker || "")) pendingByAcct[accId].krw += price * qty;
         else pendingByAcct[accId].usd += price * qty;
       }
+      const pendOf = (id) => pendingByAcct[String(id)] ?? { krw: 0, usd: 0 };
 
-      setAccountsData(res.map((item) => {
-        const pend = pendingByAcct[String(item.acct.id)] ?? { krw: 0, usd: 0 };
-        return { ...item, pendingKrw: pend.krw, pendingUsd: pend.usd };
+      // 대표 계좌를 맨 앞으로 (먼저 로딩·표시)
+      const ordered = [...list].sort((a, b) =>
+        (String(a.id) === String(primaryAcctId) ? -1 : 0) - (String(b.id) === String(primaryAcctId) ? -1 : 0));
+
+      // 1) 계좌 골격 즉시 표시 (캐시 잔고 있으면 바로, 없으면 _loading 카드)
+      setAccountsData(ordered.map((acct) => {
+        const cb = brokerCache.getBalance(acct.env, acct.brokerType);
+        const pend = pendOf(acct.id);
+        return { acct, bal: cb ?? null, sum: summarizeBalance(cb ?? null, acct.brokerType),
+                 pendingKrw: pend.krw, pendingUsd: pend.usd, _loading: !cb };
       }));
+      setLoading(false); setRefreshing(true);
+
+      // 2) 대표 계좌 먼저, 그다음 나머지를 순차(천천히) 호출
+      //    — 동시다발 KIS 호출이 초당 거래건수 초과(EGW00201) 에러를 내던 문제 회피.
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      for (let i = 0; i < ordered.length; i++) {
+        const acct = ordered[i];
+        try {
+          const bal = await getBrokerBalance(acct.env, acct.brokerType);
+          brokerCache.setBalance(acct.env, acct.brokerType, bal);
+          setAccountsData((prev) => prev.map((d) => d.acct.id === acct.id
+            ? { ...d, bal, sum: summarizeBalance(bal, acct.brokerType), _loading: false } : d));
+        } catch {
+          setAccountsData((prev) => prev.map((d) => d.acct.id === acct.id ? { ...d, _loading: false } : d));
+        }
+        if (i < ordered.length - 1) await sleep(400); // 다음 계좌 호출 전 간격
+      }
     } catch { setAccountsData([]); }
     finally { setLoading(false); setRefreshing(false); }
-  }, []);
+  }, [primaryAcctId]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -137,9 +156,16 @@ export default function BalanceAccountPage() {
           ))}
         </div>
 
-        {tab === "종합 자산" && <AssetsTab accountsData={accountsData} loading={loading} refreshing={refreshing} onReload={reload} />}
+        {tab === "종합 자산" && <AssetsTab accountsData={accountsData} loading={loading} refreshing={refreshing} onReload={reload}
+          onGotoTrades={(acct) => { setTradesAcctId(acct?.id ?? ""); setTab("매매 내역"); }}
+          primaryAcctId={primaryAcctId}
+          onSetPrimary={(id) => {
+            const v = String(id) === String(primaryAcctId) ? "" : String(id);
+            setPrimaryAcctId(v);
+            try { localStorage.setItem("alpha.balance.primaryAcct", v); } catch (_) {}
+          }} />}
         {tab === "잔고·손익" && <BalancePnlTab accountsData={accountsData} refreshing={refreshing} />}
-        {tab === "매매 내역" && <TradesTab accountsData={accountsData} />}
+        {tab === "매매 내역" && <TradesTab accountsData={accountsData} initialAcctId={tradesAcctId} />}
       </div>
     </div>
   );
