@@ -161,8 +161,41 @@ export default function RegimePanel({ id, ws, onChange }) {
               );
             })}
           </div>
+          <RegimeReadout data={data} theme={theme} labels={labels} />
         </>
       )}
     </div>
+  );
+}
+
+/** 국면별 성과를 친근한 줄글 한 단락으로 해석 — 딱딱한 표 아래에 '쉽게 풀어보면'. */
+function RegimeReadout({ data, theme, labels }) {
+  const num = (x) => (typeof x === "number" ? x : Number(x));
+  const entries = Object.entries(data.per_regime || {})
+    .filter(([, v]) => v && !v.note && v.days != null && !isNaN(num(v.cumulative_return_pct)))
+    .map(([k, v]) => ({ k, label: labels[k] || k, ...v }));
+  if (entries.length < 2) return null;
+  const byRet = [...entries].sort((a, b) => num(b.cumulative_return_pct) - num(a.cumulative_return_pct));
+  const best = byRet[0];
+  const worst = byRet[byRet.length - 1];
+  const weakest = entries.find((e) => e.k === data.weakest_regime);
+  const spread = num(best.cumulative_return_pct) - num(worst.cumulative_return_pct);
+  const persona = spread > 250 ? "시장 국면을 크게 타는 공격형"
+    : spread > 80 ? "국면에 따라 성과 차이가 뚜렷한 편"
+    : "국면이 바뀌어도 비교적 고르게 버티는 편";
+  return (
+    <Card title="🗣️ 쉽게 풀어보면" theme={theme} titleSize={20}>
+      <p style={{ margin: 0, fontSize: 13.5, lineHeight: 2, color: theme.text, wordBreak: "keep-all" }}>
+        한눈에 보면, 이 전략은 <b>{best.label}</b>일 때 가장 빛나요. 그 구간 누적 수익이{" "}
+        <b style={{ color: "#10b981" }}>{best.cumulative_return_pct}%</b>
+        {best.win_rate_pct != null && <>(승률 <b>{best.win_rate_pct}%</b>)</>}로 시원하게 벌어줬거든요.{" "}
+        반대로 가장 조심해야 할 구간은 <b>{worst.label}</b>이에요. 여기선 누적{" "}
+        <b style={{ color: "#ef4444" }}>{worst.cumulative_return_pct}%</b>
+        {worst.max_drawdown_pct != null && <>, 최대낙폭(MDD) <b>{worst.max_drawdown_pct}%</b></>}까지 흔들릴 수 있어요.{" "}
+        {weakest && <>특히 <b>{weakest.label}</b>이 이 전략의 가장 약한 고리로 잡혔고요. </>}
+        한마디로 <b>{persona}</b>이라고 보면 돼요 — 추세가 살아있을 땐 과감히 올라타되, 위 표에서 빨갛게 깨지는
+        국면 신호가 보이면 비중을 줄이거나 잠깐 쉬어가는 게 이 전략과 가장 잘 맞는 운용법이에요.
+      </p>
+    </Card>
   );
 }

@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import LeftSidebar from "./LeftSidebar";
 import TopBar from "./TopBar";
 import RightChatDock from "./RightChatDock";
 import GuideDock from "./GuideDock";
 import Footer from "../ui/Footer";
 import TutorialOverlay from "../tutorial/TutorialOverlay";
+import api from "../../api/axios";
+import useStore from "../../store/useStore";
 
 /**
  * VS Code 스타일 셸 wrapper.
@@ -16,22 +18,32 @@ import TutorialOverlay from "../tutorial/TutorialOverlay";
  */
 export default function AppShell({ children, hideChat = false }) {
   const loc = useLocation();
+  const navigate = useNavigate();
   const isDeveloper = loc.pathname.startsWith("/alpha/developer") || loc.pathname.startsWith("/vision_board");
   const isWorkspace = loc.pathname.startsWith("/alpha/w/");
+
+  /* ── 앱 기동 시 세션 검증: 저장된 로그인 상태가 있으면 refresh 시도 ── */
+  useEffect(() => {
+    const { dbId: storedId, clearLogin, clearUser } = useStore.getState();
+    if (!storedId) return;
+    api.post("/auth/refresh").catch((err) => {
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        clearLogin();
+        clearUser();
+        try { localStorage.removeItem("accessToken"); } catch {}
+        navigate("/home", { replace: true });
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [chatOpen, setChatOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
-  const [sidebarExpanded, setSidebarExpanded] = useState(() => {
-    if (window.location.pathname.startsWith("/alpha/developer")) return false;
-    try { return localStorage.getItem("alpha.sidebar.expanded") !== "false"; } catch { return true; }
-  });
+  const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [topCollapsed, setTopCollapsed] = useState(false);
 
   const toggleSidebar = () => setSidebarExpanded(o => {
     const next = !o;
-    try {
-      localStorage.setItem("alpha.sidebar.expanded", String(next));
-      window.dispatchEvent(new CustomEvent("alpha:sidebar-changed", { detail: { expanded: next } }));
-    } catch {}
+    try { window.dispatchEvent(new CustomEvent("alpha:sidebar-changed", { detail: { expanded: next } })); } catch {}
     return next;
   });
 
@@ -87,13 +99,24 @@ export default function AppShell({ children, hideChat = false }) {
         />
       )}
       <main style={{
-        marginLeft: leftOffset,
-        paddingTop: topCollapsed ? 0 : 44,
         "--alpha-top-h": topCollapsed ? "0px" : "44px",
         boxSizing: "border-box",
-        marginRight: rightOffset,
-        ...(isWorkspace || isDeveloper ? { height: "calc(100vh / var(--app-zoom, 1.1))", overflow: "hidden" } : { minHeight: "calc(100vh / var(--app-zoom, 1.1))" }),
-        transition: "margin-left 0.18s ease, margin-right 0.18s ease",
+        ...(isWorkspace || isDeveloper ? {
+          marginLeft: leftOffset,
+          paddingTop: topCollapsed ? 0 : 44,
+          marginRight: rightOffset,
+          height: "calc(100vh / var(--app-zoom, 1.1))",
+          overflow: "hidden",
+          transition: "margin-left 0.18s ease, margin-right 0.18s ease",
+        } : {
+          position: "fixed",
+          top: topCollapsed ? 0 : 44,
+          left: leftOffset,
+          right: rightOffset,
+          bottom: 0,
+          overflowY: "auto",
+          transition: "top 0.18s ease, left 0.18s ease, right 0.18s ease",
+        }),
       }}>
         {children}
         {!isDeveloper && !isWorkspace && <Footer />}

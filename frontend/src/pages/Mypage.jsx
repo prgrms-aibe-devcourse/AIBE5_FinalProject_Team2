@@ -48,16 +48,30 @@ function Toast({ msg, onClose }) {
 function DatePicker({ value, onChange, disabled }) {
   const { t, lang } = useLanguage();
   const [open, setOpen] = useState(false);
+  const [popupPos, setPopupPos] = useState({ top: 0, left: 0 });
   const [view, setView] = useState("day"); // "day" | "year" | "month"
-  const ref = useRef(null);
+  const triggerRef = useRef(null);
+  const popupRef = useRef(null);
   const yearListRef = useRef(null);
   const parsed = value ? new Date(value) : null;
   const [viewYear, setViewYear] = useState(parsed?.getFullYear() || 1995);
   const [viewMonth, setViewMonth] = useState(parsed ? parsed.getMonth() : 4);
 
+  const handleToggle = () => {
+    if (disabled) return;
+    if (!open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setPopupPos({ top: r.bottom + 6, left: r.left });
+    }
+    setOpen(o => !o);
+  };
+
   useEffect(() => {
     const fn = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) {
+      if (
+        triggerRef.current && !triggerRef.current.contains(e.target) &&
+        popupRef.current && !popupRef.current.contains(e.target)
+      ) {
         setOpen(false);
         setView("day");
       }
@@ -93,22 +107,22 @@ function DatePicker({ value, onChange, disabled }) {
   };
 
   return (
-    <div ref={ref} style={{ position: "relative" }}>
-      <div style={{ position: "relative" }}>
+    <div style={{ position: "relative" }}>
+      <div ref={triggerRef} style={{ position: "relative" }}>
         <input readOnly value={value||""} placeholder="YYYY-MM-DD"
-          onClick={() => !disabled && setOpen(o=>!o)}
+          onClick={handleToggle}
           style={{ ...FIELD_STYLE, cursor: disabled?"default":"pointer",
             backgroundColor: disabled?"#F9FAFB":"white", paddingRight: 44 }} />
         <span
-          onClick={() => !disabled && setOpen(o=>!o)}
+          onClick={handleToggle}
           style={{ position:"absolute", right:13, top:"50%", transform:"translateY(-50%)",
             fontSize:21, lineHeight:1, cursor: disabled?"default":"pointer", userSelect:"none" }}>
           🗓️
         </span>
       </div>
       {open && (
-        <div style={{
-          position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300,
+        <div ref={popupRef} style={{
+          position:"fixed", top: popupPos.top, left: popupPos.left, zIndex:9999,
           backgroundColor:"white", borderRadius:14,
           boxShadow:"0 8px 30px rgba(0,0,0,0.14)", border:"1px solid #E5E7EB",
           padding:"12px 10px", width:234, fontFamily:BASE_FONT,
@@ -513,15 +527,8 @@ function Mypage() {
             boxShadow:"0 2px 20px rgba(0,0,0,0.07)", overflow:"hidden",
             width:"100%", maxWidth:560 }}>
 
-            {/* 카드 타이틀 */}
-            <div style={{ padding:"28px 28px 0" }}>
-              <h2 style={{ fontSize:22, fontWeight:800, color:"#111827", marginBottom:20, fontFamily:BASE_FONT }}>
-                {t("myPage.pageTitle")}
-              </h2>
-            </div>
-
             {/* 히어로 이미지 */}
-            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"0 28px 20px" }}>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"32px 28px 20px" }}>
               <div ref={photoMenuRef} style={{ position:"relative" }}>
                 <div style={{ width:160, height:160, borderRadius:"50%",
                   overflow:"hidden", backgroundColor:"#EFF6FF", border:"3px solid #DBEAFE",
@@ -608,11 +615,10 @@ function Mypage() {
                 <div>
                   <label style={LABEL_STYLE}>{t("myPage.fields.username")}<span style={{ color:"#EF4444" }}>*</span></label>
                   <input
-                    value={isEditing ? form.loginEmail : userInfo.loginEmail}
-                    onChange={e => handleChange("loginEmail", e.target.value)}
-                    readOnly={!isEditing}
+                    value={userInfo.loginEmail}
+                    readOnly
                     type="email"
-                    style={isEditing ? FIELD_STYLE : READONLY_STYLE}
+                    style={READONLY_STYLE}
                     placeholder="이메일을 입력하세요"
                   />
                 </div>
@@ -641,7 +647,7 @@ function Mypage() {
 
                 {/* 연락처 */}
                 <div>
-                  <label style={LABEL_STYLE}>{t("myPage.fields.contact")}<span style={{ color:"#EF4444" }}>*</span></label>
+                  <label style={LABEL_STYLE}>{t("myPage.fields.contact")}</label>
                   <input value={isEditing?form.contact:userInfo.contact}
                     onChange={e=>handleChange("contact",e.target.value)}
                     readOnly={!isEditing} type="tel"

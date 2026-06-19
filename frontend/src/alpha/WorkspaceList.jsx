@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Trash2, ArrowRight, MessageSquare, Star, BookOpen, ChevronRight, Zap, TrendingUp, Bitcoin, Layers, X } from "lucide-react";
 import CreateWorkspaceModal from "./CreateWorkspaceModal";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
+import Toast from "../components/common/Toast";
 import { listWorkspaces, createWorkspace, deleteWorkspace, updateWorkspaceStatus } from "./alphaApi";
 
 const PRIMARY_KEY = "alpha.primaryWsId";
@@ -33,6 +34,7 @@ export default function WorkspaceList() {
   const [creating, setCreating] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createModalName, setCreateModalName] = useState("");
+  const [createModalError, setCreateModalError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null); // { id, name }
   const [primaryTarget, setPrimaryTarget] = useState(null); // { id, name } — 대표 설정 확인 모달
   const [liveLimitOpen, setLiveLimitOpen] = useState(false); // LIVE 최대 개수 초과 경고 모달
@@ -40,7 +42,13 @@ export default function WorkspaceList() {
     const v = localStorage.getItem(PRIMARY_KEY);
     return v ? Number(v) : null;
   });
+  const [sortedPrimaryId, setSortedPrimaryId] = useState(() => {
+    const v = localStorage.getItem(PRIMARY_KEY);
+    return v ? Number(v) : null;
+  });
+  const [newlyPrimaryId, setNewlyPrimaryId] = useState(null); // 펄스 애니 대상
   const [wsFilter, setWsFilter] = useState("all");
+  const [primaryToast, setPrimaryToast] = useState(null); // { name }
   const autoPromptedRef = useRef(false);
 
   const setPrimary = (id) => {
@@ -54,8 +62,14 @@ export default function WorkspaceList() {
 
   const onConfirmPrimary = () => {
     if (!primaryTarget) return;
-    setPrimary(primaryTarget.id);
+    const { id, name } = primaryTarget;
+    setPrimary(id);
+    setNewlyPrimaryId(id);
+    setPrimaryToast({ name });
     setPrimaryTarget(null);
+    // 카드가 금빛으로 빛난 뒤 위로 이동
+    setTimeout(() => setSortedPrimaryId(id), 700);
+    setTimeout(() => setNewlyPrimaryId(null), 1200);
   };
 
   const load = () => {
@@ -69,14 +83,29 @@ export default function WorkspaceList() {
   };
 
   const onConfirmCreate = async () => {
-    if (!createModalName.trim()) return;
+    const trimmed = createModalName.trim();
+    if (!trimmed) return;
+    const duplicate = (items || []).some(
+      w => w.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (duplicate) {
+      setCreateModalError("같은 이름의 워크스페이스가 이미 있어요.");
+      return;
+    }
+    setCreateModalError("");
     setCreateModalOpen(false);
     setCreating(true);
     try {
-      const w = await createWorkspace(createModalName.trim());
+      const w = await createWorkspace(trimmed);
       navigate(`/alpha/w/${w.id}`);
     } catch (e) {
-      alert("생성 실패: " + (e?.response?.data?.error || e.message));
+      const msg = e?.response?.data?.error || e.message;
+      if (e?.response?.status === 409) {
+        setCreateModalOpen(true);
+        setCreateModalError(msg);
+      } else {
+        alert("생성 실패: " + msg);
+      }
     } finally {
       setCreating(false);
     }
@@ -125,8 +154,8 @@ export default function WorkspaceList() {
     if (wsFilter === "notlive") return w.status !== "LIVE";
     return true;
   }).slice().sort((a, b) => {
-    if (a.id === primaryId) return -1;
-    if (b.id === primaryId) return 1;
+    if (a.id === sortedPrimaryId) return -1;
+    if (b.id === sortedPrimaryId) return 1;
     return 0;
   });
 
@@ -136,6 +165,12 @@ export default function WorkspaceList() {
         @keyframes liveBlink {
           0%, 100% { opacity: 1; }
           50%      { opacity: 0.35; }
+        }
+        @keyframes primaryPulse {
+          0%   { box-shadow: 0 0 0px rgba(251,191,36,0);   transform: scale(1);    }
+          30%  { box-shadow: 0 0 28px rgba(251,191,36,0.7), 0 0 60px rgba(251,191,36,0.35); transform: scale(1.012); }
+          65%  { box-shadow: 0 0 18px rgba(251,191,36,0.5), 0 0 40px rgba(251,191,36,0.2);  transform: scale(1.006); }
+          100% { box-shadow: 0 0 15px rgba(251,191,36,0.35),0 0 40px rgba(251,191,36,0.2);  transform: scale(1);    }
         }
       `}</style>
       {/* 헤더 */}
@@ -251,6 +286,7 @@ export default function WorkspaceList() {
         )}
         {filteredItems.map(w => {
             const isPrimary = w.id === primaryId;
+            const isNewlyPrimary = w.id === newlyPrimaryId;
             const sc = STATUS_COLOR[w.status] || STATUS_COLOR.DRAFT;
             return (
           <div key={w.id}
@@ -264,6 +300,7 @@ export default function WorkspaceList() {
                 : "0 2px 8px rgba(0,0,0,0.06)",
               overflow: "hidden",
               transition: "box-shadow 0.15s, transform 0.15s",
+              animation: isNewlyPrimary ? "primaryPulse 0.9s ease forwards" : undefined,
             }}
             onMouseEnter={e => { e.currentTarget.style.boxShadow = isPrimary ? "0 0 20px rgba(251,191,36,0.45), 0 0 55px rgba(251,191,36,0.25), 0 0 100px rgba(251,191,36,0.12)" : "0 4px 16px rgba(0,0,0,0.10)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
             onMouseLeave={e => { e.currentTarget.style.boxShadow = isPrimary ? "0 0 15px rgba(251,191,36,0.35), 0 0 40px rgba(251,191,36,0.2), 0 0 80px rgba(251,191,36,0.1)" : "0 2px 8px rgba(0,0,0,0.06)"; e.currentTarget.style.transform = "translateY(0)"; }}
@@ -382,10 +419,10 @@ export default function WorkspaceList() {
       <CreateWorkspaceModal
         open={createModalOpen}
         name={createModalName}
-        onChange={setCreateModalName}
+        onChange={v => { setCreateModalName(v); setCreateModalError(""); }}
         onConfirm={onConfirmCreate}
-        onClose={() => setCreateModalOpen(false)}
-        theme={theme}
+        onClose={() => { setCreateModalOpen(false); setCreateModalError(""); }}
+        error={createModalError}
       />
       <DeleteWorkspaceModal
         target={deleteTarget}
@@ -402,6 +439,14 @@ export default function WorkspaceList() {
         open={liveLimitOpen}
         onClose={() => setLiveLimitOpen(false)}
       />
+      {primaryToast && (
+        <Toast
+          type="success"
+          title="대표 워크스페이스 변경됨"
+          body={`"${primaryToast.name}"`}
+          onClose={() => setPrimaryToast(null)}
+        />
+      )}
     </div>
   );
 }
@@ -464,12 +509,42 @@ function LiveLimitModal({ open, onClose }) {
 
 
 function DeleteWorkspaceModal({ target, onConfirm, onClose, theme }) {
+  const [inputName, setInputName] = React.useState("");
+  const [shake, setShake] = React.useState(false);
+
   if (!target) return null;
+
+  const matched = inputName === target.name;
+
+  const handleConfirm = () => {
+    if (!matched) {
+      setShake(true);
+      setTimeout(() => setShake(false), 500);
+      return;
+    }
+    onConfirm();
+  };
+
+  const handleClose = () => {
+    setInputName("");
+    onClose();
+  };
+
   return (
-    <div onClick={onClose} style={{
+    <div onClick={handleClose} style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 3000,
       display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
     }}>
+      <style>{`
+        @keyframes shake {
+          0%,100% { transform: translateX(0); }
+          20%      { transform: translateX(-6px); }
+          40%      { transform: translateX(6px); }
+          60%      { transform: translateX(-4px); }
+          80%      { transform: translateX(4px); }
+        }
+        .delete-input-shake { animation: shake 0.45s ease; }
+      `}</style>
       <div onClick={e => e.stopPropagation()} style={{
         background: "white", borderRadius: 20, width: "100%", maxWidth: 420,
         boxShadow: "0 24px 64px rgba(0,0,0,0.22)", overflow: "hidden",
@@ -504,18 +579,49 @@ function DeleteWorkspaceModal({ target, onConfirm, onClose, theme }) {
           }}>
             ⚠️ AI 대화 내역, 전략 설정, Decision Log 등 모든 데이터가 <b>영구 삭제</b>됩니다.
           </div>
+          <div style={{ marginTop: 20 }}>
+            <label style={{ display: "block", fontSize: 12.5, color: "#6B7280", marginBottom: 6 }}>
+              확인을 위해 워크스페이스 이름{" "}
+              <b style={{ color: "#111827" }}>"{target.name}"</b>을 입력하세요.
+            </label>
+            <input
+              className={shake ? "delete-input-shake" : ""}
+              value={inputName}
+              onChange={e => setInputName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleConfirm()}
+              placeholder={target.name}
+              autoFocus
+              style={{
+                width: "100%", boxSizing: "border-box",
+                padding: "10px 12px", borderRadius: 10, fontSize: 13,
+                border: `1.5px solid ${inputName.length > 0 && !matched ? "#f87171" : "#E2E8F0"}`,
+                outline: "none", color: "#111827",
+                background: inputName.length > 0 && !matched ? "#FEF2F2" : "white",
+                transition: "border-color 0.2s, background 0.2s",
+              }}
+            />
+            {inputName.length > 0 && !matched && (
+              <p style={{ margin: "6px 0 0", fontSize: 12, color: "#ef4444" }}>
+                이름이 일치하지 않습니다. 다시 입력해 주세요.
+              </p>
+            )}
+          </div>
         </div>
         <div style={{ padding: "0 28px 24px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={onClose} style={{
+          <button onClick={handleClose} style={{
             padding: "10px 20px", borderRadius: 10,
             border: "1px solid #E2E8F0", background: "white", color: "#374151",
             fontSize: 13, fontWeight: 600, cursor: "pointer",
           }}>취소</button>
-          <button onClick={onConfirm} style={{
+          <button onClick={handleConfirm} style={{
             padding: "10px 20px", borderRadius: 10, border: "none",
-            background: "linear-gradient(135deg,#f87171,#ef4444)",
-            color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer",
-            boxShadow: "0 3px 10px rgba(239,68,68,0.3)",
+            background: matched
+              ? "linear-gradient(135deg,#f87171,#ef4444)"
+              : "#FCA5A5",
+            color: "white", fontSize: 13, fontWeight: 700,
+            cursor: matched ? "pointer" : "not-allowed",
+            boxShadow: matched ? "0 3px 10px rgba(239,68,68,0.3)" : "none",
+            transition: "background 0.2s, box-shadow 0.2s",
           }}>삭제하기</button>
         </div>
       </div>

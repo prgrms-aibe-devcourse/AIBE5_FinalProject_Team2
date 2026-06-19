@@ -310,12 +310,35 @@ export default function TutorialOverlay() {
 
   return createPortal(
     <>
-      {/* 어두운 배경 */}
+      {/* 어두운 배경 — 클릭 통과 (타겟 요소 클릭 유지) */}
       <div style={{
         position: "fixed", inset: 0,
         background: "rgba(0,0,0,0.45)",
         zIndex: 9000, pointerEvents: "none",
       }} />
+
+      {/* 타겟 외부 영역 클릭 차단 — 4방향 rect */}
+      {tooltipRect && (() => {
+        const { top, left, right, bottom } = tooltipRect;
+        const pad = 8;
+        const t = Math.max(0, top - pad);
+        const l = Math.max(0, left - pad);
+        const r = Math.min(window.innerWidth, right + pad);
+        const b = Math.min(window.innerHeight, bottom + pad);
+        const blockStyle = { position: "fixed", zIndex: 9001, pointerEvents: "auto", cursor: "not-allowed" };
+        return (
+          <>
+            {/* 위 */}
+            <div style={{ ...blockStyle, top: 0, left: 0, right: 0, height: t }} />
+            {/* 아래 */}
+            <div style={{ ...blockStyle, top: b, left: 0, right: 0, bottom: 0 }} />
+            {/* 좌 */}
+            <div style={{ ...blockStyle, top: t, left: 0, width: l, height: b - t }} />
+            {/* 우 */}
+            <div style={{ ...blockStyle, top: t, left: r, right: 0, height: b - t }} />
+          </>
+        );
+      })()}
 
       {/* 툴팁 */}
       {tooltipRect && (

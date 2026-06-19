@@ -167,28 +167,6 @@ export default function Footer() {
               {t("footer.links.termsOfService")}
             </a>
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            {LANGS.map(l => (
-              <button
-                key={l.code}
-                onClick={() => setLang(l.code)}
-                style={{
-                  fontSize: 13,
-                  fontFamily: F,
-                  cursor: "pointer",
-                  padding: "4px 10px",
-                  borderRadius: 6,
-                  border: lang === l.code ? "1.5px solid #3B82F6" : "1.5px solid #E5E7EB",
-                  background: lang === l.code ? "#EFF6FF" : "transparent",
-                  color: lang === l.code ? "#1D4ED8" : "#64748B",
-                  fontWeight: lang === l.code ? 700 : 400,
-                  transition: "all 0.15s",
-                }}
-                onMouseEnter={e => { if (lang !== l.code) e.currentTarget.style.color = "#1E293B"; }}
-                onMouseLeave={e => { if (lang !== l.code) e.currentTarget.style.color = "#64748B"; }}
-              >{l.label}</button>
-            ))}
-          </div>
         </div>
       </div>
     </footer>

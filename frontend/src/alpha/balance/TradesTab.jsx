@@ -8,10 +8,10 @@ const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); re
 const SIDE_KO = { BUY: "매수", SELL: "매도" };
 
 /** 매매 내역: 국내/해외 + 계좌 드롭다운 + (당일체결/기간체결) + 필터 + 표 */
-export default function TradesTab({ accountsData }) {
+export default function TradesTab({ accountsData, initialAcctId }) {
   const accts = accountsData.map((d) => d.acct);
   const [region, setRegion] = useState("해외");
-  const [acctId, setAcctId] = useState("");
+  const [acctId, setAcctId] = useState(initialAcctId ? String(initialAcctId) : "");
   const [mode, setMode] = useState("당일체결");
   const [fillKind, setFillKind] = useState("전체");
   const [sideKind, setSideKind] = useState("전체");

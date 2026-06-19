@@ -35,19 +35,44 @@ function fmtKRW(v) {
   if (man > 0) return `${man.toLocaleString()}만원`;
   return `${n.toLocaleString()}원`;
 }
-function cfgInfiniteBuying(strategyConfig) {
-  const sc = strategyConfig || {};
-  const tickers = (sc.assets || sc.tickers || sc.symbols || ["TQQQ", "SOXL"])
-    .map((t) => String(t).toUpperCase());
-  return { tickers };
+// strategyConfig 의 active 전략 해석 — BE getActiveStrategy(candidates+selectedId)와 동일.
+function activeStrategy(sc) {
+  if (!sc) return {};
+  if (Array.isArray(sc.candidates) && sc.candidates.length) {
+    const sel = sc.selectedId;
+    if (sel) {
+      const found = sc.candidates.find((c) => c && c.id === sel);
+      if (found) return found;
+    }
+    return sc.candidates[0] || {};
+  }
+  return sc;
 }
+
+// 시드 역산을 '선택한 전략'에 맞춰: 전략 종류·티커·파라미터를 그대로 사용.
+// (전략을 바꾸면 strategy_type·assets·parameters 가 바뀌어 시드 계산도 따라감)
+function cfgStrategyForSizing(strategyConfig) {
+  const s = activeStrategy(strategyConfig);
+  const strategyType = s.strategy_type || s.strategyType || "infinite_buying";
+  const fallback = strategyType === "value_rebalancing" ? ["QLD"]
+    : strategyType === "momentum_rotation" ? ["QQQ"] : ["TQQQ", "SOXL"];
+  const tickers = (s.assets || s.tickers || s.symbols || fallback).map((t) => String(t).toUpperCase());
+  const variant = s.variant || s.ibVariant || "yeonri";  // 무한매수법일 때만 의미 (연리 기본)
+  const params = s.parameters || s.params || {};
+  return { strategyType, tickers, variant, params };
+}
+
+const STRATEGY_LABEL = (strategyType, variant) =>
+  strategyType === "value_rebalancing" ? "밸류 리밸런싱(VR)"
+  : strategyType === "momentum_rotation" ? "모멘텀 로테이션"
+  : variant === "laoer" ? "라오어식 무한매수법" : "연리 무한매수법";
 
 const fieldLabel = (theme) => ({ fontSize: 12, color: theme.textMuted, fontWeight: 700 });
 const fieldInput = (theme) => ({ padding: "9px 11px", borderRadius: 8, fontSize: 14, fontWeight: 700,
   border: `1px solid ${theme.panelBorder}`, background: theme.panel, color: theme.text });
 
 function SeedSizingCard({ ws, theme, onRunBacktest, btBusy, disabled }) {
-  const { tickers } = useMemo(() => cfgInfiniteBuying(ws?.strategyConfig), [ws?.strategyConfig]);
+  const { strategyType, tickers, variant, params } = useMemo(() => cfgStrategyForSizing(ws?.strategyConfig), [ws?.strategyConfig]);
   const [targetMan, setTargetMan] = useState(2000);
   const [period, setPeriod] = useState("2y");      // 프리셋 또는 "custom"
   const [start, setStart] = useState("");           // 직접 지정 시작일
@@ -64,7 +89,14 @@ function SeedSizingCard({ ws, theme, onRunBacktest, btBusy, disabled }) {
     if (custom && (!start || !end)) { setErr("시작일과 종료일을 모두 선택하세요"); return; }
     setBusy(true); setErr(null); setRes(null);
     try {
-      const body = { tickers, targetMonthlyKrw: krw };
+      const body = { tickers, strategyType, variant, targetMonthlyKrw: krw };
+      // 선택 전략의 파라미터를 그대로 전달 (전략별 엔진으로 역산)
+      const P = params || {};
+      for (const k of ["split", "take_profit_pct", "loc_offset_pct",
+        "rebalance_days", "expected_return", "band_pct", "pool_target_pct", "initial_pool_pct", "biweekly_contrib",
+        "lookback_days", "skip_recent_days", "top_n", "cash_asset"]) {
+        if (P[k] != null) body[k] = P[k];
+      }
       if (custom) { body.start = start; body.end = end; }
       else body.period = period;
       const r = await infiniteBuyingSizing(body);
@@ -79,7 +111,7 @@ function SeedSizingCard({ ws, theme, onRunBacktest, btBusy, disabled }) {
   return (
     <Card title="💰 목표수익 → 필요시드 계산기" theme={theme} titleSize={20}>
       <p style={{ margin: "0 0 12px", fontSize: 12, color: theme.textMuted, lineHeight: 1.6 }}>
-        <b>무한매수법</b>으로 <b>{tickers.join(" + ")}</b>를 운용할 때,
+        <b>{STRATEGY_LABEL(strategyType, variant)}</b>으로 <b>{tickers.join(" + ")}</b>를 운용할 때,
         원하는 <b>월 목표수익</b>을 입력하면 과거 성과 기준으로 <b>종목별 필요 시드</b>를 역산합니다.
         기준 기간을 <b>최근 2개월</b>처럼 짧게 잡거나 <b>날짜를 직접 지정</b>해 실제 거래와 비교해볼 수 있어요.
       </p>
@@ -141,6 +173,7 @@ function SeedSizingCard({ ws, theme, onRunBacktest, btBusy, disabled }) {
             <div style={{ fontSize: 26, fontWeight: 800, color: theme.accent, marginTop: 2 }}>{fmtKRW(res.required_seed_krw)}</div>
             <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 2 }}>
               ≈ ${Math.round(res.required_seed_usd).toLocaleString()} · 참조시드 ${Math.round(res.reference_seed_usd).toLocaleString()} 측정 월수익 {fmtKRW(res.measured_monthly_krw)} 기준 ×{res.scale_factor}
+              {res.variant && <span> · {res.variant === "yeonri" ? "연리식" : res.variant === "laoer" ? "라오어식" : res.variant} 기준</span>}
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: `repeat(${Object.keys(res.per_ticker).length}, 1fr)`, gap: 10, marginBottom: 10 }}>
@@ -149,8 +182,10 @@ function SeedSizingCard({ ws, theme, onRunBacktest, btBusy, disabled }) {
                 <div style={{ fontSize: 14, fontWeight: 800, color: theme.text, marginBottom: 6 }}>{t}</div>
                 <div style={{ fontSize: 11, color: theme.textMuted }}>필요 시드</div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: theme.text, marginBottom: 6 }}>{fmtKRW(v.seed_krw)}</div>
-                <div style={{ fontSize: 11, color: theme.textMuted }}>하루 매수액 (1/{res.split})</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{fmtKRW(v.daily_buy_krw)} <span style={{ color: theme.textMuted, fontWeight: 400 }}>(${Math.round(v.daily_buy_usd).toLocaleString()})</span></div>
+                {res.split && v.daily_buy_krw != null && (<>
+                  <div style={{ fontSize: 11, color: theme.textMuted }}>하루 매수액 (1/{res.split})</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{fmtKRW(v.daily_buy_krw)} <span style={{ color: theme.textMuted, fontWeight: 400 }}>(${Math.round(v.daily_buy_usd).toLocaleString()})</span></div>
+                </>)}
               </div>
             ))}
           </div>

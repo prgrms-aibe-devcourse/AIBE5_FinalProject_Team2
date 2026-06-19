@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Layers, MessageSquare, FlaskConical,
+  MessageSquare, FlaskConical,
   ShieldCheck, TrendingUp, ArrowRight,
   BarChart3, Brain, Zap, Check, Sparkles, Code2,
 } from "lucide-react";
@@ -9,6 +9,8 @@ import bannerVideo from "../assets/배너후보.mp4";
 import { useLanguage } from "../i18n/useLanguage";
 import translations from "../i18n/translations";
 import LoginRequiredModal from "../components/shell/LoginRequiredModal";
+import CreateWorkspaceModal from "../alpha/CreateWorkspaceModal";
+import { createWorkspace } from "../alpha/alphaApi";
 import useTutorialStore from "../store/useTutorialStore";
 
 const BASE_FONT = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
@@ -279,8 +281,9 @@ export default function Home() {
   const [hoveredProject, setHoveredProject] = useState(null);
   const [activeTab, setActiveTab] = useState("ai");
   const [showLogin, setShowLogin] = useState(false);
-  const [newWsOpen, setNewWsOpen]  = useState(false);
-  const [newWsName, setNewWsName]  = useState("");
+  const [newWsOpen, setNewWsOpen]   = useState(false);
+  const [newWsName, setNewWsName]   = useState("");
+  const [newWsError, setNewWsError] = useState("");
 
   const isAuthed = !!localStorage.getItem("dbId");
   const startTutorial = useTutorialStore((s) => s.start);
@@ -289,12 +292,32 @@ export default function Home() {
   const activeFeature = FEATURE_TABS.find(f => f.key === activeTab);
 
   useEffect(() => {
-    if (videoRef.current) videoRef.current.playbackRate = 0.55;
+    const v = videoRef.current;
+    if (!v) return;
+    v.playbackRate = 0.55;
+    const onTimeUpdate = () => {
+      if (v.duration && v.currentTime >= v.duration - 0.2) v.currentTime = 0;
+    };
+    v.addEventListener("timeupdate", onTimeUpdate);
+    return () => v.removeEventListener("timeupdate", onTimeUpdate);
   }, []);
 
   const handleBriefing    = () => { if (!isAuthed) { setShowLogin(true); return; } navigate("/briefing"); };
-  const handleNewStrategy = () => { if (!isAuthed) { setShowLogin(true); return; } setNewWsName(""); setNewWsOpen(true); };
-  const confirmNewWs      = () => { if (!newWsName.trim()) return; setNewWsOpen(false); navigate(`/alpha?new=${encodeURIComponent(newWsName.trim())}`); };
+  const handleNewStrategy = () => { if (!isAuthed) { setShowLogin(true); return; } setNewWsName(""); setNewWsError(""); setNewWsOpen(true); };
+  const confirmNewWs = async () => {
+    const trimmed = newWsName.trim();
+    if (!trimmed) return;
+    setNewWsError("");
+    setNewWsOpen(false);
+    try {
+      const w = await createWorkspace(trimmed);
+      navigate(`/alpha/w/${w.id}`);
+    } catch (e) {
+      const msg = e?.response?.data?.error || e.message;
+      if (e?.response?.status === 409) { setNewWsOpen(true); setNewWsError(msg); }
+      else alert("생성 실패: " + msg);
+    }
+  };
 
   return (
     <>
@@ -734,69 +757,14 @@ export default function Home() {
 
     <LoginRequiredModal open={showLogin} onClose={() => setShowLogin(false)} />
 
-    {newWsOpen && (
-      <div onClick={() => setNewWsOpen(false)} style={{
-        position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 3000,
-        display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
-        backdropFilter: "blur(4px)",
-      }}>
-        <div onClick={e => e.stopPropagation()} style={{
-          background: "white", borderRadius: 20, width: "100%", maxWidth: 440,
-          boxShadow: "0 24px 64px rgba(0,0,0,0.3)", overflow: "hidden",
-        }}>
-          <div style={{
-            padding: "24px 28px 20px",
-            background: "linear-gradient(135deg,#eff6ff 0%,#e0e7ff 100%)",
-            borderBottom: "1px solid #E2E8F0",
-            display: "flex", alignItems: "center", gap: 14,
-          }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: 12, flexShrink: 0,
-              background: "linear-gradient(135deg,#6366f1,#4f46e5)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 4px 12px rgba(99,102,241,0.3)",
-            }}>
-              <Layers size={20} color="white" />
-            </div>
-            <div>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1e3a8a" }}>새 워크스페이스 생성하기</h2>
-              <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>워크스페이스 이름을 입력하고 AI와 대화를 시작하세요</p>
-            </div>
-          </div>
-          <div style={{ padding: "24px 28px" }}>
-            <label style={{ fontSize: 12, fontWeight: 700, color: "#374151", display: "block", marginBottom: 8 }}>전략 이름</label>
-            <input
-              autoFocus value={newWsName}
-              onChange={e => setNewWsName(e.target.value)}
-              onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") confirmNewWs(); if (e.key === "Escape") setNewWsOpen(false); }}
-              placeholder="예: 미국 배당 성장 전략"
-              style={{
-                width: "100%", padding: "12px 14px", borderRadius: 10,
-                border: "1.5px solid #C7D2FE", fontSize: 14, outline: "none",
-                boxSizing: "border-box", color: "#0F172A", transition: "border-color 0.15s",
-              }}
-              onFocus={e => e.target.style.borderColor = "#6366f1"}
-              onBlur={e => e.target.style.borderColor = "#C7D2FE"}
-            />
-          </div>
-          <div style={{ padding: "0 28px 24px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
-            <button onClick={() => setNewWsOpen(false)} style={{
-              padding: "10px 20px", borderRadius: 9,
-              border: "1px solid #E2E8F0", background: "white", color: "#374151",
-              fontSize: 13, fontWeight: 600, cursor: "pointer",
-            }}>취소</button>
-            <button onClick={confirmNewWs} disabled={!newWsName.trim()} style={{
-              padding: "10px 20px", borderRadius: 9, border: "none",
-              background: newWsName.trim() ? "linear-gradient(135deg,#6366f1,#4f46e5)" : "#E2E8F0",
-              color: newWsName.trim() ? "white" : "#94A3B8",
-              fontSize: 13, fontWeight: 700,
-              cursor: newWsName.trim() ? "pointer" : "not-allowed",
-              boxShadow: newWsName.trim() ? "0 3px 10px rgba(99,102,241,0.3)" : "none",
-            }}>전략 생성하기</button>
-          </div>
-        </div>
-      </div>
-    )}
+    <CreateWorkspaceModal
+      open={newWsOpen}
+      name={newWsName}
+      onChange={v => { setNewWsName(v); setNewWsError(""); }}
+      onConfirm={confirmNewWs}
+      onClose={() => { setNewWsOpen(false); setNewWsError(""); }}
+      error={newWsError}
+    />
     </>
   );
 }

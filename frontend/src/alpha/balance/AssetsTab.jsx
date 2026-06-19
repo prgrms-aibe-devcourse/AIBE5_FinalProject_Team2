@@ -1,13 +1,14 @@
 import { useState } from "react";
-import { ChevronLeft, LayoutGrid, List, RefreshCw, MoreVertical, ArrowRightLeft, Receipt, ShoppingCart } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ChevronLeft, LayoutGrid, List, RefreshCw, ArrowRightLeft, Receipt, ShoppingCart, Wallet, Star } from "lucide-react";
 import {
   BRAND, pnlColor, fmtKrw, fmtUsd, fmtPct, fmtSigned, acctLabel, acctCurrency,
-  summarizeBalance, acctTotalKrw, FX_KRW_PER_USD,
+  summarizeBalance, acctTotalKrw, FX_KRW_PER_USD, BROKER_NAME,
 } from "./util";
 import StockOrderView from "./StockOrderView";
 
 /** 종합 자산 — 개요(계좌별) → 계좌 상세(보유종목, 표/카드) → 종목 주문 */
-export default function AssetsTab({ accountsData, loading, refreshing, onReload }) {
+export default function AssetsTab({ accountsData, loading, refreshing, onReload, onGotoTrades, primaryAcctId, onSetPrimary }) {
   const [view, setView] = useState({ name: "overview" });
   const [showKrw, setShowKrw] = useState(true);
 
@@ -21,7 +22,10 @@ export default function AssetsTab({ accountsData, loading, refreshing, onReload 
   }
   return <Overview accountsData={accountsData} loading={loading} refreshing={refreshing}
     onReload={onReload} showKrw={showKrw} setShowKrw={setShowKrw}
-    onOpen={(d) => setView({ name: "detail", data: d })} />;
+    primaryAcctId={primaryAcctId} onSetPrimary={onSetPrimary}
+    onOpen={(d) => setView({ name: "detail", data: d })}
+    onOrderDirect={(d) => setView({ name: "order", acct: d.acct, position: null })}
+    onTrades={(d) => onGotoTrades && onGotoTrades(d.acct)} />;
 }
 
 /** 원화/달러 토글 pill */
@@ -42,7 +46,9 @@ function CurrencyToggle({ showKrw, setShowKrw }) {
 }
 
 /** 이미지1 — 자산 개요(계좌별 카드) */
-function Overview({ accountsData, loading, refreshing, onReload, onOpen, showKrw, setShowKrw }) {
+function Overview({ accountsData, loading, refreshing, onReload, onOpen, onOrderDirect, onTrades, primaryAcctId, onSetPrimary, showKrw, setShowKrw }) {
+  const nav = useNavigate();
+  const [subView, setSubView] = useState("계좌별"); // 계좌별 | 종목별 | 현금
   const totalKrw = accountsData.reduce((s, d) => s + acctTotalKrw(d.sum, d.pendingKrw ?? 0, d.pendingUsd ?? 0), 0);
   const totalUsd = totalKrw / FX_KRW_PER_USD;
   const pnlUsd = accountsData.reduce((s, d) => s + d.sum.pnl, 0);
@@ -74,9 +80,13 @@ function Overview({ accountsData, loading, refreshing, onReload, onOpen, showKrw
 
       {/* 탭 행 + 새로고침 */}
       <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 14, borderBottom: "1px solid #E2E8F0", paddingBottom: 10 }}>
-        <span style={{ fontSize: 14, fontWeight: 800, color: "#0f172a" }}>계좌별</span>
-        <span style={{ fontSize: 14, color: "#94A3B8" }}>종목별</span>
-        <span style={{ fontSize: 14, color: "#94A3B8" }}>현금</span>
+        {["계좌별", "종목별", "현금"].map((t) => (
+          <button key={t} onClick={() => setSubView(t)} style={{
+            background: "none", border: "none", cursor: "pointer", padding: 0,
+            fontSize: 14, fontWeight: subView === t ? 800 : 600,
+            color: subView === t ? "#0f172a" : "#94A3B8",
+          }}>{t}</button>
+        ))}
         <button onClick={onReload} title="새로고침" style={iconBtn}>
           <RefreshCw size={16} style={refreshing ? { animation: "spin 1s linear infinite" } : {}} />
         </button>
@@ -85,13 +95,47 @@ function Overview({ accountsData, loading, refreshing, onReload, onOpen, showKrw
       </div>
 
       {loading ? <div style={{ color: "#64748B", padding: 20 }}>불러오는 중…</div>
-        : accountsData.length === 0 ? <div style={{ color: "#64748B", padding: 20, textAlign: "center" }}>등록된 계좌가 없습니다.</div>
-          : accountsData.map((d, i) => <AccountCard key={i} data={d} showKrw={showKrw} onOpen={() => onOpen(d)} />)}
+        : accountsData.length === 0
+          ? (
+            <div style={{ textAlign: "center", padding: "36px 20px" }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: "50%",
+                background: "linear-gradient(135deg, #EEF2FF, #E0E7FF)",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                marginBottom: 14,
+              }}>
+                <Wallet size={26} color="#6366F1" />
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "#0F172A", marginBottom: 6 }}>
+                등록된 계좌가 없습니다
+              </div>
+              <div style={{ fontSize: 13, color: "#64748B", marginBottom: 20, lineHeight: 1.6 }}>
+                KIS 계좌를 연동하면<br />실시간 잔고와 손익을 확인할 수 있어요.
+              </div>
+              <button onClick={() => nav("/alpha/account")} style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "10px 20px", borderRadius: 10, border: "none",
+                background: "linear-gradient(135deg, #60a5fa, #6366f1)",
+                color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer",
+              }}>
+                <Wallet size={14} />계좌 관리로 이동
+              </button>
+            </div>
+          )
+          : subView === "계좌별"
+            ? [...accountsData].sort((a, b) =>
+                (String(a.acct.id) === String(primaryAcctId) ? -1 : 0) - (String(b.acct.id) === String(primaryAcctId) ? -1 : 0))
+              .map((d) => <AccountCard key={d.acct.id} data={d} showKrw={showKrw}
+                isPrimary={String(d.acct.id) === String(primaryAcctId)} onSetPrimary={() => onSetPrimary && onSetPrimary(d.acct.id)}
+                onBalance={() => onOpen(d)} onTrades={() => onTrades(d)} onOrder={() => onOrderDirect(d)} />)
+          : subView === "종목별"
+            ? <BySymbolView accountsData={accountsData} showKrw={showKrw} />
+            : <CashView accountsData={accountsData} showKrw={showKrw} />}
     </div>
   );
 }
 
-function AccountCard({ data, onOpen, showKrw }) {
+function AccountCard({ data, onTrades, onBalance, onOrder, isPrimary, onSetPrimary, showKrw }) {
   const { acct, sum, bal } = data;
   const pendingKrw = data.pendingKrw ?? 0;
   const pendingUsd = data.pendingUsd ?? 0;
@@ -99,7 +143,8 @@ function AccountCard({ data, onOpen, showKrw }) {
   const totalKrw = acctTotalKrw(sum, pendingKrw, pendingUsd);
   const totalUsd = sum.mv + sum.cashUsd + pendingUsd + sum.cashKrw / FX_KRW_PER_USD + pendingKrw / FX_KRW_PER_USD;
   const pnlKrw = sum.pnl * FX_KRW_PER_USD;
-  const fail = !bal;
+  const isLoading = data._loading;
+  const fail = !bal && !isLoading;
 
   const totalFmt = showKrw ? fmtKrw(totalKrw) : fmtUsd(totalUsd);
   const pnlFmt = showKrw
@@ -111,13 +156,18 @@ function AccountCard({ data, onOpen, showKrw }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 14.5, fontWeight: 800, color: "#0f172a" }}>{acctLabel(acct)}</span>
+          {isPrimary && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: "#FEF3C7", color: "#B45309", display: "inline-flex", alignItems: "center", gap: 3 }}><Star size={9} fill="#F59E0B" color="#F59E0B" /> 대표</span>}
           {acct.env === "REAL" && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: "#FEE2E2", color: "#b91c1c" }}>REAL</span>}
         </div>
-        <MoreVertical size={16} color="#CBD5E1" />
+        <button onClick={onSetPrimary} title={isPrimary ? "대표 해제" : "대표 계좌로 설정 (먼저 로딩)"}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}>
+          <Star size={16} fill={isPrimary ? "#F59E0B" : "none"} color={isPrimary ? "#F59E0B" : "#CBD5E1"} />
+        </button>
       </div>
       <div style={{ textAlign: "right", marginBottom: 12 }}>
-        <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>{totalFmt}</div>
-        {fail ? <div style={{ fontSize: 12, color: "#f59e0b" }}>잔고 조회 실패</div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>{isLoading ? "—" : totalFmt}</div>
+        {isLoading ? <div style={{ fontSize: 12, color: "#94A3B8" }}>불러오는 중…</div>
+          : fail ? <div style={{ fontSize: 12, color: "#f59e0b" }}>잔고 조회 실패</div>
           : <div style={{ fontSize: 13, fontWeight: 700, color: pnlColor(sum.pnl) }}>{pnlFmt} ({fmtPct(sum.pct)})</div>}
         {hasPending && (
           <div style={{ fontSize: 11, color: "#6366f1", marginTop: 3, fontWeight: 600 }}>
@@ -128,9 +178,9 @@ function AccountCard({ data, onOpen, showKrw }) {
         )}
       </div>
       <div style={{ display: "flex", gap: 8 }}>
-        <CardBtn icon={<Receipt size={14} />} label="거래내역" onClick={onOpen} />
-        <CardBtn icon={<ArrowRightLeft size={14} />} label="잔고" onClick={onOpen} />
-        <CardBtn icon={<ShoppingCart size={14} />} label="주식주문" onClick={onOpen} primary />
+        <CardBtn icon={<Receipt size={14} />} label="거래내역" onClick={onTrades} />
+        <CardBtn icon={<ArrowRightLeft size={14} />} label="잔고" onClick={onBalance} />
+        <CardBtn icon={<ShoppingCart size={14} />} label="주식주문" onClick={onOrder} primary />
       </div>
     </div>
   );
@@ -145,6 +195,68 @@ const CardBtn = ({ icon, label, onClick, primary }) => (
     color: primary ? "white" : "#475569",
   }}>{icon}{label}</button>
 );
+
+/** 종목별 — 전 계좌 보유종목을 티커로 합산(USD 기준 집계 → 표시 통화 변환). */
+function BySymbolView({ accountsData, showKrw }) {
+  const byTicker = {};
+  for (const d of accountsData) {
+    for (const p of (d.sum?.positions || [])) {
+      const toUsd = p.currency === "KRW" ? 1 / FX_KRW_PER_USD : 1;
+      const key = String(p.ticker).toUpperCase();
+      const t = byTicker[key] || (byTicker[key] = {
+        ticker: key, name: p.name || key, qty: 0, mvUsd: 0, pnlUsd: 0, costUsd: 0,
+        isCrypto: d.acct.brokerType === "BINANCE", brokers: new Set(),
+      });
+      t.qty += p.qty; t.mvUsd += p.mv * toUsd; t.pnlUsd += p.pnl * toUsd; t.costUsd += p.cost * toUsd;
+      t.brokers.add(BROKER_NAME[d.acct.brokerType] || d.acct.brokerType);
+    }
+  }
+  const rows = Object.values(byTicker)
+    .map((t) => ({ ...t, pct: t.costUsd > 0 ? (t.pnlUsd / t.costUsd) * 100 : 0 }))
+    .sort((a, b) => b.mvUsd - a.mvUsd);
+  if (rows.length === 0) return <div style={{ color: "#64748B", padding: 24, textAlign: "center" }}>보유 종목이 없습니다.</div>;
+  const fmtMv = (u) => showKrw ? fmtKrw(u * FX_KRW_PER_USD) : fmtUsd(u);
+  const fmtPnlV = (u) => showKrw ? `${u >= 0 ? "+" : "-"}₩${Math.abs(Math.round(u * FX_KRW_PER_USD)).toLocaleString()}` : fmtSigned(u);
+  return (
+    <div>
+      {rows.map((t, i) => (
+        <div key={i} style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 16px", marginBottom: 10, background: "white", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontSize: 14.5, fontWeight: 800, color: "#0f172a" }}>
+              {t.name}{t.name !== t.ticker && <span style={{ fontSize: 12, fontWeight: 500, color: "#64748B", marginLeft: 4 }}>({t.ticker})</span>}
+            </div>
+            <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 2 }}>{[...t.brokers].join(", ")} · {t.qty}{t.isCrypto ? "" : "주"}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>{fmtMv(t.mvUsd)}</div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: pnlColor(t.pnlUsd) }}>{fmtPnlV(t.pnlUsd)} ({fmtPct(t.pct)})</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** 현금 — 계좌별 예수금 + 총 현금. */
+function CashView({ accountsData, showKrw }) {
+  const rows = accountsData.map((d) => ({ acct: d.acct, cashUsd: d.sum.cashUsd + d.sum.cashKrw / FX_KRW_PER_USD }));
+  const totalUsd = rows.reduce((s, r) => s + r.cashUsd, 0);
+  const fmtC = (u) => showKrw ? fmtKrw(u * FX_KRW_PER_USD) : fmtUsd(u);
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", marginBottom: 10, borderRadius: 12, background: "#EEF2FF", border: "1px solid #C7D2FE" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#4338CA" }}>총 현금</span>
+        <span style={{ fontSize: 18, fontWeight: 800, color: "#3730A3" }}>{fmtC(totalUsd)}</span>
+      </div>
+      {rows.map((r, i) => (
+        <div key={i} style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 16px", marginBottom: 10, background: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>{acctLabel(r.acct)}</span>
+          <span style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>{fmtC(r.cashUsd)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** 이미지2/3/4 — 계좌 상세(보유종목 표/카드 토글) */
 function AccountDetail({ data, onBack, onOrder, showKrw }) {

@@ -67,6 +67,15 @@ export const getLeanHealth      = () => api.get("/lean/health").then(r => r.data
 export const getLeanNodes       = () => api.get("/lean/nodes").then(r => r.data);            // { nodes:[{id,name,tier,slots,active,idle}] }
 export const getLeanQueue       = (limit = 50) => api.get("/lean/queue", { params: { limit } }).then(r => r.data); // { running, queued, total_slots, jobs:[{job_id,status,phase,node_id,meta,elapsed_seconds}] }
 
+// Lean v2 — 멀티테넌트 클라우드 큐 (K8s). 잡 제출 → 폴링.
+// submit body: { strategyId, symbols:[..], startDate:"YYYY-MM-DD", endDate, market:"us", paramOverrides:{ main_py? } } → { jobId, status:"QUEUED", tier }
+export const leanV2Submit = (body) => api.post("/lean/backtest/submit", body).then(r => r.data);
+// 단건 조회 → { jobId, status, tier, strategyId, market, createdAt, startedAt, finishedAt, error, result }
+// status: QUEUED|DISPATCHED|RUNNING|DONE|ERROR · result: { statistics:{...}, success:true }
+export const leanV2Job  = (id) => api.get(`/lean/jobs/${id}`).then(r => r.data);
+// 내 잡 목록 → { jobs:[{jobId,status,tier,strategyId,market,createdAt,...}] }
+export const leanV2Jobs = () => api.get("/lean/jobs").then(r => r.data);
+
 // Claude Code 에이전트 — 헤드리스 claude CLI 로 워크스페이스 코드 편집 → ChangeSet(PENDING) + 내레이션
 export const runClaudeAgent = (wsId, request) =>
   api.post(`/alpha/workspaces/${wsId}/claude-agent`, { request }, { timeout: 240000 }).then(r => r.data);
@@ -131,6 +140,7 @@ export const previewBrokerOrder   = (env, body, brokerType) => api.post("/broker
 export const placeBrokerOrder     = (env, body, brokerType) => api.post("/broker/orders/place", body, { params: { env, ...(brokerType ? { brokerType } : {}) } }).then(r => r.data);
 export const getBrokerOrdersToday = (env, brokerType) => api.get("/broker/orders/today", { params: { env, ...(brokerType ? { brokerType } : {}) } }).then(r => r.data);
 export const getBrokerQuote       = (env, ticker, brokerType) => api.get("/broker/quote", { params: { env, ticker, ...(brokerType ? { brokerType } : {}) } }).then(r => r.data);
+export const getKrDailyChart      = (env, ticker, count = 100) => api.get("/broker/kr-chart", { params: { env, ticker, count } }).then(r => r.data);
 export const getBrokerWsKey       = (env) => api.post("/broker/ws-key", null, { params: { env } }).then(r => r.data);
 
 // OrderProposal — 자동주문 승인 큐
@@ -141,6 +151,8 @@ export const approveProposal     = (id) => api.post(`/proposals/${id}/approve`).
 export const rejectProposal      = (id, reason) => api.post(`/proposals/${id}/reject`, { reason }).then(r => r.data);
 // 주문 정정 — PENDING 제안의 수량/단가/주문유형/방향/사유 부분 수정 (들어온 키만 갱신)
 export const amendProposal       = (id, body) => api.patch(`/proposals/${id}`, body).then(r => r.data);
+export const deleteProposal      = (id) => api.delete(`/proposals/${id}`).then(r => r.data);
+export const deleteProposalsBulk = (ids) => api.delete("/proposals", { data: { ids } }).then(r => r.data);
 // 가격 소급 보정 — fillAvgPrice·limitPrice 모두 null인 EXECUTED 제안에 현재 시세 채움
 export const backfillProposalPrices = () => api.post("/proposals/backfill-prices").then(r => r.data);
 

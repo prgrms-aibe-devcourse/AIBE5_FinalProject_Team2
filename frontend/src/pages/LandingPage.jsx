@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import beachVideo from '../assets/배너후보.mp4';
 
@@ -6,8 +6,16 @@ function LandingPage() {
   const navigate = useNavigate();
   const [phase, setPhase] = useState(0);
   const [pageFadeOut, setPageFadeOut] = useState(false);
+  const videoRef = useRef(null);
 
   useEffect(() => {
+    const v = videoRef.current;
+    if (v) {
+      const onTimeUpdate = () => {
+        if (v.duration && v.currentTime >= v.duration - 0.2) v.currentTime = 0;
+      };
+      v.addEventListener("timeupdate", onTimeUpdate);
+    }
     const t1 = setTimeout(() => setPhase(1), 400);
     const t2 = setTimeout(() => setPhase(2), 1200);
     const t3 = setTimeout(() => setPhase(3), 2000);
@@ -40,7 +48,7 @@ function LandingPage() {
       `}</style>
 
       {/* 諛곌꼍 鍮꾨뵒??*/}
-      <video autoPlay loop muted playsInline style={{
+      <video ref={videoRef} autoPlay loop muted playsInline style={{
         position: 'absolute', top: '50%', left: '50%',
         transform: 'translate(-50%, -50%)',
         width: '100%', height: '100%', objectFit: 'cover',

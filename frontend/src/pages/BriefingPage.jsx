@@ -937,10 +937,13 @@ export default function BriefingPage() {
       try { localStorage.setItem(cacheKey(wsId), JSON.stringify(rec)); } catch (_) {}
     } catch (e) {
       const errMsg = e?.response?.data?.error || e.message;
-      const isCooldown = e?.response?.status === 429 || e?.response?.data?.cooldown;
-      if (isCooldown) {
+      const data = e?.response?.data || {};
+      if (data.quotaExceeded) {
+        // 구독등급 일일 횟수 초과 — 캐시 유지하고 안내 모달
+        setCooldownModal({ quota: true, message: errMsg, dailyLimit: data.dailyLimit });
+      } else if (e?.response?.status === 429 || data.cooldown) {
         // 쿨다운 응답이면 캐시 유지(에러로 덮어쓰지 않음)
-        const remainMin = e?.response?.data?.remainMinutes;
+        const remainMin = data.remainMinutes;
         if (remainMin) {
           const h = Math.floor(remainMin / 60), m = remainMin % 60;
           setCooldownModal({ time: h > 0 ? `${h}h ${m}m` : `${m}m` });
@@ -1061,8 +1064,12 @@ export default function BriefingPage() {
                 <Clock size={22} color="white" />
               </div>
               <div>
-                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1e3a8a" }}>잠시 기다려 주세요</h2>
-                <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>브리핑은 3시간에 한 번 생성할 수 있어요</p>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1e3a8a" }}>
+                  {cooldownModal.quota ? "오늘 브리핑을 다 사용했어요" : "잠시 기다려 주세요"}
+                </h2>
+                <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>
+                  {cooldownModal.quota ? "구독 등급에 따라 하루 LIVE 브리핑 횟수가 정해져요" : "브리핑은 7시간에 한 번 생성할 수 있어요"}
+                </p>
               </div>
             </div>
             {/* 본문 */}
@@ -1074,14 +1081,21 @@ export default function BriefingPage() {
               }}>
                 <Clock size={18} color="#7c3aed" style={{ flexShrink: 0 }} />
                 <span style={{ fontSize: 14, color: "#4c1d95", fontWeight: 600 }}>
-                  다음 생성 가능까지&nbsp;
-                  <span style={{ fontSize: 18, fontWeight: 800, color: "#6d28d9" }}>{cooldownModal.time}</span>
-                  &nbsp;남았습니다
+                  {cooldownModal.quota ? (
+                    cooldownModal.message || "오늘 LIVE 브리핑 횟수를 모두 사용했습니다."
+                  ) : (
+                    <>다음 생성 가능까지&nbsp;
+                    <span style={{ fontSize: 18, fontWeight: 800, color: "#6d28d9" }}>{cooldownModal.time}</span>
+                    &nbsp;남았습니다</>
+                  )}
                 </span>
               </div>
               <p style={{ margin: "14px 0 0", fontSize: 13, color: "#64748B", lineHeight: 1.7 }}>
-                Perplexity 실시간 검색과 AI 분석에 시간이 필요합니다.<br />
-                잠시 후 다시 시도해 주세요.
+                {cooldownModal.quota ? (
+                  <>구독 등급을 올리면 하루에 더 많은 LIVE 브리핑을 받을 수 있어요.<br />(STANDARD 2 · PREMIUM 4 · EXPERT 7회)</>
+                ) : (
+                  <>Perplexity 실시간 검색과 AI 분석에 시간이 필요합니다.<br />잠시 후 다시 시도해 주세요.</>
+                )}
               </p>
             </div>
             {/* 푸터 */}
@@ -1162,7 +1176,7 @@ export default function BriefingPage() {
             <Radio size={28} color="#16a34a" />
           </div>
           <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0F172A", margin: "0 0 8px" }}>
-            운용 중인 전략이 없어요
+            운용 중인 워크스페이스가 없어요
           </h3>
           <p style={{ fontSize: 13, color: "#64748B", lineHeight: 1.75, margin: "0 0 22px" }}>
             브리핑은 <b style={{ color: "#16a34a" }}>LIVE 상태</b>인 워크스페이스를 기준으로 생성됩니다.<br />

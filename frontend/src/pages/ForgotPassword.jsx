@@ -70,7 +70,16 @@ function PwField({ label, value, onChange, show, onToggle, placeholder, error, o
 function ForgotPassword() {
   const navigate = useNavigate();
   const videoRef = useRef(null);
-  useEffect(() => { if (videoRef.current) videoRef.current.playbackRate = 0.55; }, []);
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.playbackRate = 0.55;
+    const onTimeUpdate = () => {
+      if (v.duration && v.currentTime >= v.duration - 0.2) v.currentTime = 0;
+    };
+    v.addEventListener("timeupdate", onTimeUpdate);
+    return () => v.removeEventListener("timeupdate", onTimeUpdate);
+  }, []);
 
   // step 1: 아이디 입력  /  step 2: 이메일 인증  /  step 3: 새 비밀번호  /  step 4: 완료
   const [step, setStep] = useState(1);
