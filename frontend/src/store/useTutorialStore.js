@@ -194,6 +194,7 @@ const useTutorialStore = create((set) => ({
   step: 0,
   start: () => set({ active: true, step: 0 }),
   next: () => set((s) => ({ step: Math.min(s.step + 1, TOTAL_STEPS - 1) })),
+  prev: () => set((s) => ({ step: Math.max(s.step - 1, 0) })),
   stop: () => set({ active: false, step: 0 }),
 }));
 

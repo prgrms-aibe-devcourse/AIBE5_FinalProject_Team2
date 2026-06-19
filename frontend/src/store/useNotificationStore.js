@@ -20,6 +20,8 @@ function toLocal(n) {
     body: n.message,
     read: n.read ?? n.isRead ?? false,
     time: n.createdAt,
+    relatedEntityId: n.relatedEntityId ?? null,
+    relatedEntityType: n.relatedEntityType ?? null,
   };
 }
 
