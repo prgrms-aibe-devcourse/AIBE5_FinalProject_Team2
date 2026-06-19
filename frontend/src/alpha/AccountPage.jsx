@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useState, useMemo } from "react";
-import { Wallet } from "lucide-react";
+import { Wallet, Loader2, Plus } from "lucide-react";
 import binanceLogo from "../assets/binance.webp";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import { useLanguage } from "../i18n/useLanguage";
@@ -11,6 +11,7 @@ import {
   testBinanceAccount, getBinanceBalance,
 } from "./alphaApi";
 import { brokerCache } from "./brokerCache";
+import BrokerRegisterModal from "./BrokerRegisterModal";
 
 /**
  * 계좌 페이지 — KIS(한국투자증권) + Binance 모의/실전 동시 등록·관리.
@@ -36,6 +37,7 @@ export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState(null);
+  const [registerOpen, setRegisterOpen] = useState(false);
 
   // 현재 선택된 브로커+환경에 해당하는 계좌
   const acct = useMemo(
@@ -202,16 +204,23 @@ export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
           ? (brokerType === "BINANCE"
               ? <BinanceActive key={`${brokerType}-${env}`} theme={theme} env={env} acct={acct} reload={reload} setMsg={setMsg} />
               : <AccountActive key={`${brokerType}-${env}`} theme={theme} env={env} acct={acct} reload={reload} setMsg={setMsg} />)
-          : (brokerType === "BINANCE"
-              ? <BinanceRegister key={`${brokerType}-${env}-reg`} theme={theme} env={env} reload={reload} setMsg={setMsg} />
-              : <AccountRegister key={`${brokerType}-${env}-reg`} theme={theme} env={env} accounts={accounts} reload={reload} setMsg={setMsg} />)}
+          : <RegisterEmptyState brokerType={brokerType} env={env} onOpen={() => { setMsg(null); setRegisterOpen(true); }} />}
       </>)}
       </div>
+
+      <BrokerRegisterModal
+        open={registerOpen}
+        brokerType={brokerType}
+        env={env}
+        accounts={accounts}
+        onSuccess={() => { reload(); setMsg({ type: "ok", text: "계좌 등록 완료. 아래에서 연결 테스트를 진행하세요." }); }}
+        onClose={() => setRegisterOpen(false)}
+      />
     </div>
   );
 }
 
-/* ───────────────────────────────────────────── 등록 폼 */
+/* ───────────────────────────────────────────── 등록 폼 (레거시 — 미사용) */
 function AccountRegister({ theme, env, accounts = [], reload, setMsg }) {
   const [form, setForm] = useState({
     appKey: "", appSecret: "", cano: "", acntPrdtCd: "01",
@@ -339,6 +348,7 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
   const [balance, setBalance] = useState(() => brokerCache.getBalance(env, "KIS"));
   const [orders, setOrders] = useState(() => brokerCache.getOrders(env));
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [gate, setGate] = useState(null); // { passed, summary, checks } — REAL 계정에만 로드
 
@@ -371,7 +381,7 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
   }, [env, acct.id, acct.tradingEnabled, acct.lastVerifiedAt]);
 
   const doTest = async () => {
-    setBusy(true); setMsg(null);
+    setBusy(true); setTesting(true); setMsg(null);
     try {
       const res = await testBrokerAccount(env);
       setMsg({ type: "ok", text: `연결 성공 — USD $${Number(res.cash_usd || 0).toFixed(2)} / KRW ₩${Number(res.cash_krw || 0).toLocaleString("ko-KR")}` });
@@ -410,7 +420,7 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
       } else {
         setMsg({ type: "err", text: "테스트 실패: " + (data.error || e.message) });
       }
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setTesting(false); }
   };
   const doToggleTrading = async () => {
     setBusy(true); setMsg(null);
@@ -496,8 +506,17 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
             <Stat label="매수 1일 한도" value={acct.dailyBuyKrw != null ? `₩${Number(acct.dailyBuyKrw).toLocaleString("ko-KR")}` : "무제한"} theme={theme} />
             <Stat label="매도 1일 한도" value={acct.dailySellKrw != null ? `₩${Number(acct.dailySellKrw).toLocaleString("ko-KR")}` : "무제한"} theme={theme} />
           </div>
+          <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={doTest} disabled={busy} style={btnSecondary}>🔌 연결 테스트</button>
+            <button onClick={doTest} disabled={busy} style={{
+              ...btnSecondary,
+              display: "inline-flex", alignItems: "center", gap: 6,
+              ...(testing ? { opacity: 0.75, cursor: "wait" } : {}),
+            }}>
+              {testing
+                ? <><Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />테스트 중…</>
+                : "🔌 연결 테스트"}
+            </button>
             <button onClick={doToggleTrading} disabled={busy || !acct.lastVerifiedAt}
               style={acct.tradingEnabled ? btnDanger : btnPrimary}>
               {acct.tradingEnabled ? "매매 OFF" : "매매 ON"}
@@ -1033,10 +1052,76 @@ function BinanceRegister({ theme, env, reload, setMsg }) {
   );
 }
 
+/* ─────────────────────────────── 미등록 빈 상태 */
+function RegisterEmptyState({ brokerType, env, onOpen }) {
+  const isMock = env === "MOCK";
+  const isBinance = brokerType === "BINANCE";
+  const grad = isMock
+    ? "linear-gradient(135deg,#eff6ff 0%,#e0e7ff 100%)"
+    : "linear-gradient(135deg,#fff1f2 0%,#ffe4e6 100%)";
+  const iconGrad = isMock
+    ? "linear-gradient(135deg,#60a5fa,#6366f1)"
+    : "linear-gradient(135deg,#f87171,#dc2626)";
+  const btnGrad = isMock
+    ? "linear-gradient(135deg,#60a5fa 0%,#3b82f6 50%,#6366f1 100%)"
+    : "linear-gradient(135deg,#f87171 0%,#dc2626 100%)";
+  const envLabel = isMock ? (isBinance ? "테스트넷" : "모의투자") : (isBinance ? "메인넷" : "실전투자");
+
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      padding: "52px 24px", textAlign: "center", gap: 20,
+    }}>
+      <div style={{
+        width: 72, height: 72, borderRadius: 22,
+        background: grad, border: `2px solid ${isMock ? "#C7D2FE" : "#FECACA"}`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+      }}>
+        <div style={{
+          width: 48, height: 48, borderRadius: 14,
+          background: iconGrad,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.18)",
+        }}>
+          {isBinance
+            ? <img src={binanceLogo} alt="Binance" style={{ width: 28, height: 28, objectFit: "contain" }} />
+            : <Wallet size={22} color="white" />}
+        </div>
+      </div>
+      <div>
+        <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 800, color: "#0F172A" }}>
+          {isBinance ? "Binance" : "KIS"} {envLabel} 계좌가 없습니다
+        </h3>
+        <p style={{ margin: 0, fontSize: 13.5, color: "#64748B", lineHeight: 1.7, maxWidth: 340 }}>
+          {isMock
+            ? "가상 자금으로 전략을 검증해보세요. 실제 돈이 필요 없습니다."
+            : "실제 자금으로 자동 주문을 연결합니다. 충분히 검증 후 시작하세요."}
+        </p>
+      </div>
+      <button onClick={onOpen} style={{
+        display: "inline-flex", alignItems: "center", gap: 8,
+        padding: "13px 28px", borderRadius: 12, border: "none",
+        background: btnGrad, color: "white",
+        fontSize: 14, fontWeight: 700, cursor: "pointer",
+        boxShadow: isMock ? "0 4px 16px rgba(99,102,241,0.35)" : "0 4px 16px rgba(220,38,38,0.35)",
+        transition: "transform 0.15s, opacity 0.15s",
+      }}
+        onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+        onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "none"; }}
+      >
+        <Plus size={16} />
+        {envLabel} 계좌 등록하기
+      </button>
+    </div>
+  );
+}
+
 /* ─────────────────────────────── Binance 활성 계좌 */
 function BinanceActive({ theme, env, acct, reload, setMsg }) {
   const [balance, setBalance] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [mode, setMode] = useState(acct.binanceMode || "SPOT");
 
   const refresh = async () => {
@@ -1048,7 +1133,7 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
   useEffect(() => { setBalance(null); if (acct.lastVerifiedAt) refresh(); }, [env, acct.id, mode]);
 
   const doTest = async () => {
-    setBusy(true); setMsg(null);
+    setBusy(true); setTesting(true); setMsg(null);
     try {
       const res = await testBinanceAccount(env, mode);
       const bal = res.balance || {};
@@ -1060,7 +1145,7 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
       reload();
     } catch (e) {
       setMsg({ type: "err", text: "테스트 실패: " + (e?.response?.data?.error || e.message) });
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setTesting(false); }
   };
 
   const doDelete = async () => {
@@ -1118,8 +1203,14 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
         </div>
 
         <div className="action-row" style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-          <button onClick={doTest} disabled={busy} style={btnPrimary}>
-            {busy ? "테스트 중…" : "🔗 연결 테스트"}
+          <button onClick={doTest} disabled={busy} style={{
+            ...btnPrimary,
+            display: "inline-flex", alignItems: "center", gap: 6,
+            ...(testing ? { opacity: 0.75, cursor: "wait" } : {}),
+          }}>
+            {testing
+              ? <><Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />테스트 중…</>
+              : "🔗 연결 테스트"}
           </button>
           {acct.lastVerifiedAt && (
             <button onClick={doToggleTrading} disabled={busy}
