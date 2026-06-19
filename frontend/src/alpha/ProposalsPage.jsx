@@ -1,19 +1,32 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Inbox, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, RefreshCw, Plus, X, Pencil,
+  Inbox, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, RefreshCw, Plus, X, Pencil, Trash2,
 } from "lucide-react";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import { useLanguage } from "../i18n/useLanguage";
-import { listProposals, approveProposal, rejectProposal, createProposal, amendProposal, listBrokerAccounts } from "./alphaApi";
+import { listProposals, approveProposal, rejectProposal, createProposal, amendProposal, listBrokerAccounts, deleteProposal, deleteProposalsBulk } from "./alphaApi";
 import OrderConfirmModal from "./OrderConfirmModal";
 import OrderAmendModal from "./OrderAmendModal";
+import OrderRejectModal from "./OrderRejectModal";
+import { TICKER_LIST, CRYPTO_LIST, ORDER_TYPES, LIMIT_SUB_TYPES } from "./stockList";
+import Toast from "../components/common/Toast";
+import { useNotificationStore } from "../store/useNotificationStore";
 
 /**
  * 자동주문 승인 큐.
  * SIGNAL이 만든 PENDING 제안 + 사용자 수동 제안을 모두 표시.
  * 승인 = 즉시 KIS 주문 (BrokerAccount.tradingEnabled 필수).
  */
+
+function expiryInfo(expiresAt) {
+  const diffMs = new Date(expiresAt) - new Date();
+  if (diffMs <= 0) return { expired: true, label: null, urgent: false };
+  const h = Math.floor(diffMs / 3600000);
+  const m = Math.floor((diffMs % 3600000) / 60000);
+  const label = h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+  return { expired: false, label, urgent: diffMs < 3600000 };
+}
 
 const STATUS_ICONS = {
   PENDING:     { color: "#D97706", bg: "#FEF3C7", Icon: Clock },
@@ -30,6 +43,8 @@ const EMPTY_FORM = { brokerAccountId: "", ticker: "", side: "BUY", qty: "", limi
 export default function ProposalsPage() {
   const { theme } = useTheme();
   const { t } = useLanguage();
+  const fetchNotifications = useNotificationStore((s) => s.fetch);
+  const [toast, setToast] = useState(null);
   const [filter, setFilter] = useState("ALL");
   const [allRows, setAllRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -44,6 +59,11 @@ export default function ProposalsPage() {
   const [amendBusy, setAmendBusy] = useState(false);  // 정정 저장 중
   const [cancelBusy, setCancelBusy] = useState(false); // 주문 취소(거절) 중
 
+  // 거절 모달 상태
+  const [rejecting, setRejecting] = useState(null);   // proposal
+  const [rejectErr, setRejectErr] = useState(null);
+  const [rejectBusy, setRejectBusy] = useState(false);
+
   // 수동 제안 생성 상태
   const [createOpen, setCreateOpen] = useState(false);
   const [brokerAccounts, setBrokerAccounts] = useState([]);
@@ -52,9 +72,17 @@ export default function ProposalsPage() {
   const [createErr, setCreateErr] = useState(null);
   const [activeTab, setActiveTab] = useState("BUY");
   const [fieldErrors, setFieldErrors] = useState({});
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
-  const rows = filter === "ALL" ? allRows : allRows.filter(r => r.status === filter);
-  const filterCount = (s) => s === "ALL" ? allRows.length : allRows.filter(r => r.status === s).length;
+  // expiresAt 지난 PENDING → 클라이언트에서 EXPIRED로 정규화
+  const normalizedRows = allRows.map(r =>
+    r.status === "PENDING" && r.expiresAt && new Date(r.expiresAt) <= new Date()
+      ? { ...r, status: "EXPIRED" }
+      : r
+  );
+  const rows = filter === "ALL" ? normalizedRows : normalizedRows.filter(r => r.status === filter);
+  const filterCount = (s) => s === "ALL" ? normalizedRows.length : normalizedRows.filter(r => r.status === s).length;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +98,19 @@ export default function ProposalsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // 가장 빨리 만료될 PENDING 제안 시점에 자동 reload
+  useEffect(() => {
+    const futurePending = allRows
+      .filter(r => r.status === "PENDING" && r.expiresAt)
+      .map(r => new Date(r.expiresAt).getTime())
+      .filter(t => t > Date.now());
+    if (futurePending.length === 0) return;
+    const nearest = Math.min(...futurePending);
+    const delay = nearest - Date.now() + 1000;
+    const timer = setTimeout(() => load(), delay);
+    return () => clearTimeout(timer);
+  }, [allRows, load]);
 
   const openCreate = async () => {
     setCreateErr(null);
@@ -122,12 +163,21 @@ export default function ProposalsPage() {
 
   const onConfirmApprove = async () => {
     if (!confirming) return;
+    const ticker = confirming.ticker;
+    const side = confirming.side;
     setBusyId(confirming.id);
     setModalErr(null);
     try {
       await approveProposal(confirming.id);
       setConfirming(null);
       await load();
+      setToast({
+        type: "order",
+        title: "주문 발송 완료",
+        body: `${ticker} ${side === "BUY" ? "매수" : "매도"} 주문이 KIS로 전송되었습니다.`,
+      });
+      window.dispatchEvent(new CustomEvent("alpha:proposal-updated"));
+      fetchNotifications().catch(() => {});
     } catch (e) {
       setModalErr(e?.response?.data?.error || e.message);
     } finally {
@@ -135,17 +185,24 @@ export default function ProposalsPage() {
     }
   };
 
-  const onReject = async (p) => {
-    const reason = window.prompt(t("proposals.rejectPrompt"), "");
-    if (reason === null) return;
-    setBusyId(p.id);
+  const onReject = (p) => {
+    setRejectErr(null);
+    setRejecting(p);
+  };
+
+  const onConfirmReject = async (reason) => {
+    if (!rejecting) return;
+    setRejectBusy(true);
+    setRejectErr(null);
     try {
-      await rejectProposal(p.id, reason);
+      await rejectProposal(rejecting.id, reason || "거절");
+      setRejecting(null);
       await load();
+      setToast({ type: "info", title: "제안 거절 완료", body: `${rejecting.ticker} 제안이 큐에서 제거되었습니다.` });
     } catch (e) {
-      alert(t("proposals.rejectFailed").replace("{err}", e?.response?.data?.error || e.message));
+      setRejectErr(e?.response?.data?.error || e.message);
     } finally {
-      setBusyId(null);
+      setRejectBusy(false);
     }
   };
 
@@ -186,8 +243,47 @@ export default function ProposalsPage() {
     }
   };
 
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => setSelectedIds(new Set(rows.map(r => r.id)));
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const onDeleteOne = async (id) => {
+    if (!window.confirm("이 항목을 삭제할까요?")) return;
+    try {
+      await deleteProposal(id);
+      setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
+      await load();
+    } catch (e) {
+      setToast({ type: "error", title: "삭제 실패", body: e?.response?.data?.error || e.message });
+    }
+  };
+
+  const onDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    if (!window.confirm(`${selectedIds.size}개 항목을 삭제할까요?`)) return;
+    setDeleteBusy(true);
+    try {
+      await deleteProposalsBulk([...selectedIds]);
+      setSelectedIds(new Set());
+      await load();
+      setToast({ type: "info", title: "삭제 완료", body: `${selectedIds.size}개 항목이 삭제되었습니다.` });
+    } catch (e) {
+      setToast({ type: "error", title: "삭제 실패", body: e?.response?.data?.error || e.message });
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   return (
     <div className="alpha-proposals" style={{ padding: "36px 40px 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
+      {toast && <Toast title={toast.title} body={toast.body} type={toast.type} onClose={() => setToast(null)} />}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 32, flexWrap: "wrap", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <div style={{
@@ -235,9 +331,40 @@ export default function ProposalsPage() {
         </div>
       </div>
 
+      {/* 선택 삭제 액션 바 */}
+      {selectedIds.size > 0 && (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "10px 16px", marginBottom: 12,
+          background: "#FEF2F2", border: "1.5px solid #FECACA",
+          borderRadius: 12,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#B91C1C", flex: 1 }}>
+            {selectedIds.size}개 선택됨
+          </span>
+          <button onClick={selectAll} style={{
+            padding: "6px 12px", borderRadius: 8, border: "1px solid #FECACA",
+            background: "white", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer",
+          }}>전체 선택</button>
+          <button onClick={clearSelection} style={{
+            padding: "6px 12px", borderRadius: 8, border: "1px solid #FECACA",
+            background: "white", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer",
+          }}>선택 해제</button>
+          <button onClick={onDeleteSelected} disabled={deleteBusy} style={{
+            padding: "6px 14px", borderRadius: 8, border: "none",
+            background: deleteBusy ? "#E2E8F0" : "#EF4444",
+            color: deleteBusy ? "#94A3B8" : "white",
+            fontSize: 12, fontWeight: 700, cursor: deleteBusy ? "not-allowed" : "pointer",
+            display: "flex", alignItems: "center", gap: 4,
+          }}>
+            <Trash2 size={12} /> {deleteBusy ? "삭제 중..." : "삭제"}
+          </button>
+        </div>
+      )}
+
       {/* 필터 */}
       <div className="filter-row" style={{ display: "flex", gap: 8, marginBottom: 30, flexWrap: "wrap" }}>
-        {["ALL", "PENDING", "EXECUTED", "REJECTED", "EXEC_FAILED"].map(s => {
+        {["ALL", "PENDING", "EXECUTED", "REJECTED", "EXPIRED", "EXEC_FAILED"].map(s => {
           const active = filter === s;
           const cnt = filterCount(s);
           const I = STATUS_ICONS[s]?.Icon;
@@ -293,12 +420,24 @@ export default function ProposalsPage() {
           const meta = STATUS_ICONS[p.status] || { color: "#6B7280", bg: "#F3F4F6", Icon: Clock };
           const SideIcon = meta.Icon;
           const isPending = p.status === "PENDING";
+          const expiry = isPending && p.expiresAt ? expiryInfo(p.expiresAt) : null;
+          const isClientExpired = expiry?.expired === true;
           return (
             <div key={p.id} className="prop-card"
               style={{
-                background: theme.panel, border: `1px solid ${theme.panelBorder}`,
+                background: isClientExpired ? "#FFF7F7" : theme.panel,
+                border: `1px solid ${isClientExpired ? "#FECACA" : theme.panelBorder}`,
                 borderRadius: 12, padding: 14, display: "flex", alignItems: "center", gap: 14,
+                opacity: isClientExpired ? 0.85 : 1,
               }}>
+              {/* 체크박스 */}
+              <input
+                type="checkbox"
+                checked={selectedIds.has(p.id)}
+                onChange={() => toggleSelect(p.id)}
+                onClick={e => e.stopPropagation()}
+                style={{ width: 16, height: 16, cursor: "pointer", flexShrink: 0, accentColor: "#6366F1" }}
+              />
               <div style={{
                 background: meta.bg, color: meta.color,
                 padding: "4px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
@@ -331,25 +470,49 @@ export default function ProposalsPage() {
                     <span style={{ color: "#B91C1C", marginLeft: 8 }}>· {p.execError}</span>
                   )}
                 </div>
+                {isClientExpired && (
+                  <div style={{
+                    marginTop: 6, padding: "5px 10px",
+                    background: "#FEE2E2", color: "#B91C1C",
+                    borderRadius: 6, fontSize: 11, fontWeight: 700,
+                    display: "inline-flex", alignItems: "center", gap: 4,
+                  }}>
+                    ⚠ {t("proposals.expiredNotice")}
+                  </div>
+                )}
+                {!isClientExpired && expiry && (
+                  <div style={{
+                    marginTop: 4, fontSize: 11, fontWeight: 600,
+                    color: expiry.urgent ? "#D97706" : "#94A3B8",
+                    display: "flex", alignItems: "center", gap: 3,
+                  }}>
+                    <Clock size={10} />
+                    {t("proposals.expiresIn").replace("{time}", expiry.label)}
+                  </div>
+                )}
               </div>
               {isPending && (
                 <div className="prop-actions" style={{ display: "flex", gap: 6 }}>
-                  <button disabled={busyId === p.id} onClick={() => onAmend(p)}
+                  <button disabled={busyId === p.id || isClientExpired} onClick={() => !isClientExpired && onAmend(p)}
                     style={{
-                      background: "linear-gradient(135deg, #86efac 0%, #4ade80 50%, #22c55e 100%)",
-                      color: "#fff", fontWeight: 700, fontSize: 12,
+                      background: isClientExpired
+                        ? "#E2E8F0"
+                        : "linear-gradient(135deg, #86efac 0%, #4ade80 50%, #22c55e 100%)",
+                      color: isClientExpired ? "#94A3B8" : "#fff", fontWeight: 700, fontSize: 12,
                       border: "none", borderRadius: 8, padding: "8px 14px",
-                      cursor: busyId === p.id ? "wait" : "pointer",
+                      cursor: busyId === p.id || isClientExpired ? "not-allowed" : "pointer",
                       display: "inline-flex", alignItems: "center", gap: 4,
                     }}>
                     <Pencil size={12} /> {t("proposals.amend") || "주문 정정"}
                   </button>
-                  <button disabled={busyId === p.id} onClick={() => onApprove(p)}
+                  <button disabled={busyId === p.id || isClientExpired} onClick={() => !isClientExpired && onApprove(p)}
                     style={{
-                      background: "linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #6366f1 100%)",
-                      color: "#fff", fontWeight: 700, fontSize: 12,
+                      background: isClientExpired
+                        ? "#E2E8F0"
+                        : "linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #6366f1 100%)",
+                      color: isClientExpired ? "#94A3B8" : "#fff", fontWeight: 700, fontSize: 12,
                       border: "none", borderRadius: 8, padding: "8px 14px",
-                      cursor: busyId === p.id ? "wait" : "pointer",
+                      cursor: busyId === p.id || isClientExpired ? "not-allowed" : "pointer",
                     }}>
                     {busyId === p.id ? "..." : t("proposals.approve")}
                   </button>
@@ -363,6 +526,22 @@ export default function ProposalsPage() {
                   </button>
                 </div>
               )}
+              {/* 단일 삭제 버튼 */}
+              <button
+                onClick={e => { e.stopPropagation(); onDeleteOne(p.id); }}
+                title="삭제"
+                style={{
+                  width: 30, height: 30, borderRadius: 8, border: "1px solid #E5E7EB",
+                  background: "white", color: "#9CA3AF", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0,
+                  transition: "background 0.12s, color 0.12s",
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = "#FEE2E2"; e.currentTarget.style.color = "#EF4444"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "white"; e.currentTarget.style.color = "#9CA3AF"; }}
+              >
+                <Trash2 size={13} />
+              </button>
             </div>
           );
         })}
@@ -398,6 +577,15 @@ export default function ProposalsPage() {
         onSave={onSaveAmend}
         onCancelOrder={onCancelOrder}
         onClose={() => { if (!amendBusy && !cancelBusy) { setAmending(null); setAmendErr(null); } }}
+      />
+
+      <OrderRejectModal
+        open={!!rejecting}
+        proposal={rejecting}
+        loading={rejectBusy}
+        error={rejectErr}
+        onConfirm={onConfirmReject}
+        onClose={() => { if (!rejectBusy) { setRejecting(null); setRejectErr(null); } }}
       />
 
       {/* 수동 제안 생성 모달 */}
@@ -616,52 +804,3 @@ const mInputStyle = {
   fontSize: 13, outline: "none", color: "#0F172A", boxSizing: "border-box", background: "#FAFAFA",
 };
 
-const TICKER_LIST = [
-  { value: "005930", name: "삼성전자 🇰🇷" },
-  { value: "000660", name: "SK하이닉스 🇰🇷" },
-  { value: "035420", name: "NAVER 🇰🇷" },
-  { value: "005380", name: "현대차 🇰🇷" },
-  { value: "051910", name: "LG화학 🇰🇷" },
-  { value: "006400", name: "삼성SDI 🇰🇷" },
-  { value: "035720", name: "카카오 🇰🇷" },
-  { value: "207940", name: "삼성바이오로직스 🇰🇷" },
-  { value: "SPY",   name: "S&P500 ETF 🇺🇸" },
-  { value: "QQQ",   name: "나스닥100 ETF 🇺🇸" },
-  { value: "AAPL",  name: "애플 🇺🇸" },
-  { value: "TSLA",  name: "테슬라 🇺🇸" },
-  { value: "NVDA",  name: "엔비디아 🇺🇸" },
-  { value: "MSFT",  name: "마이크로소프트 🇺🇸" },
-  { value: "AMZN",  name: "아마존 🇺🇸" },
-  { value: "META",  name: "메타 🇺🇸" },
-  { value: "GOOGL", name: "구글 🇺🇸" },
-  { value: "NFLX",  name: "넷플릭스 🇺🇸" },
-  { value: "AMD",   name: "AMD 🇺🇸" },
-  { value: "INTC",  name: "인텔 🇺🇸" },
-  { value: "TSM",   name: "TSMC 🇺🇸" },
-  { value: "V",     name: "비자 🇺🇸" },
-  { value: "MA",    name: "마스터카드 🇺🇸" },
-  { value: "JPM",   name: "JP모건 🇺🇸" },
-  { value: "DIS",   name: "디즈니 🇺🇸" },
-  { value: "WMT",   name: "월마트 🇺🇸" },
-  { value: "COIN",  name: "코인베이스 🇺🇸" },
-  { value: "PLTR",  name: "팔란티어 🇺🇸" },
-];
-
-// Binance(크립토) 계좌용 심볼 — KIS 주식과 달리 USDT 페어(예: BTCUSDT)로 주문.
-const CRYPTO_LIST = [
-  { value: "BTCUSDT",  name: "비트코인" },
-  { value: "ETHUSDT",  name: "이더리움" },
-  { value: "SOLUSDT",  name: "솔라나" },
-  { value: "XRPUSDT",  name: "리플" },
-  { value: "BNBUSDT",  name: "BNB" },
-  { value: "DOGEUSDT", name: "도지코인" },
-  { value: "ADAUSDT",  name: "에이다" },
-];
-
-const ORDER_TYPES = [
-  { value: "LIMIT",  label: "보통(지정가)" },
-  { value: "MARKET", label: "시장가" },
-  { value: "LOC",    label: "LOC(장마감)" },
-];
-
-const LIMIT_SUB_TYPES = ["정규장", "장전시간외", "장후시간외", "조건부지정가", "최유리지정가", "최우선지정가"];

@@ -1091,6 +1091,8 @@ const translations = {
       },
       create: "New Proposal",
       amend: "Amend",
+      expiredNotice: "This proposal has expired and can no longer be approved.",
+      expiresIn: "Expires in {time}",
       createModal: {
         title: "Create Manual Order Proposal",
         subtitle: "Create a PENDING proposal directly.",
@@ -2254,6 +2256,8 @@ const translations = {
       },
       create: "수동 제안",
       amend: "주문 정정",
+      expiredNotice: "만료된 제안입니다. 더 이상 승인할 수 없습니다.",
+      expiresIn: "{time} 후 만료",
       createModal: {
         title: "수동 주문 제안 생성",
         subtitle: "사용자가 직접 PENDING 제안을 생성합니다",
