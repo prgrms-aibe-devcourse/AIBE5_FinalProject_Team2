@@ -136,6 +136,7 @@ function KpiCard({ label, value, sub, positive, icon: Icon }) {
 
 // ── 막대 차트 ──────────────────────────────────────────────────────────────
 function BtBarChart({ items }) {
+  const { t } = useLanguage();
   const containerRef = useRef(null);
   const [containerW, setContainerW] = useState(460);
 
@@ -150,7 +151,7 @@ function BtBarChart({ items }) {
 
   if (!items || items.length === 0) return (
     <div ref={containerRef} style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#CBD5E1", fontSize: 13 }}>
-      백테스트 결과가 없습니다
+      {t("workhome.btNoData")}
     </div>
   );
 
@@ -201,8 +202,9 @@ function BtBarChart({ items }) {
 
 // ── 전략 목록 ──────────────────────────────────────────────────────────────
 function StrategyListPanel({ items, onNav, featuredId }) {
+  const { t } = useLanguage();
   if (!items.length) return (
-    <div style={{ color: "#CBD5E1", fontSize: 13, padding: "20px 0" }}>전략이 없습니다</div>
+    <div style={{ color: "#CBD5E1", fontSize: 13, padding: "20px 0" }}>{t("workhome.noWorkspacesSmall")}</div>
   );
   const sorted = featuredId
     ? [...items].sort((a, b) => (a.id === featuredId ? -1 : b.id === featuredId ? 1 : 0))
@@ -215,9 +217,9 @@ function StrategyListPanel({ items, onNav, featuredId }) {
         const vStr = v != null ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(1)}%` : "—";
         const vColor = v != null ? (Number(v) >= 0 ? "#16A34A" : "#DC2626") : "#94A3B8";
         let badge, bColor, bBg;
-        if (s.bt)                    { badge = "백테스트 완료"; bColor = "#16A34A"; bBg = "#F0FDF4"; }
-        else if (s.status === "LIVE") { badge = "실행 중";     bColor = "#2563EB"; bBg = "#EFF6FF"; }
-        else                          { badge = "미시작";      bColor = "#94A3B8"; bBg = "#F8FAFC"; }
+        if (s.bt)                    { badge = t("workhome.badgeTested"); bColor = "#16A34A"; bBg = "#F0FDF4"; }
+        else if (s.status === "LIVE") { badge = t("workhome.badgeLive");   bColor = "#2563EB"; bBg = "#EFF6FF"; }
+        else                          { badge = t("workhome.badgeNotStarted"); bColor = "#94A3B8"; bBg = "#F8FAFC"; }
         return (
           <div key={s.id} onClick={() => onNav(s.id)} style={{
             display: "flex", alignItems: "center", gap: 8,
@@ -237,7 +239,7 @@ function StrategyListPanel({ items, onNav, featuredId }) {
               overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0,
             }}>{s.name}</span>
             {isFeatured && (
-              <span style={{ fontSize: 10, fontWeight: 800, color: "#6366F1", background: "#EDE9FE", border: "1px solid #C4B5FD", padding: "1px 7px", borderRadius: 6, flexShrink: 0 }}>대표</span>
+              <span style={{ fontSize: 10, fontWeight: 800, color: "#6366F1", background: "#EDE9FE", border: "1px solid #C4B5FD", padding: "1px 7px", borderRadius: 6, flexShrink: 0 }}>{t("workhome.badgePrimary")}</span>
             )}
             {s.riskTone && <ToneBadge tone={s.riskTone} size="sm" />}
             <span style={{ fontSize: 14, fontWeight: 700, color: vColor, flexShrink: 0 }}>{vStr}</span>
@@ -254,16 +256,17 @@ function StrategyListPanel({ items, onNav, featuredId }) {
 
 // ── 최고 전략 지표 ──────────────────────────────────────────────────────────
 function BestStrategyMetrics({ s }) {
+  const { t } = useLanguage();
   const bt = s.bt;
   if (!bt) return null;
   const fp = (v) => v != null ? `${Number(v) >= 0 ? "+" : ""}${Number(v).toFixed(1)}%` : "—";
   const fn = (v) => v != null ? Number(v).toFixed(2) : "—";
   const rows = [
-    { label: "총 수익률",    value: fp(bt.totalReturn ?? bt.cagr),   color: (bt.totalReturn ?? bt.cagr ?? 0) >= 0 ? "#16A34A" : "#DC2626" },
-    { label: "연환산(CAGR)", value: fp(bt.cagr),                     color: (bt.cagr ?? 0) >= 0 ? "#16A34A" : "#DC2626" },
-    { label: "MDD",          value: fp(bt.mdd),                     color: (() => { const a = Math.abs(Number(bt.mdd)); return a <= 15 ? "#16A34A" : a <= 25 ? "#D97706" : "#DC2626"; })() },
-    { label: "샤프 비율",    value: fn(bt.sharpe),                   color: "#0F172A" },
-    { label: "승률",         value: bt.winRate != null ? `${Number(bt.winRate).toFixed(1)}%` : "—", color: "#0F172A" },
+    { label: t("workhome.metrics.totalReturn"), value: fp(bt.totalReturn ?? bt.cagr),   color: (bt.totalReturn ?? bt.cagr ?? 0) >= 0 ? "#16A34A" : "#DC2626" },
+    { label: t("workhome.metrics.cagr"),        value: fp(bt.cagr),                     color: (bt.cagr ?? 0) >= 0 ? "#16A34A" : "#DC2626" },
+    { label: "MDD",                             value: fp(bt.mdd),                     color: (() => { const a = Math.abs(Number(bt.mdd)); return a <= 15 ? "#16A34A" : a <= 25 ? "#D97706" : "#DC2626"; })() },
+    { label: t("workhome.metrics.sharpe"),      value: fn(bt.sharpe),                   color: "#0F172A" },
+    { label: t("workhome.metrics.winRate"),     value: bt.winRate != null ? `${Number(bt.winRate).toFixed(1)}%` : "—", color: "#0F172A" },
   ];
   return (
     <div>
@@ -282,9 +285,10 @@ function BestStrategyMetrics({ s }) {
 
 // ── 수익 곡선 미니 차트 ────────────────────────────────────────────────────
 function EquityCurveChart({ data }) {
+  const { t } = useLanguage();
   if (!data || data.length < 2) return (
     <div style={{ height: 150, display: "flex", alignItems: "center", justifyContent: "center", color: "#CBD5E1", fontSize: 13 }}>
-      수익 곡선 데이터 없음
+      {t("workhome.equityNoData")}
     </div>
   );
   const base = Number(data[0].value) || 1;
@@ -437,7 +441,7 @@ export default function WorkHome() {
     const trimmed = createModalName.trim();
     if (!trimmed) return;
     const duplicate = strategies.some(s => s.name?.trim().toLowerCase() === trimmed.toLowerCase());
-    if (duplicate) { setCreateModalError("같은 이름의 워크스페이스가 이미 있어요."); return; }
+    if (duplicate) { setCreateModalError(t("workspace.duplicate")); return; }
     setCreateModalError("");
     setCreateModalOpen(false);
     setCreating(true);
@@ -447,7 +451,7 @@ export default function WorkHome() {
     } catch (e) {
       const msg = e?.response?.data?.error || e.message;
       if (e?.response?.status === 409) { setCreateModalOpen(true); setCreateModalError(msg); }
-      else alert("생성 실패: " + msg);
+      else alert(t("workspace.createFailed", { err: msg }));
     } finally { setCreating(false); }
   };
 
@@ -508,7 +512,24 @@ export default function WorkHome() {
   })();
 
   return (
-    <div style={{ padding: "36px 40px 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)", fontFamily: F, color: "#0F172A" }}>
+    <div style={{ padding: "clamp(16px, 3vw, 36px) clamp(12px, 3vw, 40px) 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)", fontFamily: F, color: "#0F172A" }}>
+      <style>{`
+        @media (max-width: 1024px) {
+          .wh-top-grid    { grid-template-columns: 1fr 1fr !important; }
+          .wh-top-grid > *:last-child { grid-column: 1 / -1; }
+          .wh-kpi-grid    { grid-template-columns: repeat(2, 1fr) !important; }
+          .wh-chart-grid  { grid-template-columns: 1fr !important; }
+          .wh-metric-grid { grid-template-columns: 1fr !important; }
+          /* postit: absolute→static so the row gets real height */
+          .wh-quote-outer   { align-self: auto !important; }
+          .wh-quote-section { position: static !important; }
+        }
+        @media (max-width: 640px) {
+          .wh-top-grid    { grid-template-columns: 1fr !important; }
+          .wh-top-grid > *:last-child { grid-column: unset; }
+          .wh-kpi-grid    { grid-template-columns: 1fr 1fr !important; }
+        }
+      `}</style>
 
       {/* 헤더 */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 32, flexWrap: "wrap", gap: 16 }}>
@@ -544,7 +565,7 @@ export default function WorkHome() {
       </div>
 
       {/* 상단: Freedom Goal · Living Briefing(높이 맞춤) + 오늘의 말씀 포스트잇(붙여준 느낌) */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr", gap: 20, marginBottom: 36, alignItems: "stretch" }}>
+      <div className="wh-top-grid" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr 1fr", gap: 20, marginBottom: 36, alignItems: "stretch" }}>
         {/* Freedom Goal Card */}
         <section style={{
           background: "white", border: "1px solid #E2E8F0",
@@ -615,7 +636,7 @@ export default function WorkHome() {
               </div>
               <div>
                 <span style={{ fontSize: 10, fontWeight: 700, color: "#6366F1", letterSpacing: 1.5, textTransform: "uppercase" }}>Today's Briefing</span>
-                <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 2, background: theme.accentGradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>라이브 시장 브리핑</div>
+                <div style={{ fontSize: 13.5, fontWeight: 700, marginTop: 2, background: theme.accentGradient, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{t("workhome.briefingLiveLabel")}</div>
               </div>
             </div>
             {briefing ? (
@@ -634,10 +655,10 @@ export default function WorkHome() {
           {/* 도착 메시지 */}
           <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.7, margin: "0 0 14px", flex: 1, whiteSpace: "pre-line" }}>
             {briefing
-              ? "오늘의 브리핑이 도착했습니다.\n지금 바로 확인해보세요."
+              ? t("workhome.briefingArrived")
               : loading
-              ? "브리핑 생성 중…"
-              : "아직 브리핑이 없습니다.\n클릭해서 지금 바로 생성해보세요."}
+              ? t("workhome.briefingGenerating")
+              : t("workhome.briefingNoData")}
           </p>
 
           {/* 하단: 도착 시간 + 읽기 CTA */}
@@ -645,11 +666,11 @@ export default function WorkHome() {
             <span style={{ fontSize: 11, color: "#94A3B8" }}>
               {briefing?.generatedAt ? (() => {
                 const d = new Date(typeof briefing.generatedAt === "number" ? briefing.generatedAt : Date.parse(briefing.generatedAt));
-                return `오늘 ${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")} 도착`;
-              })() : "브리핑 미생성"}
+                return t("workhome.briefingArrivedAt", { time: `${d.getHours().toString().padStart(2,"0")}:${d.getMinutes().toString().padStart(2,"0")}` });
+              })() : t("workhome.briefingNotGenerated")}
             </span>
             <span style={{ fontSize: 12, fontWeight: 700, color: "#6366F1", display: "inline-flex", alignItems: "center", gap: 3 }}>
-              브리핑 읽기 <ArrowRight size={12} />
+              {t("workhome.briefingRead")} <ArrowRight size={12} />
             </span>
           </div>
         </section>
@@ -658,8 +679,8 @@ export default function WorkHome() {
         {(() => { const g = getTodayGuru(username); const v = getTodayVerse(username);
           const qScale = Math.min(1, quoteW / 320);
           return (
-          <div ref={quoteRef} style={{ position: "relative", alignSelf: "stretch" }}>
-          <section style={{
+          <div ref={quoteRef} className="wh-quote-outer" style={{ position: "relative", alignSelf: "stretch" }}>
+          <section className="wh-quote-section" style={{
             position: "absolute", left: 0, right: 0, bottom: 0,
             background: "linear-gradient(165deg,#FCF6CC 0%,#F7EEB2 100%)",
             borderRadius: 14,
@@ -676,7 +697,7 @@ export default function WorkHome() {
             <p style={{ margin: "0", fontFamily: "'Caveat', cursive", fontSize: 21 * qScale, fontWeight: 500, lineHeight: 1.2, color: "#3f3a14" }}>"{v.text}"</p>
             <p style={{ margin: "1px 0 0", fontFamily: "'Caveat', cursive", fontSize: 16 * qScale, color: "#9b8a2a", textAlign: "right" }}>— {v.ref}</p>
             {/* 받는 사람 */}
-            <p style={{ margin: "12px 0 0", fontSize: 18.5 * qScale, color: "#1d4ed8", textAlign: "right", lineHeight: 1.1 }}>{username}에게</p>
+            <p style={{ margin: "12px 0 0", fontSize: 18.5 * qScale, color: "#1d4ed8", textAlign: "right", lineHeight: 1.1 }}>{t("workhome.toUsername", { username })}</p>
           </section>
           </div>
         ); })()}
@@ -685,14 +706,14 @@ export default function WorkHome() {
       {/* ── ① 내 워크스페이스 현황 KPI 4칸 ── */}
       <div style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0, color: "#0F172A" }}>내 워크스페이스 현황</h2>
+          <h2 style={{ fontSize: 18, fontWeight: 800, margin: 0, color: "#0F172A" }}>{t("workhome.overview")}</h2>
           <button onClick={onNewWs} style={{
             display: "inline-flex", alignItems: "center", gap: 6,
             background: theme.accentGradient || theme.accent, color: "white", border: "none",
             padding: "9px 16px", borderRadius: 10, fontSize: 13, fontWeight: 700,
             cursor: "pointer", boxShadow: "0 4px 12px rgba(59,130,246,0.22)",
           }}>
-            <Plus size={15} /> 새 워크스페이스
+            <Plus size={15} /> {t("workhome.newWorkspace")}
           </button>
         </div>
         {err && (
@@ -703,30 +724,30 @@ export default function WorkHome() {
         {loading && strategies.length === 0 ? (
           <div style={{ color: "#94A3B8", fontSize: 13, padding: "10px 0" }}>{t("workhome.loading")}</div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14 }}>
+          <div className="wh-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14 }}>
             <KpiCard
-              label="보유 워크스페이스 수"
+              label={t("workhome.kpi.workspaceCount")}
               value={String(strategies.length)}
-              sub={`실행 중 ${activeCount} / 미시작 ${untestedCount}`}
+              sub={t("workhome.kpi.workspaceCountSub", { active: activeCount, untested: untestedCount })}
               icon={Layers}
             />
             <KpiCard
-              label="백테스트 완료"
-              value={`${testedCount}회`}
-              sub={`전략 ${testedCount}개`}
+              label={t("workhome.kpi.btComplete")}
+              value={String(testedCount)}
+              sub={t("workhome.kpi.btCompleteSub", { count: testedCount })}
               icon={BarChart3}
             />
             <KpiCard
-              label="최고 수익률 전략"
+              label={t("workhome.kpi.bestReturn")}
               value={bestReturnStr}
-              sub={bestStrategy ? `${bestStrategy.name} (연환산)` : "없음"}
+              sub={bestStrategy ? `${bestStrategy.name} (${t("workhome.kpi.bestReturnSub")})` : t("workhome.kpi.noStrategy")}
               positive
               icon={TrendingUp}
             />
             <KpiCard
-              label="평균 샤프 비율"
+              label={t("workhome.kpi.avgSharpe")}
               value={avgSharpeStr}
-              sub={testedCount > 0 ? `전략 ${testedCount}개 평균` : "백테스트 없음"}
+              sub={testedCount > 0 ? t("workhome.kpi.avgSharpeSub", { count: testedCount }) : t("workhome.kpi.avgSharpeNoData")}
               icon={Award}
             />
           </div>
@@ -734,19 +755,19 @@ export default function WorkHome() {
       </div>
 
       {/* ── ② 차트 + ③ 전략 목록 ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1fr", gap: 18, marginBottom: 18 }}>
+      <div className="wh-chart-grid" style={{ display: "grid", gridTemplateColumns: "1.35fr 1fr", gap: 18, marginBottom: 18 }}>
         <div style={panelCard}>
-          <h3 style={panelTitle}>워크스페이스별 백테스트 수익률 비교</h3>
+          <h3 style={panelTitle}>{t("workhome.sectionChart")}</h3>
           <BtBarChart items={recentTestedItems} />
         </div>
         <div style={panelCard}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <h3 style={{ ...panelTitle, margin: 0 }}>최근 워크스페이스 목록</h3>
-            <span style={{ fontSize: 11, color: "#94A3B8", fontWeight: 500 }}>최대 5개</span>
+            <h3 style={{ ...panelTitle, margin: 0 }}>{t("workhome.sectionRecentList")}</h3>
+            <span style={{ fontSize: 11, color: "#94A3B8", fontWeight: 500 }}>{t("workhome.sectionMaxItems")}</span>
           </div>
           {strategies.length === 0 && !loading ? (
             <div style={{ color: "#CBD5E1", fontSize: 13, padding: "16px 0" }}>
-              아직 워크스페이스가 없습니다. 새로 만들어보세요.
+              {t("workhome.noWorkspacesSmall")}
             </div>
           ) : (
             <StrategyListPanel items={recentWorkspaces} onNav={(id) => nav(`/alpha/w/${id}`)} featuredId={primaryWsId} />
@@ -756,17 +777,17 @@ export default function WorkHome() {
 
       {/* ── ④ 대표 워크스페이스 지표 + 수익 곡선 ── */}
       {featuredStrategy && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
+        <div className="wh-metric-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: 18 }}>
           <div style={panelCard}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-              <h3 style={{ ...panelTitle, margin: 0 }}>대표 워크스페이스 주요 지표</h3>
+              <h3 style={{ ...panelTitle, margin: 0 }}>{t("workhome.sectionFeaturedMetrics")}</h3>
               <span style={{ fontWeight: 500, color: "#6366F1", fontSize: 13 }}>· {featuredStrategy.name}</span>
               {featuredStrategy.riskTone && <ToneBadge tone={featuredStrategy.riskTone} />}
             </div>
             <BestStrategyMetrics s={featuredStrategy} />
           </div>
           <div style={panelCard}>
-            <h3 style={panelTitle}>대표 워크스페이스 수익 곡선 <span style={{ fontWeight: 500, color: "#6366F1", fontSize: 13 }}>· {featuredStrategy.name}</span></h3>
+            <h3 style={panelTitle}>{t("workhome.sectionFeaturedCurve")} <span style={{ fontWeight: 500, color: "#6366F1", fontSize: 13 }}>· {featuredStrategy.name}</span></h3>
             <EquityCurveChart data={featuredStrategy.equityCurve} />
           </div>
         </div>

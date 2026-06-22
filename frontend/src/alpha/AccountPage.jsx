@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useState, useMemo } from "react";
-import { Wallet, Loader2, Plus } from "lucide-react";
+import ReactDOM from "react-dom";
+import { Wallet, Loader2, Plus, Trash2 } from "lucide-react";
 import binanceLogo from "../assets/binance.webp";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import { useLanguage } from "../i18n/useLanguage";
@@ -58,7 +59,7 @@ export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
       brokerCache.setAccounts(arr);
       setAccounts(arr);
     } catch (e) {
-      if (!cached) setMsg({ type: "err", text: "계좌 조회 실패: " + (e?.response?.data?.error || e.message) });
+      if (!cached) setMsg({ type: "err", text: t("account.loadFailed", { err: e?.response?.data?.error || e.message }) });
     } finally {
       setLoading(false);
     }
@@ -67,10 +68,14 @@ export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
   useEffect(() => { reload(); }, []);
 
   return (
-    <div className="alpha-account" style={{ padding: "36px 40px 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
+    <div className="alpha-account" style={{ padding: "clamp(16px, 3vw, 36px) clamp(12px, 3vw, 40px) 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
       <style>{`
+        @media (max-width: 1024px) {
+          .alpha-account .broker-tabs button { flex: 1 1 200px; }
+          .alpha-account .stat-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) !important; }
+        }
         @media (max-width: 768px) {
-          .alpha-account { padding: 16px 12px !important; }
+          .alpha-account { padding: 12px 10px !important; }
           .alpha-account h1 { font-size: 22px !important; }
           .alpha-account .broker-tabs, .alpha-account .env-tabs { flex-wrap: wrap; }
           .alpha-account .broker-tabs button, .alpha-account .env-tabs button { flex: 1 1 45%; min-width: 0; padding: 10px 12px !important; font-size: 13px !important; }
@@ -78,6 +83,7 @@ export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
           .alpha-account .action-row { flex-wrap: wrap; gap: 8px !important; }
           .alpha-account .action-row button { flex: 1 1 calc(50% - 4px); min-height: 44px; }
           .alpha-account input, .alpha-account select, .alpha-account textarea { font-size: 16px !important; }
+          .alpha-account .stat-grid { grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)) !important; }
         }
       `}</style>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 32, flexWrap: "wrap", gap: 16 }}>
@@ -144,7 +150,7 @@ export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
                       fontSize: 10, fontWeight: 700,
                       padding: "2px 7px", borderRadius: 99,
                       background: "#DCFCE7", color: "#15803D",
-                    }}>● 등록됨</span>
+                    }}>● {t("account.registered")}</span>
                   )}
                 </div>
                 <div style={{ fontSize: 11.5, color: active ? "#64748B" : "#94A3B8", marginTop: 2, fontWeight: 500 }}>
@@ -185,7 +191,7 @@ export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
                 color: active ? "white" : theme.text,
                 border: `1px solid ${active ? "transparent" : theme.border}`,
               }}>
-              {e === "MOCK" ? "🧪 모의/테스트넷" : "💰 실전/메인넷"} {has && <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.85 }}>● 등록됨</span>}
+              {e === "MOCK" ? t("account.envMock") : t("account.envLive")} {has && <span style={{ marginLeft: 6, fontSize: 11, opacity: 0.85 }}>● {t("account.registered")}</span>}
             </button>
           );
         })}
@@ -199,7 +205,7 @@ export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
         }}>{msg.text}</div>
       )}
 
-      {loading ? <div style={{ color: theme.subtle }}>불러오는 중…</div>
+      {loading ? <div style={{ color: theme.subtle }}>{t("account.loading")}</div>
         : acct
           ? (brokerType === "BINANCE"
               ? <BinanceActive key={`${brokerType}-${env}`} theme={theme} env={env} acct={acct} reload={reload} setMsg={setMsg} />
@@ -213,7 +219,7 @@ export default function AccountPage({ extraTabs = [], pageTitle } = {}) {
         brokerType={brokerType}
         env={env}
         accounts={accounts}
-        onSuccess={() => { reload(); setMsg({ type: "ok", text: "계좌 등록 완료. 아래에서 연결 테스트를 진행하세요." }); }}
+        onSuccess={() => { reload(); setMsg({ type: "ok", text: t("account.registerSuccess") }); }}
         onClose={() => setRegisterOpen(false)}
       />
     </div>
@@ -344,6 +350,7 @@ function AccountRegister({ theme, env, accounts = [], reload, setMsg }) {
 
 /* ───────────────────────────────────────────── 활성 계좌 */
 function AccountActive({ theme, env, acct, reload, setMsg }) {
+  const { t } = useLanguage();
   // 캐시 hit 시 즉시 표시 (null 초기화 없음)
   const [balance, setBalance] = useState(() => brokerCache.getBalance(env, "KIS"));
   const [orders, setOrders] = useState(() => brokerCache.getOrders(env));
@@ -351,6 +358,7 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
   const [testing, setTesting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [gate, setGate] = useState(null); // { passed, summary, checks } — REAL 계정에만 로드
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   const refresh = async ({ silent = false } = {}) => {
     if (!silent) setRefreshing(true);
@@ -384,7 +392,7 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
     setBusy(true); setTesting(true); setMsg(null);
     try {
       const res = await testBrokerAccount(env);
-      setMsg({ type: "ok", text: `연결 성공 — USD $${Number(res.cash_usd || 0).toFixed(2)} / KRW ₩${Number(res.cash_krw || 0).toLocaleString("ko-KR")}` });
+      setMsg({ type: "ok", text: t("account.testSuccess", { usd: Number(res.cash_usd || 0).toFixed(2), krw: Number(res.cash_krw || 0).toLocaleString() }) });
       // test 응답이 이미 balance 데이터를 전부 가지고 있으니 그대로 박는다.
       // (별도 refresh() 호출은 또 KIS 4종을 부르므로 EGW00201 재발 위험)
       const newBal = {
@@ -402,23 +410,19 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
       const data = e?.response?.data || {};
       // 서버 암호화 키 변경/불일치 → 재등록 안내 + 원클릭 삭제
       if (status === 409 && data.requireReregister) {
-        if (window.confirm(
-          "저장된 키를 복호화할 수 없습니다 (서버 암호화 키가 바뀌었습니다).\n\n" +
-          "이 계좌를 지금 삭제하고 다시 등록하시겠어요?\n" +
-          "(취소 시 수동으로 '삭제' 버튼을 눌러도 됩니다)"
-        )) {
+        if (window.confirm(t("account.reRegisterConfirm"))) {
           try {
             await deleteBrokerAccount(env);
             reload();
-            setMsg({ type: "ok", text: "삭제 완료 — 등록 폼에서 키를 다시 입력해 주세요." });
+            setMsg({ type: "ok", text: t("account.reRegisterSuccess") });
           } catch (de) {
-            setMsg({ type: "err", text: "자동 삭제 실패: " + (de?.response?.data?.error || de.message) });
+            setMsg({ type: "err", text: t("account.reRegisterFailed", { err: de?.response?.data?.error || de.message }) });
           }
         } else {
-          setMsg({ type: "err", text: data.error || "키 복호화 실패 — 삭제 후 재등록 필요" });
+          setMsg({ type: "err", text: data.error || t("account.cryptoKeyError") });
         }
       } else {
-        setMsg({ type: "err", text: "테스트 실패: " + (data.error || e.message) });
+        setMsg({ type: "err", text: t("account.testFailed", { err: data.error || e.message }) });
       }
     } finally { setBusy(false); setTesting(false); }
   };
@@ -432,13 +436,7 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
       // 책임고지 동의 필요 → confirm 후 /ack-risk 호출 → 재시도
       if (data?.needAck) {
         setBusy(false);
-        const agreed = window.confirm(
-          "⚠️ 실전 자동매매 책임고지\n\n" +
-          "• 투자 판단과 손익 책임은 본인에게 있습니다.\n" +
-          "• 본 서비스는 투자 자문이 아닙니다.\n" +
-          "• 레버리지 ETF 등 고위험 상품은 원금 손실이 발생할 수 있습니다.\n\n" +
-          "위 내용에 동의하고 실전 자동매매를 시작하시겠습니까?"
-        );
+        const agreed = window.confirm(t("account.ackConfirm"));
         if (!agreed) return;
         setBusy(true);
         try {
@@ -447,43 +445,42 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
           reload();
         } catch (e2) {
           const d2 = e2?.response?.data;
-          setMsg({ type: "err", text: "스위치 변경 실패: " + (d2?.error || e2.message) });
+          setMsg({ type: "err", text: t("account.tradingFailed", { err: d2?.error || e2.message }) });
         } finally { setBusy(false); }
         return;
       }
-      // 승격 게이트 실패 → 체크리스트 패널로 대체
       if (data?.checks) {
         setGate({ passed: false, summary: data.summary, checks: data.checks });
-        setMsg({ type: "err", text: "승격 게이트 미충족 — 아래 체크리스트 확인" });
+        setMsg({ type: "err", text: t("account.tradingGateFailed") });
       } else {
-        setMsg({ type: "err", text: "스위치 변경 실패: " + (data?.error || e.message) });
+        setMsg({ type: "err", text: t("account.tradingFailed", { err: data?.error || e.message }) });
       }
     } finally { setBusy(false); }
   };
   const doToggleAutoExecute = async () => {
     const turningOn = !acct.autoExecute;
-    if (turningOn && env === "REAL" &&
-        !confirm("⚠️ REAL 자동 체결을 켜면 시그널 발생 시 사람 승인 없이 실제 주문이 자동 실행됩니다.\n(모든 한도·kill-switch는 유지) 계속할까요?")) return;
+    if (turningOn && env === "REAL" && !confirm(t("account.autoExecuteConfirm"))) return;
     setBusy(true); setMsg(null);
     try {
       await setBrokerAutoExecute(env, turningOn);
-      setMsg({ type: "ok", text: turningOn ? "자동 체결 ON" : "자동 체결 OFF" });
+      setMsg({ type: "ok", text: turningOn ? t("account.autoExecuteOnMsg") : t("account.autoExecuteOffMsg") });
       reload();
     } catch (e) {
       const data = e?.response?.data;
       // REAL 졸업 게이트 미충족 → summary 안내
       if (data?.summary && data?.requiredTrades) {
-        setMsg({ type: "err", text: `REAL 자동체결 졸업 게이트 미충족 — ${data.summary}` });
+        setMsg({ type: "err", text: t("account.autoExecuteGateFailed", { summary: data.summary }) });
       } else {
-        setMsg({ type: "err", text: "자동체결 변경 실패: " + (data?.error || e.message) });
+        setMsg({ type: "err", text: t("account.autoExecuteFailed", { err: data?.error || e.message }) });
       }
     } finally { setBusy(false); }
   };
-  const doDelete = async () => {
-    if (!confirm(`${env} 계좌 등록을 정말 삭제할까요? (KIS 키도 DB에서 제거됩니다)`)) return;
+  const doDelete = () => setDeleteConfirm(true);
+  const doDeleteConfirm = async () => {
+    setDeleteConfirm(false);
     setBusy(true);
     try { await deleteBrokerAccount(env); reload(); }
-    catch (e) { setMsg({ type: "err", text: "삭제 실패: " + (e?.response?.data?.error || e.message) }); }
+    catch (e) { setMsg({ type: "err", text: t("account.deleteFailed", { err: e?.response?.data?.error || e.message }) }); }
     finally { setBusy(false); }
   };
 
@@ -491,43 +488,50 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
     <div style={{ display: "grid", gap: 16 }}>
       {/* 상태 카드 */}
       <Card theme={theme}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 22 }}>
-            <Stat label="환경" value={env === "REAL" ? "실전" : "모의"} tone={env === "REAL" ? "warn" : "info"} theme={theme} />
-            <Stat label="계좌번호" value={`${acct.cano}-${acct.acntPrdtCd}`} theme={theme} />
-            <Stat label="App Key" value={acct.appKeyMasked} theme={theme} />
-            <Stat label="검증 시각" value={acct.lastVerifiedAt ? new Date(acct.lastVerifiedAt).toLocaleString() : "미검증"}
-                  tone={acct.lastVerifiedAt ? "ok" : "warn"} theme={theme} />
-            <Stat label="매매 스위치" value={acct.tradingEnabled ? "ON" : "OFF"}
-                  tone={acct.tradingEnabled ? "ok" : "warn"} theme={theme} />
-            <Stat label="자동 체결" value={acct.autoExecute ? "ON" : "OFF"}
-                  tone={acct.autoExecute ? (env === "REAL" ? "warn" : "ok") : "info"} theme={theme} />
-            <Stat label="1회 한도" value={`$${Number(acct.maxOrderUsd || 0).toLocaleString()}`} theme={theme} />
-            <Stat label="매수 1일 한도" value={acct.dailyBuyKrw != null ? `₩${Number(acct.dailyBuyKrw).toLocaleString("ko-KR")}` : "무제한"} theme={theme} />
-            <Stat label="매도 1일 한도" value={acct.dailySellKrw != null ? `₩${Number(acct.dailySellKrw).toLocaleString("ko-KR")}` : "무제한"} theme={theme} />
-          </div>
-          <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={doTest} disabled={busy} style={{
-              ...btnSecondary,
-              display: "inline-flex", alignItems: "center", gap: 6,
-              ...(testing ? { opacity: 0.75, cursor: "wait" } : {}),
-            }}>
-              {testing
-                ? <><Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />테스트 중…</>
-                : "🔌 연결 테스트"}
-            </button>
-            <button onClick={doToggleTrading} disabled={busy || !acct.lastVerifiedAt}
-              style={acct.tradingEnabled ? btnDanger : btnPrimary}>
-              {acct.tradingEnabled ? "매매 OFF" : "매매 ON"}
-            </button>
-            <button onClick={doToggleAutoExecute} disabled={busy || !acct.tradingEnabled}
-              title={!acct.tradingEnabled ? "먼저 매매 스위치를 켜세요" : (env === "REAL" ? "REAL 은 MOCK 자동매매 2주+20회 졸업 게이트 필요" : "")}
-              style={acct.autoExecute ? btnDanger : btnSecondary}>
-              {acct.autoExecute ? "자동체결 OFF" : "🤖 자동체결 ON"}
-            </button>
-            <button onClick={doDelete} disabled={busy} style={btnDefault}>삭제</button>
-          </div>
+        <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 16 }}>
+          <tbody>
+            {[
+              { label: t("account.stat.env"),          value: env === "REAL" ? t("account.statEnvLive") : t("account.statEnvMock"), tone: env === "REAL" ? "warn" : "info" },
+              { label: t("account.stat.accountNo"),    value: `${acct.cano}-${acct.acntPrdtCd}` },
+              { label: t("account.stat.appKey"),       value: acct.appKeyMasked },
+              { label: t("account.stat.verified"),     value: acct.lastVerifiedAt ? new Date(acct.lastVerifiedAt).toLocaleString() : t("account.statUnverified"), tone: acct.lastVerifiedAt ? "ok" : "warn" },
+              { label: t("account.stat.tradingSwitch"),value: acct.tradingEnabled ? "ON" : "OFF", tone: acct.tradingEnabled ? "ok" : "warn" },
+              { label: t("account.stat.autoExecute"),  value: acct.autoExecute ? "ON" : "OFF", tone: acct.autoExecute ? (env === "REAL" ? "warn" : "ok") : "info" },
+              { label: t("account.stat.singleLimit"),  value: `$${Number(acct.maxOrderUsd || 0).toLocaleString()}` },
+              { label: t("account.stat.dailyBuyLimit"),value: acct.dailyBuyKrw != null ? `₩${Number(acct.dailyBuyKrw).toLocaleString()}` : t("account.statUnlimited") },
+              { label: t("account.stat.dailySellLimit"),value: acct.dailySellKrw != null ? `₩${Number(acct.dailySellKrw).toLocaleString()}` : t("account.statUnlimited") },
+            ].map(({ label, value, tone }, i) => {
+              const vc = tone === "ok" ? "#16a34a" : tone === "warn" ? "#d97706" : tone === "info" ? "#3b82f6" : theme.text;
+              const bg = i % 2 === 0 ? "transparent" : (theme.isDark ? "rgba(255,255,255,0.03)" : "#F8FAFC");
+              return (
+                <tr key={label} style={{ background: bg }}>
+                  <td style={{ padding: "9px 14px", fontSize: 12, color: theme.subtle, fontWeight: 500, width: "38%", borderBottom: `1px solid ${theme.border}` }}>{label}</td>
+                  <td style={{ padding: "9px 14px", color: vc, fontWeight: 700, borderBottom: `1px solid ${theme.border}`, fontFamily: "monospace", fontSize: 13 }}>{value}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div className="action-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <button onClick={doTest} disabled={busy} style={{
+            ...btnSecondary,
+            display: "inline-flex", alignItems: "center", gap: 6,
+            ...(testing ? { opacity: 0.75, cursor: "wait" } : {}),
+          }}>
+            {testing
+              ? <><Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />{t("account.testing")}</>
+              : t("account.testBtn")}
+          </button>
+          <button onClick={doToggleTrading} disabled={busy || !acct.lastVerifiedAt}
+            style={acct.tradingEnabled ? btnDanger : btnPrimary}>
+            {acct.tradingEnabled ? t("account.tradingOff") : t("account.tradingOn")}
+          </button>
+          <button onClick={doToggleAutoExecute} disabled={busy || !acct.tradingEnabled}
+            style={acct.autoExecute ? btnDanger : btnSecondary}>
+            {acct.autoExecute ? t("account.autoExecuteOff") : t("account.autoExecuteOn")}
+          </button>
+          <button onClick={doDelete} disabled={busy} style={btnDefault}>{t("account.deleteBtn")}</button>
         </div>
       </Card>
 
@@ -535,7 +539,7 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
       {env === "REAL" && gate && (
         <Card theme={theme}>
           <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>
-            {gate.passed ? "✅ MOCK→REAL 승격 게이트 통과" : "🚧 MOCK→REAL 승격 게이트"}
+            {gate.passed ? t("account.gatePassedTitle") : t("account.gatePendingTitle")}
           </h3>
           <p style={{ fontSize: 12, color: theme.subtle, marginTop: 0, marginBottom: 12, lineHeight: 1.6 }}>
             {gate.summary}
@@ -567,34 +571,34 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
       <Card theme={theme}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>
-            📊 보유 자산
-            {refreshing && <span style={{ marginLeft: 8, fontSize: 11, color: "#94A3B8", fontWeight: 500 }}>갱신 중…</span>}
+            {t("account.balanceSectionTitle")}
+            {refreshing && <span style={{ marginLeft: 8, fontSize: 11, color: "#94A3B8", fontWeight: 500 }}>{t("account.balanceRefreshing")}</span>}
           </h3>
-          <div title="통합증거금이 활성화되어 있어 USD 잔고가 0이어도 KRW에서 환산 차감으로 미국 주식 매수가 가능합니다."
-            style={{
+          <div style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               padding: "6px 12px", borderRadius: 999,
               background: "linear-gradient(135deg,#ecfdf5 0%,#d1fae5 100%)",
               border: "1px solid #6ee7b7", color: "#065f46",
               fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
             }}>
-            ✅ 통합증거금 ON · KRW→USD 자동환산 매수 가능
+            {t("account.collateralBadge")}
           </div>
         </div>
-        {!balance ? <div style={{ color: theme.subtle, fontSize: 13 }}>연결 테스트 후 표시됩니다.</div> : (
+        {!balance ? <div style={{ color: theme.subtle, fontSize: 13 }}>{t("account.balanceNotLoaded")}</div> : (
           <>
             <div style={{ fontSize: 13, color: theme.subtle, marginBottom: 8 }}>
-              예수금 (USD): <b style={{ color: theme.text }}>${Number(balance.cash_usd || 0).toFixed(2)}</b>
-              {" · "}예수금 (KRW): <b style={{ color: theme.text }}>₩{Number(balance.cash_krw || 0).toLocaleString("ko-KR")}</b>
-              {" · "}총 평가금액: <b style={{ color: theme.text }}>${Number(balance.total_market_value_usd || 0).toFixed(2)}</b>
+              {t("account.cashUsd")} <b style={{ color: theme.text }}>${Number(balance.cash_usd || 0).toFixed(2)}</b>
+              {" · "}{t("account.cashKrw")} <b style={{ color: theme.text }}>₩{Number(balance.cash_krw || 0).toLocaleString()}</b>
+              {" · "}{t("account.totalValue")} <b style={{ color: theme.text }}>${Number(balance.total_market_value_usd || 0).toFixed(2)}</b>
             </div>
             {(balance.positions || []).length === 0 ? (
-              <div style={{ color: theme.subtle, fontSize: 13 }}>보유 종목 없음</div>
+              <div style={{ color: theme.subtle, fontSize: 13 }}>{t("account.noPositions")}</div>
             ) : (
+              <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
                 <thead><tr style={{ color: theme.subtle, textAlign: "left" }}>
-                  <th style={th}>종목</th><th style={th}>수량</th><th style={th}>평단</th>
-                  <th style={th}>평가금액</th><th style={th}>평가손익</th>
+                  <th style={th}>{t("account.colTicker")}</th><th style={th}>{t("account.colQty")}</th><th style={th}>{t("account.colAvg")}</th>
+                  <th style={th}>{t("account.colValue")}</th><th style={th}>{t("account.colPnL")}</th>
                 </tr></thead>
                 <tbody>
                   {balance.positions.map((p, i) => {
@@ -630,6 +634,7 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </>
         )}
@@ -643,15 +648,24 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
 
       {/* 당일 주문 */}
       <Card theme={theme}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>📜 당일 주문 내역</h3>
+        <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>{t("account.ordersSectionTitle")}</h3>
         <OrdersTable theme={theme} orders={orders} />
       </Card>
+
+      <DeleteAccountModal
+        open={deleteConfirm}
+        brokerName="KIS"
+        envLabel={env === "REAL" ? t("account.liveInvest") : t("account.mockInvest")}
+        onConfirm={doDeleteConfirm}
+        onClose={() => setDeleteConfirm(false)}
+      />
     </div>
   );
 }
 
 /* ───────────────────────────────────────────── 주문 폼 */
 function OrderForm({ theme, env, acct, setMsg, onPlaced }) {
+  const { t } = useLanguage();
   const [form, setForm] = useState({ ticker: "QQQ", side: "BUY", quantity: 1, limitPrice: "" });
   const [quote, setQuote] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -670,7 +684,7 @@ function OrderForm({ theme, env, acct, setMsg, onPlaced }) {
       });
       setPreview(p);
     } catch (e) {
-      setMsg({ type: "err", text: "프리뷰 실패: " + (e?.response?.data?.error || e.message) });
+      setMsg({ type: "err", text: t("account.previewFailed", { err: e?.response?.data?.error || e.message }) });
     } finally { setBusy(false); }
   };
   const doPlace = async () => {
@@ -681,11 +695,11 @@ function OrderForm({ theme, env, acct, setMsg, onPlaced }) {
         ...form, ticker: form.ticker.toUpperCase(),
         limitPrice: form.limitPrice ? Number(form.limitPrice) : null,
       });
-      setMsg({ type: "ok", text: `주문 전송 완료 — KIS 주문번호 ${r.kis_order_no || "(응답확인)"}` });
+      setMsg({ type: "ok", text: t("account.orderSent", { no: r.kis_order_no || "(응답확인)" }) });
       setPreview(null);
       onPlaced?.();
     } catch (e) {
-      setMsg({ type: "err", text: "주문 실패: " + (e?.response?.data?.error || e.message) });
+      setMsg({ type: "err", text: t("account.orderFailed", { err: e?.response?.data?.error || e.message }) });
     } finally { setBusy(false); }
   };
 
@@ -693,33 +707,33 @@ function OrderForm({ theme, env, acct, setMsg, onPlaced }) {
 
   return (
     <Card theme={theme}>
-      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>🛒 수동 주문 ({env === "REAL" ? "실전" : "모의"})</h3>
+      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>{t("account.orderFormTitle", { env: env === "REAL" ? t("account.statEnvLive") : t("account.statEnvMock") })}</h3>
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1.2fr auto", gap: 8, alignItems: "end" }}>
-        <Field label="티커">
+        <Field label={t("account.fieldTicker")}>
           <input style={inp(theme)} value={form.ticker}
             onChange={e => setForm(f => ({ ...f, ticker: e.target.value }))}
             onBlur={e => fetchQuote(e.target.value.trim().toUpperCase())} />
         </Field>
-        <Field label="매매구분">
+        <Field label={t("account.fieldSide")}>
           <select style={inp(theme)} value={form.side}
             onChange={e => setForm(f => ({ ...f, side: e.target.value }))}>
-            <option value="BUY">매수</option><option value="SELL">매도</option>
+            <option value="BUY">{t("account.optionBuy")}</option><option value="SELL">{t("account.optionSell")}</option>
           </select>
         </Field>
-        <Field label="수량">
+        <Field label={t("account.fieldQty")}>
           <input type="number" min="1" style={inp(theme)} value={form.quantity}
             onChange={e => setForm(f => ({ ...f, quantity: Number(e.target.value) }))} />
         </Field>
-        <Field label="지정가 (USD)">
+        <Field label={t("account.fieldLimitUsd")}>
           <input type="number" step="0.01" style={inp(theme)} value={form.limitPrice}
             onChange={e => setForm(f => ({ ...f, limitPrice: e.target.value }))} />
         </Field>
-        <button onClick={doPreview} disabled={busy} style={btnSecondary}>프리뷰</button>
+        <button onClick={doPreview} disabled={busy} style={btnSecondary}>{t("account.previewBtn")}</button>
       </div>
 
       {quote && quote.last_price > 0 && (
         <div style={{ marginTop: 10, fontSize: 12, color: theme.subtle }}>
-          📊 <b>{quote.ticker}</b> ({quote.exchange}) 현재가:{" "}
+          📊 <b>{quote.ticker}</b> ({quote.exchange}):{" "}
           <b style={{ color: theme.text }}>${Number(quote.last_price).toFixed(2)}</b>{" "}
           <span style={{ color: quote.change_rate_pct >= 0 ? "#22c55e" : "#ef4444" }}>
             ({quote.change_rate_pct >= 0 ? "+" : ""}{Number(quote.change_rate_pct).toFixed(2)}%)
@@ -728,7 +742,7 @@ function OrderForm({ theme, env, acct, setMsg, onPlaced }) {
           <button type="button"
             onClick={() => setForm(f => ({ ...f, limitPrice: quote.last_price.toFixed(2) }))}
             style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>
-            이 가격으로 입력 →
+            {t("account.useThisPrice")}
           </button>
         </div>
       )}
@@ -741,15 +755,15 @@ function OrderForm({ theme, env, acct, setMsg, onPlaced }) {
           fontSize: 13,
         }}>
           <div style={{ fontWeight: 800, marginBottom: 6 }}>
-            {overLimit ? "❌ 한도 초과" : `✅ ${preview.side} ${preview.quantity}주 @ $${preview.limit_price}`}
+            {overLimit ? t("account.previewOverLimit") : `✅ ${preview.side} ${preview.quantity} @ $${preview.limit_price}`}
           </div>
-          <div>예상 총액: ${Number(preview.est_total_usd).toFixed(2)} / 한도 ${preview.max_order_usd}</div>
+          <div>{t("account.previewEstTotal", { total: Number(preview.est_total_usd).toFixed(2), limit: preview.max_order_usd })}</div>
           <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
             <button onClick={doPlace} disabled={busy || !preview.ok || !acct.tradingEnabled}
               style={form.side === "BUY" ? btnPrimary : btnDanger}>
-              {acct.tradingEnabled ? `🚀 ${form.side === "BUY" ? "매수" : "매도"} 실행` : "매매 스위치 OFF"}
+              {acct.tradingEnabled ? `${form.side === "BUY" ? t("account.executeBuy") : t("account.executeSell")}` : t("account.tradingSwitchOff")}
             </button>
-            <button onClick={() => setPreview(null)} style={btnDefault}>취소</button>
+            <button onClick={() => setPreview(null)} style={btnDefault}>{t("account.cancelBtn")}</button>
           </div>
         </div>
       )}
@@ -759,6 +773,7 @@ function OrderForm({ theme, env, acct, setMsg, onPlaced }) {
 
 /* ───────────────────────────────────────────── 자동 주문 패널 (무한매수법) */
 function AutoOrderPanel({ theme, env, orders }) {
+  const { t } = useLanguage();
   const LS_KEY = `autoStrategy:${env}`;
   const [strategies, setStrategies] = useState(() => {
     try {
@@ -773,8 +788,7 @@ function AutoOrderPanel({ theme, env, orders }) {
 
   const toggle = (ticker) => setStrategies(s => ({ ...s, [ticker]: !s[ticker] }));
 
-  // 무한매수법 룰 요약: 매일 시드의 1/40씩 분할매수, +10% 도달 시 전량 매도, 40회 분할 완료 시 사이클 리셋
-  const RULE = "매일 시드의 1/40 분할매수 · +10% 도달 시 전량 매도 · 40회 완주 시 사이클 리셋";
+  const RULE = t("account.autoOrderRule");
 
   // 자동 주문으로 표시할 후보: 오늘 주문 중 strategy_tag === 'INFINITE_BUY' 또는 메모에 [AUTO] 포함
   const autoOrders = useMemo(() => {
@@ -789,8 +803,8 @@ function AutoOrderPanel({ theme, env, orders }) {
   return (
     <Card theme={theme}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>🤖 자동 주문 내역 — 무한매수법</h3>
-        <div style={{ fontSize: 11, color: theme.subtle }}>전략: <b style={{ color: theme.text }}>레버리지 ETF 무한매수법</b></div>
+        <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{t("account.autoOrderTitle")}</h3>
+        <div style={{ fontSize: 11, color: theme.subtle }}><b style={{ color: theme.text }}>{t("account.autoOrderStrategyLabel")}</b></div>
       </div>
       <div style={{
         padding: 10, borderRadius: 8, marginBottom: 12,
@@ -800,17 +814,17 @@ function AutoOrderPanel({ theme, env, orders }) {
         ℹ️ {RULE}
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
-        {["TQQQ", "SOXL"].map(t => {
-          const on = !!strategies[t];
+        {["TQQQ", "SOXL"].map(sym => {
+          const on = !!strategies[sym];
           return (
-            <button key={t} onClick={() => toggle(t)} style={{
+            <button key={sym} onClick={() => toggle(sym)} style={{
               padding: "10px 16px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: 13,
               minWidth: 180, display: "inline-flex", alignItems: "center", justifyContent: "space-between", gap: 10,
               background: on ? "linear-gradient(135deg,#60a5fa 0%,#3b82f6 50%,#6366f1 100%)" : theme.card,
               color: on ? "white" : theme.text,
               border: `1px solid ${on ? "transparent" : theme.border}`,
             }}>
-              <span>{t} 무한매수법</span>
+              <span>{sym} {t("account.infiniteBuyLabel")}</span>
               <span style={{
                 fontSize: 11, padding: "2px 8px", borderRadius: 999,
                 background: on ? "rgba(255,255,255,0.25)" : "#f3f4f6",
@@ -827,8 +841,8 @@ function AutoOrderPanel({ theme, env, orders }) {
           background: theme.card, border: `1px dashed ${theme.border}`, color: theme.subtle, fontSize: 13,
         }}>
           {Object.values(strategies).some(Boolean)
-            ? "오늘 체결된 자동 주문이 없습니다 — 다음 미국장 개장 시 스케줄러가 분할매수/익절 주문을 자동 전송합니다."
-            : "활성화된 자동 전략이 없습니다 — 위에서 종목을 ON으로 켜주세요."}
+            ? t("account.autoOrderNoOrders")
+            : t("account.autoOrderNoStrategy")}
         </div>
       ) : (
         <OrdersTable theme={theme} orders={autoOrders} />
@@ -860,6 +874,7 @@ function Stat({ label, value, tone, theme }) {
 
 /* 당일 주문 내역 — KIS inquire-ccnl 응답(output 배열) 정상화 */
 function OrdersTable({ theme, orders }) {
+  const { t } = useLanguage();
   // 백엔드가 KIS raw JsonNode를 그대로 반환 → output / output1 / output2 어디든 배열을 찾는다
   const rows = (() => {
     if (!orders || typeof orders !== "object") return null;
@@ -870,13 +885,14 @@ function OrdersTable({ theme, orders }) {
   })();
   if (!orders) return <div style={{ color: theme.subtle, fontSize: 13 }}>—</div>;
   if (!rows || rows.length === 0) {
-    return <div style={{ color: theme.subtle, fontSize: 13 }}>당일 주문 없음</div>;
+    return <div style={{ color: theme.subtle, fontSize: 13 }}>{t("account.noOrdersToday")}</div>;
   }
   return (
+    <div style={{ overflowX: "auto" }}>
     <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
       <thead><tr style={{ color: theme.subtle, textAlign: "left" }}>
-        <th style={th}>시각</th><th style={th}>종목</th><th style={th}>구분</th>
-        <th style={th}>수량/체결</th><th style={th}>주문단가</th><th style={th}>체결단가</th><th style={th}>상태</th>
+        <th style={th}>{t("account.colTime")}</th><th style={th}>{t("account.colTicker")}</th><th style={th}>{t("account.colSide")}</th>
+        <th style={th}>{t("account.colQtyFilled")}</th><th style={th}>{t("account.colOrderPrice")}</th><th style={th}>{t("account.colFillPrice")}</th><th style={th}>{t("account.colStatus")}</th>
       </tr></thead>
       <tbody>
         {rows.map((r, i) => {
@@ -891,32 +907,32 @@ function OrdersTable({ theme, orders }) {
           const name = r.prdt_name || r.prdt_name_kor || "";
           const tickerDisplay = name ? `${name}(${ticker})` : ticker;
 
-          const side = (r.sll_buy_dvsn_cd === "01" || r.buy_sll_dvsn_cd === "01") ? "매도"
-                     : (r.sll_buy_dvsn_cd === "02" || r.buy_sll_dvsn_cd === "02") ? "매수"
+          const side = (r.sll_buy_dvsn_cd === "01" || r.buy_sll_dvsn_cd === "01") ? t("account.sideSell")
+                     : (r.sll_buy_dvsn_cd === "02" || r.buy_sll_dvsn_cd === "02") ? t("account.sideBuy")
                      : (r.sll_buy_dvsn_cd || r.buy_sll_dvsn_cd || "-");
 
           const ordQty    = r.ord_qty    || r.tot_ord_qty  || "-";
           const fillQty   = r.ft_ord_qty || r.tot_ccld_qty || r.ccld_qty || "0";
           const qtyDisplay = fillQty !== "0" && fillQty !== 0
-            ? `${ordQty} / ${fillQty}체결`
+            ? `${ordQty} / ${fillQty} ${t("account.filledSuffix")}`
             : `${ordQty}`;
 
           // 주문단가: "0" 또는 빈값이면 시장가
           const ordUnpr = r.ord_unpr || r.ord_unpr3 || "";
           const isMarket = !ordUnpr || ordUnpr === "0";
-          const ordPriceDisplay = isMarket ? "시장가" : ordUnpr;
+          const ordPriceDisplay = isMarket ? t("account.marketPrice") : ordUnpr;
 
           // 체결단가: ft_ccld_unpr(평균체결단가) 우선
           const fillPrice = r.ft_ccld_unpr || r.avg_unpr || r.avg_prvs || "";
           const fillPriceDisplay = fillPrice && fillPrice !== "0" ? fillPrice : "-";
 
-          const status = r.ord_stat_name || (r.ccld_yn === "Y" ? "체결" : r.ccld_yn === "N" ? "미체결" : null)
-                       || (Number(r.rmn_qty || r.nccs_qty) > 0 ? "미체결" : "체결");
+          const status = r.ord_stat_name || (r.ccld_yn === "Y" ? t("account.statusFilled") : r.ccld_yn === "N" ? t("account.statusUnfilled") : null)
+                       || (Number(r.rmn_qty || r.nccs_qty) > 0 ? t("account.statusUnfilled") : t("account.statusFilled"));
           return (
             <tr key={i} style={{ borderTop: `1px solid ${theme.border}` }}>
               <td style={td}>{time}</td>
               <td style={{ ...td, maxWidth: 180, wordBreak: "break-all" }}>{tickerDisplay}</td>
-              <td style={{ ...td, color: side === "매수" ? "#16a34a" : side === "매도" ? "#dc2626" : undefined, fontWeight: 600 }}>{side}</td>
+              <td style={{ ...td, color: side === t("account.sideBuy") ? "#16a34a" : side === t("account.sideSell") ? "#dc2626" : undefined, fontWeight: 600 }}>{side}</td>
               <td style={td}>{qtyDisplay}</td>
               <td style={td}>{ordPriceDisplay}</td>
               <td style={{ ...td, fontWeight: fillPriceDisplay !== "-" ? 600 : undefined }}>{fillPriceDisplay}</td>
@@ -926,6 +942,7 @@ function OrdersTable({ theme, orders }) {
         })}
       </tbody>
     </table>
+    </div>
   );
 }
 
@@ -1054,6 +1071,7 @@ function BinanceRegister({ theme, env, reload, setMsg }) {
 
 /* ─────────────────────────────── 미등록 빈 상태 */
 function RegisterEmptyState({ brokerType, env, onOpen }) {
+  const { t } = useLanguage();
   const isMock = env === "MOCK";
   const isBinance = brokerType === "BINANCE";
   const grad = isMock
@@ -1065,7 +1083,7 @@ function RegisterEmptyState({ brokerType, env, onOpen }) {
   const btnGrad = isMock
     ? "linear-gradient(135deg,#60a5fa 0%,#3b82f6 50%,#6366f1 100%)"
     : "linear-gradient(135deg,#f87171 0%,#dc2626 100%)";
-  const envLabel = isMock ? (isBinance ? "테스트넷" : "모의투자") : (isBinance ? "메인넷" : "실전투자");
+  const envLabel = isMock ? (isBinance ? t("account.testnet") : t("account.mockInvest")) : (isBinance ? t("account.mainnet") : t("account.liveInvest"));
 
   return (
     <div style={{
@@ -1091,12 +1109,10 @@ function RegisterEmptyState({ brokerType, env, onOpen }) {
       </div>
       <div>
         <h3 style={{ margin: "0 0 8px", fontSize: 17, fontWeight: 800, color: "#0F172A" }}>
-          {isBinance ? "Binance" : "KIS"} {envLabel} 계좌가 없습니다
+          {t("account.emptyTitle", { broker: isBinance ? "Binance" : "KIS", env: envLabel })}
         </h3>
         <p style={{ margin: 0, fontSize: 13.5, color: "#64748B", lineHeight: 1.7, maxWidth: 340 }}>
-          {isMock
-            ? "가상 자금으로 전략을 검증해보세요. 실제 돈이 필요 없습니다."
-            : "실제 자금으로 자동 주문을 연결합니다. 충분히 검증 후 시작하세요."}
+          {isMock ? t("account.emptyMockDesc") : t("account.emptyLiveDesc")}
         </p>
       </div>
       <button onClick={onOpen} style={{
@@ -1111,7 +1127,7 @@ function RegisterEmptyState({ brokerType, env, onOpen }) {
         onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "none"; }}
       >
         <Plus size={16} />
-        {envLabel} 계좌 등록하기
+        {t("account.emptyRegisterBtn", { env: envLabel })}
       </button>
     </div>
   );
@@ -1119,10 +1135,12 @@ function RegisterEmptyState({ brokerType, env, onOpen }) {
 
 /* ─────────────────────────────── Binance 활성 계좌 */
 function BinanceActive({ theme, env, acct, reload, setMsg }) {
+  const { t } = useLanguage();
   const [balance, setBalance] = useState(null);
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [mode, setMode] = useState(acct.binanceMode || "SPOT");
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   const refresh = async () => {
     try {
@@ -1138,35 +1156,35 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
       const res = await testBinanceAccount(env, mode);
       const bal = res.balance || {};
       const summary = mode === "FUTURES"
-        ? `잔고 ${Number(bal.totalWalletBalance || 0).toFixed(2)} USDT (가용: ${Number(bal.availableBalance || 0).toFixed(2)})`
-        : `잔고 ${Number(bal.totalUsdtValue || 0).toFixed(2)} USDT`;
-      setMsg({ type: "ok", text: `Binance 연결 성공 — ${summary}` });
+        ? `${Number(bal.totalWalletBalance || 0).toFixed(2)} USDT (${Number(bal.availableBalance || 0).toFixed(2)} avail.)`
+        : `${Number(bal.totalUsdtValue || 0).toFixed(2)} USDT`;
+      setMsg({ type: "ok", text: t("account.binanceTestSuccess", { summary }) });
       setBalance(bal);
       reload();
     } catch (e) {
-      setMsg({ type: "err", text: "테스트 실패: " + (e?.response?.data?.error || e.message) });
+      setMsg({ type: "err", text: t("account.binanceTestFailed", { err: e?.response?.data?.error || e.message }) });
     } finally { setBusy(false); setTesting(false); }
   };
 
-  const doDelete = async () => {
-    if (!confirm(`${env} Binance 계정을 삭제할까요?`)) return;
+  const doDelete = () => setDeleteConfirm(true);
+  const doDeleteConfirm = async () => {
+    setDeleteConfirm(false);
     setBusy(true);
     try { await deleteBrokerAccount(env, "BINANCE"); reload(); }
-    catch (e) { setMsg({ type: "err", text: "삭제 실패: " + (e?.response?.data?.error || e.message) }); }
+    catch (e) { setMsg({ type: "err", text: t("account.binanceDeleteFailed", { err: e?.response?.data?.error || e.message }) }); }
     finally { setBusy(false); }
   };
 
-  // 매매 스위치 토글 (brokerType=BINANCE 명시 — 미지정 시 백엔드가 KIS 로 라우팅하는 버그 회피)
   const doToggleTrading = async () => {
     const next = !acct.tradingEnabled;
-    if (next && env === "REAL" && !confirm("실전(메인넷) Binance 매매를 활성화합니다. 실제 자산으로 주문이 나갈 수 있어요. 계속할까요?")) return;
+    if (next && env === "REAL" && !confirm(t("account.binanceTradingOnConfirm"))) return;
     setBusy(true); setMsg(null);
     try {
       await setBrokerTrading(env, next, "BINANCE");
-      setMsg({ type: "ok", text: `매매 스위치 ${next ? "ON ✅" : "OFF"}` });
+      setMsg({ type: "ok", text: next ? t("account.binanceTradingOnMsg") : t("account.binanceTradingOffMsg") });
       reload();
     } catch (e) {
-      setMsg({ type: "err", text: "스위치 변경 실패: " + (e?.response?.data?.error || e.message) });
+      setMsg({ type: "err", text: t("account.binanceTradingFailed", { err: e?.response?.data?.error || e.message }) });
     } finally { setBusy(false); }
   };
 
@@ -1181,14 +1199,14 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
     <div style={{ display: "grid", gap: 16 }}>
       <Card theme={theme}>
         <h2 style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>
-          🟡 Binance {env === "MOCK" ? "테스트넷" : "메인넷"} 계정
+          {t("account.binanceTitle", { env: env === "MOCK" ? t("account.testnet") : t("account.mainnet") })}
         </h2>
         {infoRow("API Key", acct.binanceApiKeyMasked || "—")}
-        {infoRow("거래 모드", acct.binanceMode || "SPOT")}
-        {infoRow("매매 활성화", acct.tradingEnabled ? "✅ ON" : "❌ OFF")}
-        {infoRow("마지막 검증", acct.lastVerifiedAt ? new Date(acct.lastVerifiedAt).toLocaleString("ko-KR") : "미검증")}
-        {infoRow("1회 한도", `$${(acct.maxOrderUsd || 0).toLocaleString()}`)}
-        {infoRow("일일 한도", `$${(acct.dailyOrderUsd || 0).toLocaleString()}`)}
+        {infoRow(t("account.binanceTradingMode"), acct.binanceMode || "SPOT")}
+        {infoRow(t("account.binanceTradingEnabled"), acct.tradingEnabled ? "✅ ON" : "❌ OFF")}
+        {infoRow(t("account.binanceLastVerified"), acct.lastVerifiedAt ? new Date(acct.lastVerifiedAt).toLocaleString() : t("account.statUnverified"))}
+        {infoRow(t("account.binanceSingleLimit"), `$${(acct.maxOrderUsd || 0).toLocaleString()}`)}
+        {infoRow(t("account.binanceDailyLimit"), `$${(acct.dailyOrderUsd || 0).toLocaleString()}`)}
 
         {/* 모드 선택 */}
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
@@ -1209,20 +1227,20 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
             ...(testing ? { opacity: 0.75, cursor: "wait" } : {}),
           }}>
             {testing
-              ? <><Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />테스트 중…</>
-              : "🔗 연결 테스트"}
+              ? <><Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />{t("account.binanceTesting")}</>
+              : t("account.binanceTestBtn")}
           </button>
           {acct.lastVerifiedAt && (
             <button onClick={doToggleTrading} disabled={busy}
               style={acct.tradingEnabled ? btnDanger : { ...btnPrimary, background: "linear-gradient(135deg,#22c55e,#16a34a)" }}>
-              {acct.tradingEnabled ? "⏸ 매매 OFF" : "▶ 매매 ON"}
+              {acct.tradingEnabled ? t("account.binanceTradingOff") : t("account.binanceTradingOn")}
             </button>
           )}
           <button onClick={() => refresh()} disabled={busy} style={btnSecondary}>
-            잔고 새로고침
+            {t("account.binanceRefresh")}
           </button>
           <button onClick={doDelete} disabled={busy} style={btnDanger}>
-            삭제
+            {t("account.binanceDeleteBtn")}
           </button>
         </div>
       </Card>
@@ -1234,22 +1252,29 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
       {mode === "FUTURES" && (
         <Card theme={theme}>
           <div style={{ fontSize: 13, color: theme.subtle }}>
-            ⚠️ 선물(FUTURES) 주문은 현재 비활성화되어 있습니다 — 안전을 위해 <strong>SPOT(현물)</strong>만 지원합니다.
-            (잔고·포지션 조회는 가능)
+            {t("account.binanceFuturesDisabled")}
           </div>
         </Card>
       )}
 
+      <DeleteAccountModal
+        open={deleteConfirm}
+        brokerName="Binance"
+        envLabel={env === "REAL" ? t("account.mainnet") : t("account.testnet")}
+        onConfirm={doDeleteConfirm}
+        onClose={() => setDeleteConfirm(false)}
+      />
+
       {/* 잔고 카드 */}
       {balance && (
         <Card theme={theme}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>💰 {mode} 잔고</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>{t("account.binanceBalance", { mode })}</h3>
           {mode === "FUTURES" ? (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               {[
-                ["지갑 잔고", `${Number(balance.totalWalletBalance || 0).toFixed(4)} USDT`],
-                ["가용 잔고", `${Number(balance.availableBalance || 0).toFixed(4)} USDT`],
-                ["미실현 손익", `${Number(balance.totalUnrealizedProfit || 0).toFixed(4)} USDT`],
+                [t("account.binanceWalletBalance"), `${Number(balance.totalWalletBalance || 0).toFixed(4)} USDT`],
+                [t("account.binanceAvailableBalance"), `${Number(balance.availableBalance || 0).toFixed(4)} USDT`],
+                [t("account.binanceUnrealizedPnl"), `${Number(balance.totalUnrealizedProfit || 0).toFixed(4)} USDT`],
               ].map(([k, v]) => (
                 <div key={k} style={{ background: theme.bg, borderRadius: 8, padding: "8px 12px", border: `1px solid ${theme.border}` }}>
                   <div style={{ fontSize: 11, color: theme.subtle }}>{k}</div>
@@ -1260,14 +1285,15 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
           ) : (
             <div>
               <div style={{ fontSize: 13, color: theme.subtle, marginBottom: 8 }}>
-                총 추정 USDT 가치: <strong>{Number(balance.totalUsdtValue || 0).toFixed(4)} USDT</strong>
-                &nbsp;|&nbsp; 거래 가능: {balance.canTrade ? "✅" : "❌"}
+                {t("account.binanceTotalUsdt")} <strong>{Number(balance.totalUsdtValue || 0).toFixed(4)} USDT</strong>
+                &nbsp;|&nbsp; {t("account.binanceTradable")} {balance.canTrade ? "✅" : "❌"}
               </div>
               {Array.isArray(balance.balances) && balance.balances.length > 0 && (
+                <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: theme.bg }}>
-                      <th style={th}>자산</th><th style={th}>가용</th><th style={th}>잠금</th>
+                      <th style={th}>{t("account.binanceColAsset")}</th><th style={th}>{t("account.binanceColFree")}</th><th style={th}>{t("account.binanceColLocked")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1280,6 +1306,7 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </div>
           )}
@@ -1287,12 +1314,13 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
           {/* 오픈 포지션 (선물만) */}
           {mode === "FUTURES" && Array.isArray(balance.openPositions) && balance.openPositions.length > 0 && (
             <div style={{ marginTop: 12 }}>
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>오픈 포지션</div>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>{t("account.binanceOpenPositions")}</div>
+              <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: theme.bg }}>
-                    <th style={th}>심볼</th><th style={th}>수량</th><th style={th}>진입가</th>
-                    <th style={th}>미실현P&L</th><th style={th}>레버리지</th>
+                    <th style={th}>{t("account.binanceColSymbol")}</th><th style={th}>{t("account.binanceColQty")}</th><th style={th}>{t("account.binanceColEntry")}</th>
+                    <th style={th}>{t("account.binanceColPnl")}</th><th style={th}>{t("account.binanceColLeverage")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1311,6 +1339,7 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </Card>
@@ -1321,6 +1350,7 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
 
 /* ─────────────────────────────── Binance 현물 주문 폼 (분수 수량 · MARKET/LIMIT · USDT) */
 function BinanceOrderForm({ theme, env, acct, setMsg, onPlaced }) {
+  const { t } = useLanguage();
   const [form, setForm] = useState({ symbol: "BTCUSDT", side: "BUY", quantity: "", type: "MARKET", limitPrice: "" });
   const [quote, setQuote] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -1341,7 +1371,7 @@ function BinanceOrderForm({ theme, env, acct, setMsg, onPlaced }) {
   const doPreview = async () => {
     setBusy(true); setMsg(null);
     try { setPreview(await previewBrokerOrder(env, buildBody(), "BINANCE")); }
-    catch (e) { setMsg({ type: "err", text: "프리뷰 실패: " + (e?.response?.data?.error || e.message) }); }
+    catch (e) { setMsg({ type: "err", text: t("account.binancePreviewFailed", { err: e?.response?.data?.error || e.message }) }); }
     finally { setBusy(false); }
   };
   const doPlace = async () => {
@@ -1349,11 +1379,11 @@ function BinanceOrderForm({ theme, env, acct, setMsg, onPlaced }) {
     setBusy(true); setMsg(null);
     try {
       const r = await placeBrokerOrder(env, buildBody(), "BINANCE");
-      setMsg({ type: "ok", text: `Binance 주문 전송 완료 — 주문번호 ${r.order_no || "(응답확인)"}${r.status_code ? ` (${r.status_code})` : ""}` });
+      setMsg({ type: "ok", text: t("account.binanceOrderSent", { no: `${r.order_no || "(응답확인)"}${r.status_code ? ` (${r.status_code})` : ""}` }) });
       setPreview(null);
       onPlaced?.();
     } catch (e) {
-      setMsg({ type: "err", text: "주문 실패: " + (e?.response?.data?.error || e.message) });
+      setMsg({ type: "err", text: t("account.binanceOrderFailed", { err: e?.response?.data?.error || e.message }) });
     } finally { setBusy(false); }
   };
 
@@ -1362,49 +1392,49 @@ function BinanceOrderForm({ theme, env, acct, setMsg, onPlaced }) {
 
   return (
     <Card theme={theme}>
-      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>🪙 Binance 현물 주문 ({env === "REAL" ? "메인넷" : "테스트넷"})</h3>
+      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>{t("account.binanceOrderTitle", { env: env === "REAL" ? t("account.mainnet") : t("account.testnet") })}</h3>
       <div style={{ display: "grid", gridTemplateColumns: isLimit ? "1.6fr 1fr 1fr 1.2fr 1.2fr auto" : "1.6fr 1fr 1fr 1.4fr auto", gap: 8, alignItems: "end" }}>
-        <Field label="심볼 (예: BTCUSDT)">
+        <Field label={t("account.binanceSymbol")}>
           <input style={inp(theme)} value={form.symbol}
             onChange={e => setForm(f => ({ ...f, symbol: e.target.value.toUpperCase() }))}
             onBlur={e => fetchQuote(e.target.value.trim().toUpperCase())} />
         </Field>
-        <Field label="매매구분">
+        <Field label={t("account.fieldSide")}>
           <select style={inp(theme)} value={form.side}
             onChange={e => setForm(f => ({ ...f, side: e.target.value }))}>
-            <option value="BUY">매수</option><option value="SELL">매도</option>
+            <option value="BUY">{t("account.optionBuy")}</option><option value="SELL">{t("account.optionSell")}</option>
           </select>
         </Field>
-        <Field label="주문유형">
+        <Field label={t("account.fieldOrderType")}>
           <select style={inp(theme)} value={form.type}
             onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
-            <option value="MARKET">시장가</option><option value="LIMIT">지정가</option>
+            <option value="MARKET">{t("account.optionMarket")}</option><option value="LIMIT">{t("account.optionLimit")}</option>
           </select>
         </Field>
-        <Field label="수량 (코인)">
+        <Field label={t("account.binanceQty")}>
           <input type="number" step="any" min="0" style={inp(theme)} value={form.quantity}
-            placeholder="예: 0.001"
+            placeholder="e.g. 0.001"
             onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
         </Field>
         {isLimit && (
-          <Field label="지정가 (USDT)">
+          <Field label={t("account.binanceLimitPrice")}>
             <input type="number" step="any" style={inp(theme)} value={form.limitPrice}
               onChange={e => setForm(f => ({ ...f, limitPrice: e.target.value }))} />
           </Field>
         )}
-        <button onClick={doPreview} disabled={busy} style={btnSecondary}>프리뷰</button>
+        <button onClick={doPreview} disabled={busy} style={btnSecondary}>{t("account.previewBtn")}</button>
       </div>
 
       {quote && quote.last_price > 0 && (
         <div style={{ marginTop: 10, fontSize: 12, color: theme.subtle }}>
-          📊 <b>{form.symbol}</b> 현재가:{" "}
+          📊 <b>{form.symbol}</b>:{" "}
           <b style={{ color: theme.text }}>{Number(quote.last_price).toLocaleString(undefined, { maximumFractionDigits: 8 })} USDT</b>
           {isLimit && <>
             {" · "}
             <button type="button"
               onClick={() => setForm(f => ({ ...f, limitPrice: String(quote.last_price) }))}
               style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>
-              이 가격으로 입력 →
+              {t("account.binanceUseThisPrice")}
             </button>
           </>}
         </div>
@@ -1418,19 +1448,83 @@ function BinanceOrderForm({ theme, env, acct, setMsg, onPlaced }) {
           fontSize: 13,
         }}>
           <div style={{ fontWeight: 800, marginBottom: 6 }}>
-            {overLimit ? "❌ 한도 초과" : `✅ ${preview.side} ${preview.quantity} ${preview.ticker}${isLimit ? ` @ ${preview.limit_price} USDT` : " (시장가)"}`}
+            {overLimit ? t("account.binancePreviewOverLimit") : `✅ ${preview.side} ${preview.quantity} ${preview.ticker}${isLimit ? ` @ ${preview.limit_price} USDT` : ` ${t("account.binanceMarketPrice")}`}`}
           </div>
-          <div>예상 명목가: ${Number(preview.est_total_usd).toFixed(2)} / 1건 한도 ${preview.max_order_usd}{!isLimit && preview.ref_price > 0 ? ` · 참고가 ${Number(preview.ref_price).toLocaleString(undefined, { maximumFractionDigits: 8 })} USDT` : ""}</div>
+          <div>{t("account.binanceEstNotional", { total: Number(preview.est_total_usd).toFixed(2), limit: preview.max_order_usd })}{!isLimit && preview.ref_price > 0 ? ` · ref ${Number(preview.ref_price).toLocaleString(undefined, { maximumFractionDigits: 8 })} USDT` : ""}</div>
           <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
             <button onClick={doPlace} disabled={busy || !preview.ok || !acct.tradingEnabled}
               style={form.side === "BUY" ? btnPrimary : btnDanger}>
-              {acct.tradingEnabled ? `🚀 ${form.side === "BUY" ? "매수" : "매도"} 실행` : "매매 스위치 OFF"}
+              {acct.tradingEnabled ? `${form.side === "BUY" ? t("account.executeBuy") : t("account.executeSell")}` : t("account.tradingSwitchOff")}
             </button>
-            <button onClick={() => setPreview(null)} style={btnDefault}>취소</button>
+            <button onClick={() => setPreview(null)} style={btnDefault}>{t("account.cancelBtn")}</button>
           </div>
         </div>
       )}
     </Card>
+  );
+}
+
+/* ─────────────────────────────── 계좌 삭제 확인 모달 */
+function DeleteAccountModal({ open, brokerName, envLabel, onConfirm, onClose }) {
+  if (!open) return null;
+  return ReactDOM.createPortal(
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 3000,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+      backdropFilter: "blur(4px)",
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: "white", borderRadius: 20, width: "100%", maxWidth: 400,
+        boxShadow: "0 24px 64px rgba(0,0,0,0.22)", overflow: "hidden",
+      }}>
+        <div style={{
+          padding: "24px 28px 20px",
+          background: "linear-gradient(135deg,#fef2f2 0%,#fee2e2 100%)",
+          borderBottom: "1px solid #FECACA",
+          display: "flex", alignItems: "center", gap: 14,
+        }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 14, flexShrink: 0,
+            background: "linear-gradient(135deg,#f87171,#ef4444)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 12px rgba(239,68,68,0.3)",
+          }}>
+            <Trash2 size={20} color="white" />
+          </div>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#7f1d1d" }}>계좌 연동 해제</h2>
+            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#991b1b" }}>{brokerName} · {envLabel}</p>
+          </div>
+        </div>
+        <div style={{ padding: "22px 28px" }}>
+          <p style={{ margin: 0, fontSize: 14, color: "#374151", lineHeight: 1.75 }}>
+            이 계좌의 연동을 해제합니다.<br />
+            저장된 API 키와 설정이 모두 삭제되며, <strong>복구할 수 없습니다.</strong>
+          </p>
+          <div style={{
+            marginTop: 14, padding: "12px 14px", borderRadius: 10,
+            background: "#FEF2F2", border: "1px solid #FECACA",
+            fontSize: 12.5, color: "#991b1b", lineHeight: 1.65,
+          }}>
+            재등록하려면 API 키를 다시 입력해야 합니다.
+          </div>
+        </div>
+        <div style={{ padding: "0 28px 24px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={onClose} style={{
+            padding: "10px 20px", borderRadius: 10,
+            border: "1px solid #E2E8F0", background: "white", color: "#374151",
+            fontSize: 13, fontWeight: 600, cursor: "pointer",
+          }}>취소</button>
+          <button onClick={onConfirm} style={{
+            padding: "10px 20px", borderRadius: 10, border: "none",
+            background: "linear-gradient(135deg,#f87171,#ef4444)",
+            color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer",
+            boxShadow: "0 3px 10px rgba(239,68,68,0.3)",
+          }}>연동 해제</button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 

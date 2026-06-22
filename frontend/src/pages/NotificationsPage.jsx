@@ -74,7 +74,7 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div style={{ background: "#F8FAFC", minHeight: "calc(100vh - 44px)", padding: "36px 40px 80px" }}>
+    <div style={{ background: "#F8FAFC", minHeight: "calc(100vh - 44px)", padding: "36px clamp(16px, 3vw, 40px) 80px", width: "100%", boxSizing: "border-box" }}>
       <style>{`
         @keyframes ah-pulse  { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.75)} }
         @keyframes ah-fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }

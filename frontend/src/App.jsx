@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
+import PageLoader from "./components/PageLoader";
 import AppShell from "./components/shell/AppShell";
 
 function RedirectKeepQuery({ to }) {
@@ -55,7 +56,7 @@ const AlphaTermsOfService = lazy(() => import("./pages/AlphaTermsOfService"));
 
 function App() {
   return (
-    <Suspense fallback={<div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", fontSize:14, color:"#6B7280" }}>Loading...</div>}>
+    <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="/partner_home" element={<RedirectKeepQuery to="/home" />} />

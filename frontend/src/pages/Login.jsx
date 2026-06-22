@@ -270,7 +270,8 @@ function Login() {
   return (
     <div style={{
       minHeight: "100vh", display: "flex", flexDirection: "column",
-      fontFamily: BASE_FONT, position: "relative",
+      fontFamily: BASE_FONT, position: "relative", padding: "16px",
+      boxSizing: "border-box",
     }}>
       {/* 배경 비디오 (블러) */}
       <video
@@ -297,12 +298,14 @@ function Login() {
       {/* 메인 콘텐츠 */}
       <div style={{
         flex: 1, display: "flex", justifyContent: "center", alignItems: "center",
-        position: "relative", zIndex: 2, padding: "40px 20px 20px",
+        position: "relative", zIndex: 2, padding: "20px 0",
+        width: "100%", boxSizing: "border-box",
       }}>
         <div style={{
           width: "100%", maxWidth: 460, background: "white",
-          borderRadius: 24, padding: "48px 40px 40px",
+          borderRadius: 24, padding: "clamp(24px, 4vw, 48px) clamp(20px, 4vw, 40px) 40px",
           boxShadow: "0 20px 60px rgba(0,0,0,0.15)",
+          boxSizing: "border-box",
         }}>
           {/* 타이틀 */}
           <h1 style={{

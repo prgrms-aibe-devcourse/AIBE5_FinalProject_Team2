@@ -1,4 +1,5 @@
 import { Component } from "react";
+import PageLoader from "./PageLoader";
 
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
@@ -14,7 +15,7 @@ const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI',
 export default class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, isRecovering: false };
   }
 
   static getDerivedStateFromError(error) {
@@ -29,6 +30,7 @@ export default class ErrorBoundary extends Component {
       const key = "__eb_reload_" + (typeof window !== "undefined" ? window.location.pathname : "_");
       if (typeof window !== "undefined" && !sessionStorage.getItem(key)) {
         sessionStorage.setItem(key, "1");
+        this.setState({ isRecovering: true });
         setTimeout(() => window.location.reload(), 50);
       }
     } catch (_) { /* ignore storage errors */ }
@@ -44,6 +46,7 @@ export default class ErrorBoundary extends Component {
 
   render() {
     if (!this.state.hasError) return this.props.children;
+    if (this.state.isRecovering) return <PageLoader message="복구 중..." />;
 
     return (
       <div style={{

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import LeftSidebar from "./LeftSidebar";
 import TopBar from "./TopBar";
@@ -39,6 +39,23 @@ export default function AppShell({ children, hideChat = false }) {
   const [chatOpen, setChatOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
+
+  // Auto-collapse sidebar on small/laptop screens (≤1366px)
+  const autoCollapsedRef = useRef(false);
+  useEffect(() => {
+    const check = () => {
+      if (window.innerWidth <= 1366 && !autoCollapsedRef.current) {
+        autoCollapsedRef.current = true;
+        setSidebarExpanded(false);
+      } else if (window.innerWidth > 1366) {
+        autoCollapsedRef.current = false;
+      }
+    };
+    check();
+    window.addEventListener("resize", check, { passive: true });
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   const [topCollapsed, setTopCollapsed] = useState(false);
 
   const toggleSidebar = () => setSidebarExpanded(o => {
@@ -59,13 +76,25 @@ export default function AppShell({ children, hideChat = false }) {
     return () => window.removeEventListener("alpha:toggle-sidebar", handler);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Prevent body/html scroll while AppShell is active so that position:fixed
+  // sidebar/topbar don't drift with the document when html{zoom:1.1} is set.
+  useEffect(() => {
+    document.documentElement.classList.add("alpha-shell-html");
+    document.body.classList.add("alpha-shell-body");
+    return () => {
+      document.documentElement.classList.remove("alpha-shell-html");
+      document.body.classList.remove("alpha-shell-body");
+    };
+  }, []);
+
   useEffect(() => {
     document.body.classList.toggle("chat-open", chatOpen);
     return () => document.body.classList.remove("chat-open");
   }, [chatOpen]);
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = parseInt(localStorage.getItem("aiDockWidth") || "0", 10);
-    return saved >= 280 && saved <= 570 ? saved : 380;
+    const defaultW = window.innerWidth <= 1366 ? 320 : 380;
+    return saved >= 280 && saved <= 570 ? saved : defaultW;
   });
   const guideWidth = 320;
 
@@ -115,6 +144,7 @@ export default function AppShell({ children, hideChat = false }) {
           right: rightOffset,
           bottom: 0,
           overflowY: "auto",
+          overflowX: "auto",
           transition: "top 0.18s ease, left 0.18s ease, right 0.18s ease",
         }),
       }}>

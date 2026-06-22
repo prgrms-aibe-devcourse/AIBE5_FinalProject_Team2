@@ -5,89 +5,93 @@ import {
   Wallet, ShoppingCart, Code2, Newspaper, Bell, User, CreditCard,
   Tag, Trello, BookOpen, ChevronUp,
 } from "lucide-react";
+import { useLanguage } from "../../i18n/useLanguage";
 
-// ── 검색 인덱스 ───────────────────────────────────────────────────────────────
-const SEARCH_INDEX = [
-  {
-    label: "대시보드", desc: "메인 대시보드",
-    path: "/home", icon: Home,
-    kw: ["대시보드", "홈", "home", "메인", "dashboard", "시작"],
-  },
-  {
-    label: "전략 워크스페이스", desc: "AI 채팅으로 전략 생성·백테스트 실행",
-    path: "/strategy", icon: BarChart3,
-    kw: ["전략", "strategy", "백테스트", "backtest", "ai 채팅", "채팅", "시그널", "signal",
-         "주문", "퀀트", "quant", "모델", "model", "포트폴리오", "portfolio", "종목", "자동매매"],
-  },
-  {
-    label: "워크홈", desc: "실시간 전략 요약·Trust Score·브리핑",
-    path: "/workhome", icon: BrainCircuit,
-    kw: ["워크홈", "workhome", "실시간", "신뢰점수", "trust score", "trust", "전략 요약",
-         "요약", "현황", "성과"],
-  },
-  {
-    label: "Alpha 워크스페이스", desc: "AI 퀀트 워크스페이스 목록",
-    path: "/alpha", icon: Layers,
-    kw: ["알파", "alpha", "워크스페이스", "workspace", "목록", "list", "헬릭스", "helix"],
-  },
-  {
-    label: "거래 계좌", desc: "KIS 증권 계좌 연결·모의투자 설정",
-    path: "/alpha/account", icon: Wallet,
-    kw: ["계좌", "거래", "kis", "증권", "모의", "투자", "account", "broker",
-         "api", "한국투자", "연동", "브로커", "실거래"],
-  },
-  {
-    label: "주문 제안", desc: "AI 주문 제안 큐·승인·OrderProposal",
-    path: "/alpha/proposals", icon: ShoppingCart,
-    kw: ["주문", "제안", "proposal", "승인", "order", "큐", "queue", "매수", "매도",
-         "체결", "오더"],
-  },
-  {
-    label: "Quant Developer IDE", desc: "코드 편집기·터미널·Git 연동",
-    path: "/alpha/developer", icon: Code2,
-    kw: ["개발자", "developer", "studio", "코드", "code", "터미널", "terminal",
-         "git", "편집기", "editor", "ide", "파이썬", "python", "리포지토리", "repo"],
-  },
-  {
-    label: "일일 브리핑", desc: "Living Market Briefing 시황 리포트",
-    path: "/briefing", icon: Newspaper,
-    kw: ["브리핑", "briefing", "일일", "리포트", "시장", "시황", "뉴스", "market"],
-  },
-  {
-    label: "알림", desc: "시그널·체결·만료 알림 센터",
-    path: "/notifications", icon: Bell,
-    kw: ["알림", "notification", "공지", "시그널", "체결", "만료", "notice", "bell"],
-  },
-  {
-    label: "마이페이지", desc: "프로필·계정 설정·비밀번호 변경",
-    path: "/mypage", icon: User,
-    kw: ["마이페이지", "mypage", "프로필", "profile", "계정", "설정", "비밀번호",
-         "password", "이름", "이메일", "회원"],
-  },
-  {
-    label: "구독 관리", desc: "요금제 변경·결제 내역 확인",
-    path: "/subscription/manage", icon: CreditCard,
-    kw: ["구독", "subscription", "요금제", "결제", "플랜", "plan", "관리",
-         "갱신", "해지", "카드"],
-  },
-  {
-    label: "요금제 안내", desc: "FREE·STANDARD·PREMIUM 플랜 비교",
-    path: "/pricing", icon: Tag,
-    kw: ["요금제", "pricing", "가격", "프리미엄", "premium", "스탠다드", "standard",
-         "무료", "free", "expert", "플랜", "구독 안내"],
-  },
-  {
-    label: "비전 보드", desc: "아이디어 메모·그림판·스티커",
-    path: "/vision_board", icon: Trello,
-    kw: ["비전", "vision", "보드", "board", "메모", "그림판", "스티커", "노트", "캔버스"],
-  },
-  {
-    label: "Alpha 가이드", desc: "Alpha-Helix 사용법·입문자 가이드",
-    path: "/alpha_guide", icon: BookOpen,
-    kw: ["가이드", "guide", "도움말", "help", "사용법", "튜토리얼", "tutorial",
-         "설명", "매뉴얼", "시작하기"],
-  },
-];
+// ── 검색 인덱스 (번역 적용) ───────────────────────────────────────────────────
+function getSearchIndex(t) {
+  const s = (k) => t(`topBar.search.${k}`);
+  return [
+    {
+      label: s("dashboard"), desc: s("dashboardDesc"),
+      path: "/home", icon: Home,
+      kw: ["대시보드", "홈", "home", "메인", "dashboard", "시작"],
+    },
+    {
+      label: s("strategy"), desc: s("strategyDesc"),
+      path: "/strategy", icon: BarChart3,
+      kw: ["전략", "strategy", "백테스트", "backtest", "ai 채팅", "채팅", "시그널", "signal",
+           "주문", "퀀트", "quant", "모델", "model", "포트폴리오", "portfolio", "종목", "자동매매"],
+    },
+    {
+      label: s("workHome"), desc: s("workHomeDesc"),
+      path: "/workhome", icon: BrainCircuit,
+      kw: ["워크홈", "workhome", "실시간", "신뢰점수", "trust score", "trust", "전략 요약",
+           "요약", "현황", "성과"],
+    },
+    {
+      label: s("alpha"), desc: s("alphaDesc"),
+      path: "/alpha", icon: Layers,
+      kw: ["알파", "alpha", "워크스페이스", "workspace", "목록", "list", "헬릭스", "helix"],
+    },
+    {
+      label: s("account"), desc: s("accountDesc"),
+      path: "/alpha/account", icon: Wallet,
+      kw: ["계좌", "거래", "kis", "증권", "모의", "투자", "account", "broker",
+           "api", "한국투자", "연동", "브로커", "실거래"],
+    },
+    {
+      label: s("proposals"), desc: s("proposalsDesc"),
+      path: "/alpha/proposals", icon: ShoppingCart,
+      kw: ["주문", "제안", "proposal", "승인", "order", "큐", "queue", "매수", "매도",
+           "체결", "오더"],
+    },
+    {
+      label: s("developer"), desc: s("developerDesc"),
+      path: "/alpha/developer", icon: Code2,
+      kw: ["개발자", "developer", "studio", "코드", "code", "터미널", "terminal",
+           "git", "편집기", "editor", "ide", "파이썬", "python", "리포지토리", "repo"],
+    },
+    {
+      label: s("briefing"), desc: s("briefingDesc"),
+      path: "/briefing", icon: Newspaper,
+      kw: ["브리핑", "briefing", "일일", "리포트", "시장", "시황", "뉴스", "market"],
+    },
+    {
+      label: s("notifications"), desc: s("notificationsDesc"),
+      path: "/notifications", icon: Bell,
+      kw: ["알림", "notification", "공지", "시그널", "체결", "만료", "notice", "bell"],
+    },
+    {
+      label: s("mypage"), desc: s("mypageDesc"),
+      path: "/mypage", icon: User,
+      kw: ["마이페이지", "mypage", "프로필", "profile", "계정", "설정", "비밀번호",
+           "password", "이름", "이메일", "회원"],
+    },
+    {
+      label: s("subscription"), desc: s("subscriptionDesc"),
+      path: "/subscription/manage", icon: CreditCard,
+      kw: ["구독", "subscription", "요금제", "결제", "플랜", "plan", "관리",
+           "갱신", "해지", "카드"],
+    },
+    {
+      label: s("pricing"), desc: s("pricingDesc"),
+      path: "/pricing", icon: Tag,
+      kw: ["요금제", "pricing", "가격", "프리미엄", "premium", "스탠다드", "standard",
+           "무료", "free", "expert", "플랜", "구독 안내"],
+    },
+    {
+      label: s("visionBoard"), desc: s("visionBoardDesc"),
+      path: "/vision_board", icon: Trello,
+      kw: ["비전", "vision", "보드", "board", "메모", "그림판", "스티커", "노트", "캔버스"],
+    },
+    {
+      label: s("guide"), desc: s("guideDesc"),
+      path: "/alpha_guide", icon: BookOpen,
+      kw: ["가이드", "guide", "도움말", "help", "사용법", "튜토리얼", "tutorial",
+           "설명", "매뉴얼", "시작하기"],
+    },
+  ];
+}
 
 function highlight(text, query) {
   if (!query) return text;
@@ -105,10 +109,10 @@ function highlight(text, query) {
   );
 }
 
-function searchResults(query) {
+function searchResults(query, index) {
   if (!query.trim()) return [];
   const q = query.toLowerCase().trim();
-  return SEARCH_INDEX
+  return index
     .map(item => {
       const labelMatch  = item.label.toLowerCase().includes(q);
       const descMatch   = item.desc.toLowerCase().includes(q);
@@ -121,14 +125,9 @@ function searchResults(query) {
     .slice(0, 7);
 }
 
-/**
- * 상단바 (사이드바 오른쪽, 메인 위, 높이 44 — 슬림).
- * - 왼쪽: 둥근 검색 입력 + 드롭다운 자동완성
- * - 그 옆 보라 그라데이션 AI 토글
- * - 비로그인 시: 우측에 "로그인" 버튼
- */
 export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOffset = 52, onCollapse }) {
   const nav = useNavigate();
+  const { t } = useLanguage();
   const isAuthed = !!localStorage.getItem("dbId");
 
   const [query, setQuery]     = useState("");
@@ -137,7 +136,8 @@ export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOf
   const inputRef              = useRef(null);
   const wrapRef               = useRef(null);
 
-  const results = searchResults(query);
+  const searchIndex = getSearchIndex(t);
+  const results = searchResults(query, searchIndex);
 
   // 외부 클릭 시 드롭다운 닫기
   useEffect(() => {
@@ -187,14 +187,14 @@ export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOf
       left: leftOffset,
       transition: "right 0.18s ease, left 0.18s ease",
       display: "flex", alignItems: "center", justifyContent: "flex-start",
-      gap: 8, padding: "0 12px",
+      gap: 8, padding: "0 12px", overflow: "hidden",
       background: "#ffffff",
       borderBottom: "1px solid rgba(15, 23, 42, 0.06)",
       zIndex: 900,
     }}>
 
       {/* ── 검색 ── */}
-      <div ref={wrapRef} style={{ position: "relative", width: 420 }}>
+      <div ref={wrapRef} style={{ position: "relative", flex: "1 1 auto", maxWidth: 420, minWidth: 0 }}>
         <div style={{
           width: "100%", height: 32,
           display: "flex", alignItems: "center", gap: 8,
@@ -213,7 +213,7 @@ export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOf
             ref={inputRef}
             type="text"
             value={query}
-            placeholder="기능 검색 (예: 백테스트, 계좌, 알림…)"
+            placeholder={t("topBar.searchPlaceholder")}
             onChange={e => { setQuery(e.target.value); setOpen(true); setCursor(-1); }}
             onFocus={() => { if (query) setOpen(true); }}
             onKeyDown={onKeyDown}
@@ -284,7 +284,9 @@ export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOf
             })}
             <div style={{ padding: "5px 14px", fontSize: 10, color: "#cbd5e1",
               borderTop: "1px solid #f1f5f9", display: "flex", gap: 10 }}>
-              <span>↑↓ 이동</span><span>Enter 이동</span><span>Esc 닫기</span>
+              <span>{t("topBar.navHintMove")}</span>
+              <span>{t("topBar.navHintGo")}</span>
+              <span>{t("topBar.navHintClose")}</span>
             </div>
           </div>
         )}
@@ -298,7 +300,7 @@ export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOf
             padding: "12px 14px", fontSize: 12, color: "#94a3b8",
             boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
           }}>
-            "<b style={{ color: "#475569" }}>{query}</b>" 에 대한 결과가 없습니다.
+            {t("topBar.noResults", { query })}
           </div>
         )}
       </div>
@@ -306,7 +308,7 @@ export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOf
       {/* ── AI 채팅 버튼 ── */}
       <button
         onClick={onToggleChat}
-        title={chatOpen ? "AI 채팅 닫기" : "AI 채팅 열기"}
+        title={chatOpen ? t("topBar.chatClose") : t("topBar.chatOpen")}
         style={{
           height: 32, padding: "0 13px", borderRadius: 20,
           border: "none",
@@ -341,11 +343,11 @@ export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOf
         <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: 0.2 }}>AI</span>
       </button>
 
-      {/* ── 상단바 접기 — 좌측 사이드바의 펼치기 버튼으로 다시 열 수 있음 ── */}
+      {/* ── 상단바 접기 ── */}
       {onCollapse && (
         <button
           onClick={onCollapse}
-          title="상단바 접기 (좌측 사이드바에서 다시 펼치기)"
+          title={t("topBar.collapseBar")}
           style={{
             width: 30, height: 30, borderRadius: 8, flexShrink: 0,
             border: "1px solid #E2E8F0", background: "white", color: "#64748B",
@@ -378,7 +380,7 @@ export default function TopBar({ onToggleChat, chatOpen, rightOffset = 0, leftOf
           onMouseDown={(e) => { e.currentTarget.style.transform = "scale(0.97)"; }}
           onMouseUp={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
         >
-          로그인
+          {t("topBar.login")}
         </button>
       )}
     </div>

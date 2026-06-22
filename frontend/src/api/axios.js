@@ -7,7 +7,8 @@
  *   Access Token (1h, DEVBRIDGE_TOKEN) 만료 → 401 수신
  *   → POST /api/auth/refresh (DEVBRIDGE_REFRESH 쿠키 자동 포함)
  *   → 성공: 새 Access Token 쿠키 발급 + 원본 요청 재시도
- *   → 실패: localStorage 정리 + /login 리다이렉트
+ *   → 실패: localStorage 정리 + /home 리다이렉트
+ *          (NO_REDIRECT_PATTERNS 경로는 리다이렉트 없이 조용히 실패)
  */
 import axios from 'axios';
 
@@ -76,8 +77,10 @@ const SKIP_REFRESH_PATTERNS = [
   /\/auth\/signup/,
 ];
 
-// 401 받아도 자동 refresh 시도 없이 조용히 실패할 URL
-const SILENT_401_PATTERNS = [
+// refresh 실패 시 리다이렉트를 하지 않는 경로.
+// (비로그인 홈/공개 페이지에서 401이 와도 강제 이동하지 않도록)
+// refresh 시도 자체는 모든 경로에서 수행한다.
+const NO_REDIRECT_PATTERNS = [
   /\/bank\//,
   /\/interests(\/|\?|$)/,
   /\/applications(\/|\?|$)/,
@@ -92,7 +95,7 @@ const SILENT_401_PATTERNS = [
   /\/chat\/token/,
   /\/profiles?\/me/,
   /\/auth\/me/,
-  /\/alpha\//,         // 비로그인 홈에서 alpha API 401이 강제 리다이렉트되지 않도록
+  /\/alpha\//,
   /\/notifications/,
 ];
 
@@ -106,20 +109,19 @@ api.interceptors.response.use(
 
     if (status !== 401) return Promise.reject(error);
 
-    // refresh/login/signup 자체 401은 바로 실패
+    // refresh/login/signup 자체 401은 바로 실패 (재진입 방지)
     if (SKIP_REFRESH_PATTERNS.some(re => re.test(reqUrl))) {
       return Promise.reject(error);
     }
 
-    // 조용히 실패할 패턴
-    if (SILENT_401_PATTERNS.some(re => re.test(reqUrl))) {
-      return Promise.reject(error);
-    }
+    const noRedirect = NO_REDIRECT_PATTERNS.some(re => re.test(reqUrl));
 
     // 이미 retry 했던 요청(무한루프 방지)
     if (originalRequest._retry) {
-      clearAuthState();
-      redirectToLogin();
+      if (!noRedirect) {
+        clearAuthState();
+        redirectToLogin();
+      }
       return Promise.reject(error);
     }
 
@@ -142,11 +144,13 @@ api.interceptors.response.use(
       return api(originalRequest);
     } catch (refreshError) {
       processQueue(refreshError);
-      clearAuthState();
-      if (import.meta.env.DEV) {
-        console.warn('[api] Refresh token 만료 — 로그인 페이지로 이동');
+      if (!noRedirect) {
+        clearAuthState();
+        if (import.meta.env.DEV) {
+          console.warn('[api] Refresh token 만료 — 로그인 페이지로 이동');
+        }
+        redirectToLogin();
       }
-      redirectToLogin();
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

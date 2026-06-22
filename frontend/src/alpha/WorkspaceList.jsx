@@ -1,21 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, Trash2, ArrowRight, MessageSquare, Star, BookOpen, ChevronRight, Zap, TrendingUp, Bitcoin, Layers, X } from "lucide-react";
+import { Plus, Trash2, ArrowRight, Star, BookOpen, ChevronRight, Zap, TrendingUp, Bitcoin, Layers, X } from "lucide-react";
 import CreateWorkspaceModal from "./CreateWorkspaceModal";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
+import { useLanguage } from "../i18n/useLanguage";
 import Toast from "../components/common/Toast";
 import { listWorkspaces, createWorkspace, deleteWorkspace, updateWorkspaceStatus } from "./alphaApi";
 
 const PRIMARY_KEY = "alpha.primaryWsId";
-const MAX_LIVE = 3; // 동시에 LIVE(운용 중)로 둘 수 있는 워크스페이스 최대 개수
-
-const STATUS_LABEL = {
-  DRAFT:      "초안",
-  GOAL_SET:   "목표 설정됨",
-  FORMALIZED: "전략 정형화",
-  TESTED:     "백테스트 완료",
-  LIVE:       "운용 중",
-};
+const MAX_LIVE = 3;
 
 const STATUS_COLOR = {
   DRAFT:      { bar: "#94A3B8", bg: "#F1F5F9", text: "#475569" },
@@ -27,6 +20,7 @@ const STATUS_COLOR = {
 
 export default function WorkspaceList() {
   const { theme } = useTheme();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [items, setItems] = useState(null);
@@ -89,7 +83,7 @@ export default function WorkspaceList() {
       w => w.name.trim().toLowerCase() === trimmed.toLowerCase()
     );
     if (duplicate) {
-      setCreateModalError("같은 이름의 워크스페이스가 이미 있어요.");
+      setCreateModalError(t("workspace.duplicate"));
       return;
     }
     setCreateModalError("");
@@ -104,7 +98,7 @@ export default function WorkspaceList() {
         setCreateModalOpen(true);
         setCreateModalError(msg);
       } else {
-        alert("생성 실패: " + msg);
+        alert(t("workspace.createFailed", { err: msg }));
       }
     } finally {
       setCreating(false);
@@ -137,7 +131,7 @@ export default function WorkspaceList() {
     try {
       await updateWorkspaceStatus(w.id, next);
     } catch (e) {
-      alert("상태 변경 실패: " + (e?.response?.data?.error || e.message));
+      alert(t("workspace.statusChangeFailed", { err: e?.response?.data?.error || e.message }));
       load();
     }
   };
@@ -145,7 +139,7 @@ export default function WorkspaceList() {
   const onConfirmDelete = async () => {
     if (!deleteTarget) return;
     try { await deleteWorkspace(deleteTarget.id); load(); }
-    catch (e) { alert("삭제 실패: " + (e?.response?.data?.error || e.message)); }
+    catch (e) { alert(t("workspace.deleteFailed", { err: e?.response?.data?.error || e.message })); }
     finally { setDeleteTarget(null); }
   };
 
@@ -160,7 +154,7 @@ export default function WorkspaceList() {
   });
 
   return (
-    <div style={{ padding: "36px 40px 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
+    <div style={{ padding: "clamp(16px, 3vw, 36px) clamp(12px, 3vw, 40px) 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
       <style>{`
         @keyframes liveBlink {
           0%, 100% { opacity: 1; }
@@ -190,10 +184,10 @@ export default function WorkspaceList() {
               background: "linear-gradient(90deg,#3b82f6 0%,#6366f1 100%)",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
             }}>
-              워크스페이스 목록
+              {t("workspace.title")}
             </h1>
             <p style={{ margin: "5px 0 0", fontSize: 13, color: "#64748B", fontWeight: 500 }}>
-              삶의 목표를 투자 전략으로 — 퍼스널 퀀트 매니저
+              {t("workspace.subtitle")}
             </p>
           </div>
         </div>
@@ -206,7 +200,7 @@ export default function WorkspaceList() {
             fontSize: 13, fontWeight: 700, cursor: creating ? "wait" : "pointer",
             boxShadow: "0 4px 12px rgba(59,130,246,0.25)",
           }}>
-          <Plus size={16} /> {creating ? "생성 중…" : "새 워크스페이스"}
+          <Plus size={16} /> {creating ? t("workspace.creating") : t("workspace.newWorkspace")}
         </button>
       </div>
 
@@ -217,22 +211,21 @@ export default function WorkspaceList() {
         }}>{err}</div>
       )}
 
-      {items === null && <p style={{ color: theme.textMuted, marginTop: 30 }}>로딩 중…</p>}
+      {items === null && <p style={{ color: theme.textMuted, marginTop: 30 }}>{t("workspace.loading")}</p>}
 
       {items?.length === 0 && (
         <div style={{
           marginTop: 40, padding: 40, textAlign: "center",
           background: theme.panel, border: `1px dashed ${theme.panelBorder}`, borderRadius: 16,
         }}>
-          <MessageSquare size={32} style={{ color: theme.accent, marginBottom: 12 }} />
-          <h3 style={{ margin: "0 0 6px", color: theme.text }}>첫 워크스페이스를 만들어보세요</h3>
+          <h3 style={{ margin: "0 0 6px", color: theme.text }}>{t("workspace.empty.heading")}</h3>
           <p style={{ fontSize: 13, color: theme.textMuted, margin: "0 0 18px" }}>
-            "5년 안에 월 300만원 현금흐름" 같은 목표를 입력하면 AI가 전략으로 변환합니다
+            {t("workspace.empty.desc")}
           </p>
           <button onClick={() => onCreate()} style={{
             padding: "10px 20px", background: theme.accent, color: "white", border: "none",
             borderRadius: 10, fontWeight: 700, cursor: "pointer",
-          }}>+ 워크스페이스 시작</button>
+          }}>{t("workspace.empty.btn")}</button>
         </div>
       )}
 
@@ -240,9 +233,9 @@ export default function WorkspaceList() {
       {items !== null && items.length > 0 && (
         <div style={{ display: "flex", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
           {[
-            { key: "all",     label: "전체",   count: items.length },
-            { key: "live",    label: "운용 중", count: items.filter(w => w.status === "LIVE").length },
-            { key: "notlive", label: "준비 중", count: items.filter(w => w.status !== "LIVE").length },
+            { key: "all",     label: t("workspace.filters.all"),     count: items.length },
+            { key: "live",    label: t("workspace.filters.live"),    count: items.filter(w => w.status === "LIVE").length },
+            { key: "notlive", label: t("workspace.filters.notlive"), count: items.filter(w => w.status !== "LIVE").length },
           ].map(({ key, label, count }) => {
             const active = wsFilter === key;
             return (
@@ -274,14 +267,14 @@ export default function WorkspaceList() {
       )}
 
       {/* ====== 내 워크스페이스 목록 ====== */}
-      <div style={{ display: "grid", gap: 10, marginTop: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 10, marginTop: 24 }}>
         {filteredItems.length === 0 && wsFilter !== "all" && (
           <div style={{
             padding: 32, textAlign: "center",
             background: "white", border: "1px dashed #E2E8F0", borderRadius: 14,
             color: "#94A3B8", fontSize: 13, fontWeight: 500,
           }}>
-            {wsFilter === "live" ? "운용 중인 워크스페이스가 없습니다." : "준비 중인 워크스페이스가 없습니다."}
+            {wsFilter === "live" ? t("workspace.filters.noLive") : t("workspace.filters.noPreparing")}
           </div>
         )}
         {filteredItems.map(w => {
@@ -294,7 +287,7 @@ export default function WorkspaceList() {
               background: "#ffffff",
               border: isPrimary ? "1px solid #FDE68A" : "1px solid #E2E8F0",
               borderRadius: 14,
-              display: "flex", alignItems: "stretch",
+              display: "flex", alignItems: "stretch", width: "100%",
               boxShadow: isPrimary
                 ? "0 0 15px rgba(251,191,36,0.35), 0 0 40px rgba(251,191,36,0.2), 0 0 80px rgba(251,191,36,0.1)"
                 : "0 2px 8px rgba(0,0,0,0.06)",
@@ -327,9 +320,9 @@ export default function WorkspaceList() {
                     background: isPrimary ? "#FFF8E1" : sc.bg,
                     color: isPrimary ? "#1C1400" : sc.text,
                     border: `1px solid ${isPrimary ? "#FFBE0B" : sc.bar}55`,
-                  }}>{STATUS_LABEL[w.status] || w.status}</span>
+                  }}>{t(`workspace.statusLabels.${w.status}`) || w.status}</span>
                   <span style={{ fontSize: 11, color: "#94A3B8" }}>
-                    수정 {new Date(w.updatedAt).toLocaleDateString("ko-KR")}
+                    {t("workspace.modified")} {new Date(w.updatedAt).toLocaleDateString("ko-KR")}
                   </span>
                 </div>
               </div>
@@ -338,7 +331,7 @@ export default function WorkspaceList() {
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                 <button
                   onClick={() => onToggleLive(w)}
-                  title={w.status === "LIVE" ? "LIVE 해제" : "LIVE로 전환"}
+                  title={w.status === "LIVE" ? t("workspace.liveDeactivate") : t("workspace.liveActivate")}
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 6,
                     padding: "7px 12px", borderRadius: 8,
@@ -363,7 +356,7 @@ export default function WorkspaceList() {
                 </button>
                 <button
                   onClick={() => { if (!isPrimary) setPrimaryTarget({ id: w.id, name: w.name }); }}
-                  title={isPrimary ? "대표 전략" : "대표로 선택"}
+                  title={isPrimary ? t("workspace.primaryLabel") : t("workspace.setPrimary")}
                   style={{
                     display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5,
                     minWidth: 92,
@@ -386,7 +379,7 @@ export default function WorkspaceList() {
                       strokeLinejoin="round"
                     />
                   </svg>
-                  {isPrimary ? "대표" : "대표 선택"}
+                  {isPrimary ? t("workspace.primaryLabel") : t("workspace.setPrimary")}
                 </button>
                 <button onClick={e => {
                   const btn = e.currentTarget;
@@ -401,7 +394,7 @@ export default function WorkspaceList() {
                   display: "inline-flex", alignItems: "center", gap: 4,
                   boxShadow: "0 2px 8px rgba(99,102,241,0.25)",
                   transition: "transform 0.12s, opacity 0.12s",
-                }}>열기 <ArrowRight size={13} /></button>
+                }}>{t("workspace.open")} <ArrowRight size={13} /></button>
                 <button onClick={() => onDelete(w.id, w.name)} title="삭제" style={{
                   padding: "7px 8px", background: "transparent",
                   color: "#EF4444", border: "1px solid #FECACA",
@@ -442,7 +435,7 @@ export default function WorkspaceList() {
       {primaryToast && (
         <Toast
           type="success"
-          title="대표 워크스페이스 변경됨"
+          title={t("workspace.primaryToast")}
           body={`"${primaryToast.name}"`}
           onClose={() => setPrimaryToast(null)}
         />
@@ -452,6 +445,7 @@ export default function WorkspaceList() {
 }
 
 function LiveLimitModal({ open, onClose }) {
+  const { t } = useLanguage();
   if (!open) return null;
   return (
     <div onClick={onClose} style={{
@@ -477,21 +471,20 @@ function LiveLimitModal({ open, onClose }) {
             <Zap size={20} color="white" />
           </div>
           <div>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#78350F" }}>LIVE 전략은 최대 {MAX_LIVE}개</h2>
-            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#92400E" }}>운용 중 전략 개수 제한</p>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#78350F" }}>{t("workspace.liveLimit.title", { max: MAX_LIVE })}</h2>
+            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#92400E" }}>{t("workspace.liveLimit.sub")}</p>
           </div>
         </div>
         <div style={{ padding: "24px 28px" }}>
           <p style={{ margin: 0, fontSize: 14, color: "#374151", lineHeight: 1.7 }}>
-            이미 <b style={{ color: "#111827" }}>{MAX_LIVE}개</b>의 전략이 LIVE 상태입니다.
-            새 전략을 LIVE 로 전환하려면 기존 전략 중 하나를 먼저 해제해 주세요.
+            {t("workspace.liveLimit.body", { max: MAX_LIVE })}
           </p>
           <div style={{
             marginTop: 14, padding: "12px 14px", borderRadius: 10,
             background: "#FFFBEB", border: "1px solid #FDE68A",
             fontSize: 12.5, color: "#78350F", lineHeight: 1.65,
           }}>
-            ⚡ 전체 브리핑은 대표 전략을 포함해 LIVE 전략을 한눈에 보여줍니다. 핵심 전략만 LIVE 로 유지하는 것을 권장합니다.
+            {t("workspace.liveLimit.tip")}
           </div>
         </div>
         <div style={{ padding: "0 28px 24px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -500,7 +493,7 @@ function LiveLimitModal({ open, onClose }) {
             background: "linear-gradient(135deg,#fbbf24,#f59e0b)",
             color: "white", fontSize: 13, fontWeight: 700, cursor: "pointer",
             boxShadow: "0 3px 10px rgba(245,158,11,0.3)",
-          }}>확인</button>
+          }}>{t("workspace.liveLimit.confirm")}</button>
         </div>
       </div>
     </div>
@@ -509,6 +502,7 @@ function LiveLimitModal({ open, onClose }) {
 
 
 function DeleteWorkspaceModal({ target, onConfirm, onClose, theme }) {
+  const { t } = useLanguage();
   const [inputName, setInputName] = React.useState("");
   const [shake, setShake] = React.useState(false);
 
@@ -564,25 +558,24 @@ function DeleteWorkspaceModal({ target, onConfirm, onClose, theme }) {
             <Trash2 size={20} color="white" />
           </div>
           <div>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#7f1d1d" }}>워크스페이스 삭제</h2>
-            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#991b1b" }}>이 작업은 되돌릴 수 없습니다</p>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#7f1d1d" }}>{t("workspace.deleteModal.title")}</h2>
+            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#991b1b" }}>{t("workspace.deleteModal.irreversible")}</p>
           </div>
         </div>
         <div style={{ padding: "24px 28px" }}>
           <p style={{ margin: 0, fontSize: 14, color: "#374151", lineHeight: 1.7 }}>
-            <b style={{ color: "#111827" }}>"{target.name}"</b> 워크스페이스를 삭제할까요?
+            {t("workspace.deleteModal.body", { name: target.name })}
           </p>
           <div style={{
             marginTop: 14, padding: "12px 14px", borderRadius: 10,
             background: "#FEF2F2", border: "1px solid #FECACA",
             fontSize: 12.5, color: "#991b1b", lineHeight: 1.65,
           }}>
-            ⚠️ AI 대화 내역, 전략 설정, Decision Log 등 모든 데이터가 <b>영구 삭제</b>됩니다.
+            {t("workspace.deleteModal.warning")}
           </div>
           <div style={{ marginTop: 20 }}>
             <label style={{ display: "block", fontSize: 12.5, color: "#6B7280", marginBottom: 6 }}>
-              확인을 위해 워크스페이스 이름{" "}
-              <b style={{ color: "#111827" }}>"{target.name}"</b>을 입력하세요.
+              {t("workspace.deleteModal.inputLabel", { name: target.name })}
             </label>
             <input
               className={shake ? "delete-input-shake" : ""}
@@ -602,7 +595,7 @@ function DeleteWorkspaceModal({ target, onConfirm, onClose, theme }) {
             />
             {inputName.length > 0 && !matched && (
               <p style={{ margin: "6px 0 0", fontSize: 12, color: "#ef4444" }}>
-                이름이 일치하지 않습니다. 다시 입력해 주세요.
+                {t("workspace.deleteModal.mismatch")}
               </p>
             )}
           </div>
@@ -612,7 +605,7 @@ function DeleteWorkspaceModal({ target, onConfirm, onClose, theme }) {
             padding: "10px 20px", borderRadius: 10,
             border: "1px solid #E2E8F0", background: "white", color: "#374151",
             fontSize: 13, fontWeight: 600, cursor: "pointer",
-          }}>취소</button>
+          }}>{t("workspace.deleteModal.cancel")}</button>
           <button onClick={handleConfirm} style={{
             padding: "10px 20px", borderRadius: 10, border: "none",
             background: matched
@@ -622,7 +615,7 @@ function DeleteWorkspaceModal({ target, onConfirm, onClose, theme }) {
             cursor: matched ? "pointer" : "not-allowed",
             boxShadow: matched ? "0 3px 10px rgba(239,68,68,0.3)" : "none",
             transition: "background 0.2s, box-shadow 0.2s",
-          }}>삭제하기</button>
+          }}>{t("workspace.deleteModal.confirm")}</button>
         </div>
       </div>
     </div>
@@ -630,6 +623,7 @@ function DeleteWorkspaceModal({ target, onConfirm, onClose, theme }) {
 }
 
 function SetPrimaryModal({ target, onConfirm, onClose }) {
+  const { t } = useLanguage();
   if (!target) return null;
   return (
     <div onClick={onClose} style={{
@@ -655,20 +649,20 @@ function SetPrimaryModal({ target, onConfirm, onClose }) {
             <Star size={20} color="#B45309" />
           </div>
           <div>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0F172A" }}>대표 워크스페이스 설정</h2>
-            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#64748B" }}>홈 화면 브리핑 및 요약에 사용됩니다</p>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0F172A" }}>{t("workspace.primaryModal.title")}</h2>
+            <p style={{ margin: "3px 0 0", fontSize: 12, color: "#64748B" }}>{t("workspace.primaryModal.sub")}</p>
           </div>
         </div>
         <div style={{ padding: "24px 28px" }}>
           <p style={{ margin: 0, fontSize: 14, color: "#374151", lineHeight: 1.7 }}>
-            <b style={{ color: "#111827" }}>"{target.name}"</b>을 대표 워크스페이스로 설정할까요?
+            {t("workspace.primaryModal.body", { name: target.name })}
           </p>
           <div style={{
             marginTop: 14, padding: "12px 14px", borderRadius: 10,
             background: "#FFFBEB", border: "1px solid #FDE68A",
             fontSize: 12.5, color: "#78350F", lineHeight: 1.65,
           }}>
-            ★ 대표 워크스페이스는 홈 브리핑·오늘의 요약 등에 우선 표시됩니다.
+            {t("workspace.primaryModal.tip")}
           </div>
         </div>
         <div style={{ padding: "0 28px 24px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -676,7 +670,7 @@ function SetPrimaryModal({ target, onConfirm, onClose }) {
             padding: "10px 20px", borderRadius: 10,
             border: "1px solid #E2E8F0", background: "white", color: "#374151",
             fontSize: 13, fontWeight: 600, cursor: "pointer",
-          }}>취소</button>
+          }}>{t("workspace.primaryModal.cancel")}</button>
           <button
             onClick={onConfirm}
             onMouseEnter={e => e.currentTarget.style.background = "#FEF3C7"}
@@ -686,7 +680,7 @@ function SetPrimaryModal({ target, onConfirm, onClose }) {
               border: "1px solid #FDE68A",
               background: "#FFFBEB",
               color: "#92400E", fontSize: 13, fontWeight: 700, cursor: "pointer",
-            }}>대표로 설정</button>
+            }}>{t("workspace.primaryModal.confirm")}</button>
         </div>
       </div>
     </div>

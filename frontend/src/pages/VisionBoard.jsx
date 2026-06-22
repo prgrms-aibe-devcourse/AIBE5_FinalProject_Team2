@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Image as ImageIcon, Type, Trash2, Save, HelpCircle, Smile } from "lucide-react";
 import StickerPickerModal from "./VisionBoard.StickerPickerModal";
 import { getVisionBoard, saveVisionBoard } from "../api/visionBoard.api";
+import { useLanguage } from "../i18n/useLanguage";
 
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const MEMO_COLORS = [
@@ -13,6 +14,7 @@ let _id = Date.now();
 const uid = () => ++_id;
 
 export default function VisionBoard() {
+  const { t } = useLanguage();
   const [items, setItems]         = useState([]);
   const [loading, setLoading]     = useState(true);
   const [selected, setSelected]   = useState(null);
@@ -56,7 +58,7 @@ export default function VisionBoard() {
       setSavedAnim(true);
       setTimeout(() => setSavedAnim(false), 1800);
     } catch {
-      alert("저장에 실패했습니다. 다시 시도해주세요.");
+      alert(t("visionBoard.saveFail"));
     }
   };
 
@@ -96,7 +98,7 @@ export default function VisionBoard() {
   const addImage = (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (f.size > 5 * 1024 * 1024) { alert("이미지는 5MB 이하만 가능합니다."); return; }
+    if (f.size > 5 * 1024 * 1024) { alert(t("visionBoard.imageTooBig")); return; }
     const reader = new FileReader();
     reader.onload = () => {
       const id = uid();
@@ -181,7 +183,7 @@ export default function VisionBoard() {
             background: "linear-gradient(90deg,#3b82f6,#6366f1)",
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
             whiteSpace: "nowrap",
-          }}>비전 보드</span>
+          }}>{t("visionBoard.title")}</span>
           <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
             <div
               onMouseEnter={() => setShowDesc(true)}
@@ -209,9 +211,8 @@ export default function VisionBoard() {
                   borderLeft: "1px solid #E0E7FF", borderTop: "1px solid #E0E7FF",
                   transform: "rotate(45deg)",
                 }} />
-                <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.6 }}>
-                  투자 자유를 꿈꾸는 당신의 비전을 시각화하세요.<br />
-                  목표하는 삶, 가고 싶은 곳, 이루고 싶은 것들을 자유롭게 붙여보세요.
+                <div style={{ fontSize: 12, color: "#334155", lineHeight: 1.6, whiteSpace: "pre-line" }}>
+                  {t("visionBoard.descTooltip")}
                 </div>
               </div>
             )}
@@ -220,7 +221,7 @@ export default function VisionBoard() {
 
         <div style={{ width: 1, height: 22, background: "#E2E8F0", margin: "0 4px" }} />
 
-        <Btn onClick={() => fileRef.current?.click()} icon={<ImageIcon size={13} />} label="이미지" primary />
+        <Btn onClick={() => fileRef.current?.click()} icon={<ImageIcon size={13} />} label={t("visionBoard.toolbar.image")} primary />
         <button
           onClick={() => { setShowText(v => !v); setNewText(""); }}
           style={{
@@ -235,7 +236,7 @@ export default function VisionBoard() {
             transition: "background 0.12s, border-color 0.12s",
           }}
         >
-          <Type size={13} /> 텍스트
+          <Type size={13} /> {t("visionBoard.toolbar.text")}
         </button>
         <button
           onClick={() => setShowStickerPicker(true)}
@@ -249,7 +250,7 @@ export default function VisionBoard() {
             whiteSpace: "nowrap",
           }}
         >
-          <Smile size={13} /> 스티커
+          <Smile size={13} /> {t("visionBoard.toolbar.sticker")}
         </button>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }} onChange={addImage} />
 
@@ -259,25 +260,25 @@ export default function VisionBoard() {
         {selected && (
           <>
             <div style={{ width: 1, height: 22, background: "#E2E8F0", margin: "0 4px" }} />
-            <Btn onClick={() => remove(selected)} icon={<Trash2 size={13} />} label="삭제" danger />
+            <Btn onClick={() => remove(selected)} icon={<Trash2 size={13} />} label={t("visionBoard.toolbar.delete")} danger />
           </>
         )}
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {/* 미저장 / 저장 완료 표시 */}
           {savedAnim && (
-            <span style={{ fontSize: 12, color: "#22c55e", fontWeight: 600 }}>✓ 저장됨</span>
+            <span style={{ fontSize: 12, color: "#22c55e", fontWeight: 600 }}>{t("visionBoard.saved")}</span>
           )}
           {!savedAnim && dirty && (
-            <span style={{ fontSize: 12, color: "#f59e0b", fontWeight: 600 }}>● 저장되지 않은 변경사항</span>
+            <span style={{ fontSize: 12, color: "#f59e0b", fontWeight: 600 }}>{t("visionBoard.unsaved")}</span>
           )}
           {!savedAnim && !dirty && items.length > 0 && (
-            <span style={{ fontSize: 12, color: "#94A3B8" }}>{items.length}개 스티커</span>
+            <span style={{ fontSize: 12, color: "#94A3B8" }}>{t("visionBoard.count", { count: items.length })}</span>
           )}
           <Btn
             onClick={handleSave}
             icon={<Save size={13} />}
-            label="저장"
+            label={t("visionBoard.toolbar.save")}
             primary
             disabled={!dirty || loading}
           />
@@ -295,7 +296,7 @@ export default function VisionBoard() {
             value={newText}
             onChange={e => setNewText(e.target.value)}
             onKeyDown={e => { if (e.nativeEvent.isComposing) return; if (e.key === "Enter") addText(); if (e.key === "Escape") setShowText(false); }}
-            placeholder="텍스트 내용 입력 후 Enter..."
+            placeholder={t("visionBoard.textInputPlaceholder")}
             style={{
               flex: 1, padding: "8px 12px", borderRadius: 8, fontFamily: F,
               border: "1.5px solid #C7D2FE", fontSize: 14, outline: "none",
@@ -313,8 +314,8 @@ export default function VisionBoard() {
               }} />
             ))}
           </div>
-          <Btn onClick={addText} label="추가" primary disabled={!newText.trim()} />
-          <Btn onClick={() => setShowText(false)} label="취소" />
+          <Btn onClick={addText} label={t("visionBoard.toolbar.add")} primary disabled={!newText.trim()} />
+          <Btn onClick={() => setShowText(false)} label={t("visionBoard.toolbar.cancel")} />
         </div>
       )}
 
@@ -338,7 +339,7 @@ export default function VisionBoard() {
               transform: "translate(-50%,-50%)",
               textAlign: "center", pointerEvents: "none",
             }}>
-              <div style={{ fontSize: 14, color: "#94A3B8" }}>불러오는 중...</div>
+              <div style={{ fontSize: 14, color: "#94A3B8" }}>{t("visionBoard.loading")}</div>
             </div>
           )}
 
@@ -351,11 +352,10 @@ export default function VisionBoard() {
             }}>
               <div style={{ fontSize: 64, marginBottom: 16 }}>🎯</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: "#94A3B8", marginBottom: 8 }}>
-                비전 보드가 비어있어요
+                {t("visionBoard.emptyTitle")}
               </div>
-              <div style={{ fontSize: 14, color: "#94A3B8", lineHeight: 1.7 }}>
-                위 툴바에서 이미지·텍스트·스티커를 추가해보세요<br />
-                드래그로 자유롭게 배치하고, 우측 아래 핸들을 당겨 크기를 조절할 수 있어요
+              <div style={{ fontSize: 14, color: "#94A3B8", lineHeight: 1.7, whiteSpace: "pre-line" }}>
+                {t("visionBoard.emptyDesc")}
               </div>
             </div>
           )}
@@ -372,6 +372,8 @@ export default function VisionBoard() {
               onBlurEdit={() => setEditingId(null)}
               onChangeText={updateText}
               onChangeCaption={updateCaption}
+              captionPlaceholder={t("visionBoard.captionPlaceholder")}
+              editPlaceholder={t("visionBoard.editPlaceholder")}
             />
           ))}
         </div>
@@ -398,7 +400,7 @@ export default function VisionBoard() {
 }
 
 /* ── 스티커 컴포넌트 ── */
-function Sticker({ item, selected, editing, onDown, onResizeDown, onDoubleClick, onBlurEdit, onChangeText, onChangeCaption }) {
+function Sticker({ item, selected, editing, onDown, onResizeDown, onDoubleClick, onBlurEdit, onChangeText, onChangeCaption, captionPlaceholder, editPlaceholder }) {
   const isImage = item.type === "image";
 
   return (
@@ -434,7 +436,7 @@ function Sticker({ item, selected, editing, onDown, onResizeDown, onDoubleClick,
               value={item.caption}
               onChange={e => onChangeCaption(item.id, e.target.value)}
               onMouseDown={e => e.stopPropagation()}
-              placeholder="캡션 추가..."
+              placeholder={captionPlaceholder}
               style={{
                 width: "100%", border: "none", borderTop: "1px solid #E2E8F0",
                 padding: "8px 10px", fontSize: 12.5, color: "#374151",
@@ -465,7 +467,7 @@ function Sticker({ item, selected, editing, onDown, onResizeDown, onDoubleClick,
             color: "#1F2937", whiteSpace: "pre-wrap", wordBreak: "break-word",
             minHeight: "100%", fontFamily: F,
           }}>
-            {item.text || <span style={{ color: "#9CA3AF", fontWeight: 400, fontSize: 13 }}>더블클릭해서 편집</span>}
+            {item.text || <span style={{ color: "#9CA3AF", fontWeight: 400, fontSize: 13 }}>{editPlaceholder}</span>}
           </div>
         )
       )}
@@ -516,16 +518,11 @@ function Corner({ top, left }) {
   );
 }
 
-/* ── 버튼 컴포넌트 ── */
-const HINTS = [
-  { icon: "✦", text: "스티커를 드래그해서 자유롭게 이동" },
-  { icon: "⤡", text: "선택 후 우측 아래 핸들을 당겨 크기 조절" },
-  { icon: "✎", text: "텍스트 더블 클릭 후 글 내용 편집" },
-  { icon: "🗑", text: "스티커 선택 후 툴바 삭제 버튼으로 제거" },
-];
-
+/* ── 힌트 툴팁 ── */
 function HintTooltip() {
+  const { t } = useLanguage();
   const [show, setShow] = useState(false);
+  const hints = t("visionBoard.hints.items");
   return (
     <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
       <div
@@ -557,10 +554,10 @@ function HintTooltip() {
             transform: "rotate(45deg)",
           }} />
           <div style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", letterSpacing: 0.6, marginBottom: 10, textTransform: "uppercase" }}>
-            사용법
+            {t("visionBoard.hints.label")}
           </div>
-          {HINTS.map(h => (
-            <div key={h.text} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8, whiteSpace: "nowrap" }}>
+          {Array.isArray(hints) && hints.map((h, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8, whiteSpace: "nowrap" }}>
               <span style={{ fontSize: 13, flexShrink: 0, marginTop: 1, color: "#6366f1" }}>{h.icon}</span>
               <span style={{ fontSize: 12.5, color: "#334155", lineHeight: 1.5 }}>{h.text}</span>
             </div>

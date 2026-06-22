@@ -47,12 +47,13 @@ function Reveal({ children, delay = 0, y = 28, style = {} }) {
 
 /* ── 백테스트 미니 차트 ── */
 function MiniBacktestChart() {
+  const { t } = useLanguage();
   const pts = [0,68, 40,62, 80,55, 120,58, 160,45, 200,38, 240,28, 280,20, 300,12];
   const path = pts.reduce((acc, v, i) => i % 2 === 0 ? acc + `${i === 0 ? "M" : "L"} ${v} ` : acc + `${v} `, "");
   const area = path + `L 300 80 L 0 80 Z`;
   return (
     <div style={{ padding: "14px 16px", borderRadius: 12, background: "#F8FAFF", border: "1px solid #DBEAFE" }}>
-      <div style={{ fontSize: 10.5, fontWeight: 600, color: "#64748b", marginBottom: 10 }}>SPY · SMA Cross · 5년 백테스트</div>
+      <div style={{ fontSize: 10.5, fontWeight: 600, color: "#64748b", marginBottom: 10 }}>{t("home.miniCharts.backtest.label")}</div>
       <svg width="100%" viewBox="0 0 300 80" style={{ display: "block", marginBottom: 10 }}>
         <defs>
           <linearGradient id="eq" x1="0" y1="0" x2="0" y2="1">
@@ -65,7 +66,7 @@ function MiniBacktestChart() {
         <path d={path} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
       <div style={{ display: "flex", gap: 16 }}>
-        {[["총 수익률", "+127.4%", "#10b981"], ["Sharpe", "1.82", "#3b82f6"], ["MDD", "-18.3%", "#ef4444"]].map(([label, val, color]) => (
+        {[[t("home.miniCharts.backtest.totalReturn"), "+127.4%", "#10b981"], ["Sharpe", "1.82", "#3b82f6"], [t("home.miniCharts.backtest.mdd"), "-18.3%", "#ef4444"]].map(([label, val, color]) => (
           <div key={label}>
             <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 2 }}>{label}</div>
             <div style={{ fontSize: 15, fontWeight: 800, color }}>{val}</div>
@@ -78,19 +79,17 @@ function MiniBacktestChart() {
 
 /* ── Trust Score 미니 게이지 ── */
 function MiniTrustScore() {
+  const { t, lang } = useLanguage();
   const score = 72;
   const r = 28, c = 2 * Math.PI * r;
   const offset = c - (score / 100) * c;
-  const metrics = [
-    { label: "일반화", val: 68, color: "#6366f1" },
-    { label: "국면 견고성", val: 55, color: "#3b82f6" },
-    { label: "파라미터 안정성", val: 88, color: "#10b981" },
-    { label: "리스크 통제", val: 79, color: "#f59e0b" },
-    { label: "통계 유의성", val: 62, color: "#ec4899" },
-  ];
+  const metricLabels = (translations[lang]?.home?.miniCharts?.trust?.metrics) || translations.en.home.miniCharts.trust.metrics;
+  const metricColors = ["#6366f1", "#3b82f6", "#10b981", "#f59e0b", "#ec4899"];
+  const metricVals   = [68, 55, 88, 79, 62];
+  const metrics = metricLabels.map((label, i) => ({ label, val: metricVals[i], color: metricColors[i] }));
   return (
     <div style={{ padding: "14px 16px", borderRadius: 12, background: "#F8FAFF", border: "1px solid #D1FAE5" }}>
-      <div style={{ fontSize: 10.5, fontWeight: 600, color: "#64748b", marginBottom: 12 }}>Trust Score 분석 결과</div>
+      <div style={{ fontSize: 10.5, fontWeight: 600, color: "#64748b", marginBottom: 12 }}>{t("home.miniCharts.trust.label")}</div>
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <div style={{ position: "relative", width: 72, height: 72, flexShrink: 0 }}>
           <svg width="72" height="72" viewBox="0 0 72 72">
@@ -123,19 +122,20 @@ function MiniTrustScore() {
 
 /* ── KIS 주문 카드 ── */
 function MiniOrderCard() {
+  const { t } = useLanguage();
   return (
     <div style={{ padding: "14px 16px", borderRadius: 12, background: "#F8FAFF", border: "1px solid #FEF3C7" }}>
-      <div style={{ fontSize: 10.5, fontWeight: 600, color: "#64748b", marginBottom: 10 }}>📧 주문 승인 요청 — 이메일 수신</div>
+      <div style={{ fontSize: 10.5, fontWeight: 600, color: "#64748b", marginBottom: 10 }}>{t("home.miniCharts.order.label")}</div>
       <div style={{ background: "white", borderRadius: 10, border: "1px solid #E2E8F0", overflow: "hidden" }}>
         <div style={{ padding: "10px 14px", borderBottom: "1px solid #F1F5F9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>삼성전자 <span style={{ fontSize: 10, color: "#64748b" }}>005930</span></div>
-            <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>모의투자 · KIS OpenAPI</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>{t("home.miniCharts.order.company")} <span style={{ fontSize: 10, color: "#64748b" }}>{t("home.miniCharts.order.ticker")}</span></div>
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>{t("home.miniCharts.order.tag")}</div>
           </div>
-          <span style={{ padding: "3px 10px", borderRadius: 999, background: "#DBEAFE", color: "#1d4ed8", fontSize: 11, fontWeight: 700 }}>매수</span>
+          <span style={{ padding: "3px 10px", borderRadius: 999, background: "#DBEAFE", color: "#1d4ed8", fontSize: 11, fontWeight: 700 }}>{t("home.miniCharts.order.orderType")}</span>
         </div>
         <div style={{ padding: "10px 14px", display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, borderBottom: "1px solid #F1F5F9" }}>
-          {[["수량", "10주"], ["단가", "₩78,500"], ["총액", "₩785,000"]].map(([k, v]) => (
+          {[[t("home.miniCharts.order.qty"), t("home.miniCharts.order.qtyVal")], [t("home.miniCharts.order.price"), t("home.miniCharts.order.priceVal")], [t("home.miniCharts.order.total"), t("home.miniCharts.order.totalVal")]].map(([k, v]) => (
             <div key={k}>
               <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 2 }}>{k}</div>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a" }}>{v}</div>
@@ -143,8 +143,8 @@ function MiniOrderCard() {
           ))}
         </div>
         <div style={{ padding: "10px 14px", display: "flex", gap: 8 }}>
-          <button style={{ flex: 1, padding: "7px", borderRadius: 7, border: "none", background: "#10b981", color: "white", fontSize: 12, fontWeight: 700, cursor: "default" }}>✓ 승인</button>
-          <button style={{ flex: 1, padding: "7px", borderRadius: 7, border: "1px solid #E2E8F0", background: "white", color: "#64748b", fontSize: 12, fontWeight: 600, cursor: "default" }}>✗ 거절</button>
+          <button style={{ flex: 1, padding: "7px", borderRadius: 7, border: "none", background: "#10b981", color: "white", fontSize: 12, fontWeight: 700, cursor: "default" }}>{t("home.miniCharts.order.approve")}</button>
+          <button style={{ flex: 1, padding: "7px", borderRadius: 7, border: "1px solid #E2E8F0", background: "white", color: "#64748b", fontSize: 12, fontWeight: 600, cursor: "default" }}>{t("home.miniCharts.order.reject")}</button>
         </div>
       </div>
     </div>
@@ -153,8 +153,9 @@ function MiniOrderCard() {
 
 /* ── Quant Developer IDE 미니 코드에디터 ── */
 function MiniIDE() {
+  const { t } = useLanguage();
   const lines = [
-    [["# 전략 유형: SMA 크로스오버", "#6b7280"]],
+    [[t("home.miniCharts.ide.comment"), "#6b7280"]],
     [["TICKER", "#9cdcfe"], ["   = ", "#d4d4d4"], ["\"SPY\"", "#ce9178"]],
     [["SMA_FAST", "#9cdcfe"], [" = ", "#d4d4d4"], ["20", "#b5cea8"]],
     [["class ", "#569cd6"], ["MyStrategy", "#4ec9b0"], ["(QCAlgorithm):", "#d4d4d4"]],
@@ -186,86 +187,19 @@ function MiniIDE() {
   );
 }
 
-const FLOW_STEPS = [
-  { icon: <MessageSquare size={22} color="#818cf8" />, step: "01", title: "자연어로 전략 입력",  desc: '"SPY에 RSI 전략으로 투자하고 싶어" — AI가 전략 파라미터를 자동 구성합니다.' },
-  { icon: <FlaskConical   size={22} color="#818cf8" />, step: "02", title: "백테스트 실행",       desc: "vectorbt 엔진으로 7가지 전략을 과거 데이터로 검증. 수수료·슬리피지까지 반영합니다." },
-  { icon: <ShieldCheck    size={22} color="#818cf8" />, step: "03", title: "AI 신뢰도 분석",     desc: "Walk-Forward · Regime HMM · 파라미터 섭동으로 전략의 Trust Score를 산출합니다." },
-  { icon: <TrendingUp     size={22} color="#818cf8" />, step: "04", title: "실주문 연결",         desc: "KIS OpenAPI로 모의투자 → 실거래까지 원클릭. Kill-Switch 안전장치가 항상 작동합니다." },
+const STEP_ICONS = [
+  <MessageSquare size={22} color="#818cf8" />,
+  <FlaskConical  size={22} color="#818cf8" />,
+  <ShieldCheck   size={22} color="#818cf8" />,
+  <TrendingUp    size={22} color="#818cf8" />,
 ];
 
-const STATS = [
-  { value: "7+",      label: "백테스트 전략" },
-  { value: "5-State", label: "Regime HMM 분석" },
-  { value: "3단계",   label: "Trust Score 검증" },
-  { value: "실시간",  label: "KIS 실거래 연동" },
-];
-
-const FEATURE_TABS = [
-  {
-    key: "ai", Icon: Brain, label: "멀티 LLM AI 대화",
-    emoji: "🧠", color: "#6366f1", soft: "#EEF2FF",
-    quotes: [
-      { role: "user", text: "SPY에 RSI 전략으로 3년 투자하고 싶어" },
-      { role: "ai",   text: "목표 설정 완료! RSI(14) 기반 전략으로 구성할게요 →" },
-      { role: "user", text: "RSI 기간을 좀 더 줄여줘" },
-    ],
-    headline: "코딩 몰라도 됩니다. 말만 하세요.",
-    body: "퀀트 투자는 원래 수학·코딩 전문가의 영역이었습니다. Alpha-Helix는 그 장벽을 없앴습니다. 'SPY에 RSI 전략으로 3년 투자하고 싶어'처럼 평소 말하듯 입력하면, AI가 투자 목표·기간·리스크 성향을 파악해 전략 파라미터를 자동으로 구성해 줍니다. 전략을 바꾸고 싶을 때도 'RSI 기간을 14로 줄여줘' 한 마디면 즉시 반영됩니다. 처음엔 어떤 전략을 골라야 할지 막막하더라도 괜찮습니다. AI가 먼저 질문을 던지며 당신의 투자 성향을 파악하고, 그에 맞는 전략을 함께 설계해 나갑니다.",
-    points: [
-      "자연어 → 전략 자동 구성 — 코드 한 줄 없이 파라미터까지 완성",
-      "투자 목표 자동 파악 — 기간·초기자금·월 적립금·리스크 성향을 대화에서 추출",
-      "Gemini · OpenAI · Anthropic · Perplexity 4개 AI 자동 폴백 — 한 곳이 느려도 끊김 없음",
-      "대화 맥락 유지 — 앞서 나눈 이야기를 기억하고 전략을 단계적으로 다듬음",
-    ],
-  },
-  {
-    key: "ide", Icon: Code2, label: "Quant Developer IDE",
-    emoji: "⌨️", color: "#8b5cf6", soft: "#EDE9FE", Visual: MiniIDE,
-    headline: "내 전략이 '진짜 코드'로 — 보고, 고치고, 돌려보세요",
-    body: "말로 만든 전략이 실제로 어떻게 동작하는지 궁금하셨나요? Quant Developer IDE는 회원님의 전략을 그대로 실행 가능한 파이썬 퀀트 코드로 보여줍니다. 코드를 직접 열어 매수·매도 규칙을 확인하고, 원하는 대로 고치면 백테스트에 즉시 반영됩니다. 가장 중요한 건 — 화면에 보이는 백테스트 결과가 바로 그 코드를 실행한 결과와 같다는 점입니다. '보이는 것'과 '실제 실행'이 어긋나지 않습니다. Claude Code 에이전트가 코드 분석·개선까지 도와주니, 코딩을 몰라도 전문가 수준의 전략 개발이 가능합니다.",
-    points: [
-      "전략 → 실행가능 파이썬 코드 자동 생성 — 매수·매도 로직을 그대로 확인",
-      "백테스트 = 코드 실행 결과 일치 — 보이는 숫자가 곧 진짜 결과",
-      "무한매수법·밸류리밸런싱 등 7+ 전략 — 검증된 엔진을 코드로 투명하게",
-      "Claude Code 에이전트 — 코드 분석·개선·디버깅을 대화로",
-    ],
-  },
-  {
-    key: "backtest", Icon: BarChart3, label: "백테스트 엔진",
-    emoji: "📊", color: "#3b82f6", soft: "#DBEAFE", Visual: MiniBacktestChart,
-    headline: "\"이 전략, 과거에도 통했을까?\" — 수초 안에 확인",
-    body: "백테스트란 내가 만든 전략을 과거 데이터에 적용해 '실제로 투자했다면 어땠을까'를 시뮬레이션하는 것입니다. Alpha-Helix는 최대 30년치 데이터를 수초 안에 돌려 총 수익률·최대 손실폭(MDD)·샤프 지수 등을 한눈에 보여줍니다. 수수료와 슬리피지(체결 미끄러짐)까지 반영해 현실적인 결과를 제공합니다. 특히 MDD(최대 낙폭)는 '내가 가장 운 나쁜 타이밍에 투자했다면 얼마나 잃었을까'를 보여주는 지표로, 전략의 위험성을 직관적으로 파악하는 데 핵심적인 역할을 합니다.",
-    points: [
-      "7가지 전략 지원 — SMA Cross · RSI · MACD · Momentum · VIX Risk-off · 무한매수법 · Buy & Hold",
-      "MDD(최대 손실폭) 표시 — '최악의 경우 얼마나 잃을 수 있는지' 미리 확인",
-      "수수료 0.25% + 슬리피지 0.1% 자동 반영 — 현실과 가장 가까운 시뮬레이션",
-      "QuantStats 리포트 자동 생성 — 전문 투자자 수준의 성과 분석서를 한 번에",
-    ],
-  },
-  {
-    key: "trust", Icon: ShieldCheck, label: "Trust Score",
-    emoji: "🛡️", color: "#10b981", soft: "#D1FAE5", Visual: MiniTrustScore,
-    headline: "백테스트 수익률이 높아도 믿으면 안 되는 이유",
-    body: "백테스트 수익률이 높다고 해서 실전에서도 잘 된다는 보장은 없습니다. 과거 데이터에 지나치게 맞춰진 전략(과적합)은 실전에서 오히려 큰 손실을 낼 수 있습니다. Trust Score는 '이 전략이 미래에도 통할 가능성이 얼마나 되는지'를 0~100점으로 채점합니다. 예를 들어 상승장에서만 잘 되는 전략인지, 하락장이 와도 버텨낼 수 있는 전략인지를 5가지 시장 환경으로 나눠 검증합니다. 점수가 낮다면 전략을 더 다듬어야 한다는 신호이고, 높다면 실전 투자를 고려할 준비가 된 것입니다.",
-    points: [
-      "과적합 자동 탐지 — 과거에만 잘 맞춰진 전략인지 미래 구간으로 검증",
-      "5가지 시장 국면 분석 — 상승장·하락장·횡보장 등 다양한 환경에서의 성과를 따로 평가",
-      "파라미터 민감도 검사 — 설정값을 조금만 바꿔도 결과가 크게 달라지면 위험 신호",
-      "0~100점 종합 신뢰도 — 강점·보완점·현재 국면 조언까지 한 화면에 정리",
-    ],
-  },
-  {
-    key: "kis", Icon: Zap, label: "KIS 실주문 자동화",
-    emoji: "⚡", color: "#f59e0b", soft: "#FEF3C7", Visual: MiniOrderCard,
-    headline: "검증 끝난 전략, 이제 실제 시장에 연결하세요",
-    body: "전략이 충분히 검증됐다면 한국투자증권(KIS) OpenAPI를 통해 실제 주문을 자동화할 수 있습니다. 처음에는 가상 돈으로 연습하는 '모의투자'로 시작하고, 준비가 됐을 때만 실거래로 전환할 수 있도록 여러 단계의 안전장치가 설계되어 있습니다. 실수로 주문이 나가는 일은 절대 없습니다. 주문이 발생할 때마다 이메일로 승인 링크가 전송되며, 본인이 직접 확인하고 승인해야만 실제 매매가 이루어집니다. 시장이 급변하는 상황에서는 Kill-Switch 하나로 모든 자동 주문을 즉시 멈출 수도 있습니다.",
-    points: [
-      "모의투자 → 실거래 명시적 전환 — 본인이 직접 승인해야만 실주문 가능",
-      "이메일 승인 링크 — 주문 전 본인 확인 단계를 거쳐 실수 주문 원천 차단",
-      "긴급 Kill-Switch — 시장 이상 감지 시 모든 실주문을 즉시 중단하는 안전장치",
-      "API 키 암호화 저장 — 증권사 로그인 정보를 서버에 안전하게 보관",
-    ],
-  },
+const TAB_META = [
+  { key: "ai",       Icon: Brain,       emoji: "🧠", color: "#6366f1", soft: "#EEF2FF" },
+  { key: "ide",      Icon: Code2,       emoji: "⌨️", color: "#8b5cf6", soft: "#EDE9FE", Visual: MiniIDE },
+  { key: "backtest", Icon: BarChart3,   emoji: "📊", color: "#3b82f6", soft: "#DBEAFE", Visual: MiniBacktestChart },
+  { key: "trust",    Icon: ShieldCheck, emoji: "🛡️", color: "#10b981", soft: "#D1FAE5", Visual: MiniTrustScore },
+  { key: "kis",      Icon: Zap,         emoji: "⚡", color: "#f59e0b", soft: "#FEF3C7", Visual: MiniOrderCard },
 ];
 
 const PROJECTS_TAGS = [
@@ -289,6 +223,8 @@ export default function Home() {
   const startTutorial = useTutorialStore((s) => s.start);
   const tr = translations[lang]?.home || translations.en.home;
   const projects = tr.projectSection.projects;
+  const FLOW_STEPS = (tr.flowSteps || []).map((s, i) => ({ ...s, icon: STEP_ICONS[i] }));
+  const FEATURE_TABS = TAB_META.map(m => ({ ...m, ...(tr.featureTabs?.[m.key] || {}) }));
   const activeFeature = FEATURE_TABS.find(f => f.key === activeTab);
 
   useEffect(() => {
@@ -315,13 +251,31 @@ export default function Home() {
     } catch (e) {
       const msg = e?.response?.data?.error || e.message;
       if (e?.response?.status === 409) { setNewWsOpen(true); setNewWsError(msg); }
-      else alert("생성 실패: " + msg);
+      else alert(t("home.createFail") + msg);
     }
   };
 
   return (
     <>
-    <div style={{ minHeight: "100vh", backgroundColor: "#fff", fontFamily: BASE_FONT }}>
+    <style>{`
+      .rp-page { min-height: 100vh; background-color: #fff; padding: 0; }
+      .home-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+      .home-grid-4-stats { display: grid; grid-template-columns: repeat(4, 1fr); }
+      .home-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+      .home-grid-2col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0; }
+      @media (max-width: 1024px) {
+        .home-grid-4 { grid-template-columns: repeat(2, 1fr); }
+        .home-grid-4-stats { grid-template-columns: repeat(2, 1fr); gap: 16px 0; }
+        .home-grid-3 { grid-template-columns: 1fr; }
+        .home-grid-2col { grid-template-columns: 1fr; }
+        .home-feature-col { padding: 24px clamp(16px, 3vw, 32px) !important; }
+      }
+      @media (max-width: 640px) {
+        .home-grid-4 { grid-template-columns: 1fr; }
+        .home-grid-4-stats { grid-template-columns: repeat(2, 1fr); }
+      }
+    `}</style>
+    <div className="rp-page" style={{ fontFamily: BASE_FONT }}>
 
       {/* ── HERO ── */}
       <section style={{ position: "relative", width: "100%", height: 580, overflow: "hidden" }}>
@@ -349,7 +303,7 @@ export default function Home() {
               padding: "6px 18px",
             }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#818cf8", flexShrink: 0 }} />
-              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", fontWeight: 600, letterSpacing: 0.4 }}>AI 기반 퀀트 투자 워크스페이스</span>
+              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.85)", fontWeight: 600, letterSpacing: 0.4 }}>{t("home.heroBadge")}</span>
             </div>
 
             <h1 style={{ fontSize: 48, fontWeight: 900, color: "white", lineHeight: 1.2, marginBottom: 20, textShadow: "0 2px 24px rgba(0,0,0,0.5)", fontFamily: BASE_FONT }}>
@@ -365,8 +319,8 @@ export default function Home() {
               border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12,
               padding: "14px 28px", marginBottom: 32,
             }}>
-              <p style={{ fontSize: 15, color: "rgba(255,255,255,0.82)", fontFamily: BASE_FONT, fontWeight: 400, margin: 0, lineHeight: 1.7 }}>
-                자연어 프롬프트 한 줄로 전략 구성부터<br />백테스트, 실주문까지 한 흐름으로 연결됩니다.
+              <p style={{ fontSize: 15, color: "rgba(255,255,255,0.82)", fontFamily: BASE_FONT, fontWeight: 400, margin: 0, lineHeight: 1.7, whiteSpace: "pre-line" }}>
+                {t("home.heroDesc")}
               </p>
             </div>
 
@@ -415,7 +369,7 @@ export default function Home() {
                 onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.07)"; e.currentTarget.style.transform = "none"; }}
               >
                 <Sparkles size={15} style={{ opacity: 0.9 }} />
-                저희 서비스가 처음이신가요? 투자 여정 시작하기 →
+                {t("home.tutorialBtn")}
               </button>
             )}
           </div>
@@ -427,20 +381,20 @@ export default function Home() {
         background: "#F0F9FF",
         backgroundImage: "linear-gradient(rgba(99,102,241,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(99,102,241,0.04) 1px, transparent 1px)",
         backgroundSize: "48px 48px",
-        padding: "80px 20px",
+        padding: "80px 0",
       }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", width: "100%", padding: "0 20px", boxSizing: "border-box" }}>
           <Reveal>
           <div style={{ textAlign: "center", marginBottom: 56 }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", letterSpacing: 2, textTransform: "uppercase", marginBottom: 12 }}>How it works</p>
-            <h2 style={{ fontSize: 30, fontWeight: 800, color: "#0f172a", margin: "0 0 12px", fontFamily: BASE_FONT }}>네 단계로 완성되는 퀀트 투자</h2>
-            <p style={{ fontSize: 14, color: "#475569", maxWidth: 420, margin: "0 auto", lineHeight: 1.8 }}>
-              복잡한 코딩 없이, 자연어 한 줄로 전문가 수준의<br />퀀트 전략을 구성하고 실행하세요.
+            <h2 style={{ fontSize: 30, fontWeight: 800, color: "#0f172a", margin: "0 0 12px", fontFamily: BASE_FONT }}>{t("home.howItWorks.title")}</h2>
+            <p style={{ fontSize: 14, color: "#475569", maxWidth: 420, margin: "0 auto", lineHeight: 1.8, whiteSpace: "pre-line" }}>
+              {t("home.howItWorks.subtitle")}
             </p>
           </div>
           </Reveal>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+          <div className="home-grid-4">
             {FLOW_STEPS.map((s, i) => (
               <Reveal key={i} delay={i * 100} style={{ height: "100%" }}>
               <div style={{ position: "relative", height: "100%" }}>
@@ -483,13 +437,13 @@ export default function Home() {
         background: "linear-gradient(90deg, #1e3a8a 0%, #1e1b4b 50%, #1e3a8a 100%)",
         borderTop: "1px solid rgba(99,102,241,0.3)",
         borderBottom: "1px solid rgba(99,102,241,0.3)",
-        padding: "44px 20px",
+        padding: "44px 0",
       }}>
-        <div style={{ maxWidth: 860, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(4, 1fr)" }}>
-          {STATS.map((s, i) => (
+        <div className="home-grid-4-stats" style={{ maxWidth: 860, margin: "0 auto", width: "100%", padding: "0 20px", boxSizing: "border-box" }}>
+          {(tr.stats || []).map((s, i) => (
             <div key={i} style={{
               textAlign: "center",
-              borderRight: i < STATS.length - 1 ? "1px solid rgba(255,255,255,0.1)" : "none",
+              borderRight: i < (tr.stats || []).length - 1 ? "1px solid rgba(255,255,255,0.1)" : "none",
               padding: "0 20px",
             }}>
               <Reveal delay={i * 80} y={18}>
@@ -502,16 +456,19 @@ export default function Home() {
       </section>
 
       {/* ── FEATURES (탭) ── */}
-      <section style={{ padding: "88px 20px", background: "#F8FAFC" }}>
-        <div style={{ maxWidth: 1000, margin: "0 auto" }}>
+      <section style={{ padding: "88px 0", background: "#F8FAFC" }}>
+        <div style={{ maxWidth: 1000, margin: "0 auto", padding: "0 20px", boxSizing: "border-box" }}>
           <Reveal>
           <div style={{ textAlign: "center", marginBottom: 52 }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", letterSpacing: 2, textTransform: "uppercase", marginBottom: 12 }}>Features</p>
             <h2 style={{ fontSize: 30, fontWeight: 800, color: "#0f172a", margin: "0 0 12px", fontFamily: BASE_FONT }}>
-              <span style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 500, letterSpacing: -0.3 }}>ALPHA-HELIX</span>가 특별한 이유
+              {(() => {
+                const [pre, post] = t("home.featureSection.title").split("Alpha-Helix");
+                return <>{pre}<span style={{ fontFamily: "'Inter Tight', sans-serif", fontWeight: 500, letterSpacing: -0.3 }}>ALPHA-HELIX</span>{post}</>;
+              })()}
             </h2>
             <p style={{ fontSize: 14, color: "#64748b", maxWidth: 420, margin: "0 auto", lineHeight: 1.8 }}>
-              AI 대화부터 실주문까지, 퀀트 투자의 전 과정을 하나의 워크스페이스에서.
+              {t("home.featureSection.subtitle")}
             </p>
           </div>
           </Reveal>
@@ -555,9 +512,9 @@ export default function Home() {
               {/* 상단 컬러 accent bar */}
               <div style={{ height: 4, background: `linear-gradient(90deg, ${activeFeature.color}, ${activeFeature.color}88)` }} />
 
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 0 }}>
+              <div className="home-grid-2col">
                 {/* 왼쪽: 설명 */}
-                <div style={{ padding: "36px 32px", borderRight: "1px solid #F1F5F9" }}>
+                <div className="home-feature-col" style={{ padding: "36px 32px", borderRight: "1px solid #F1F5F9" }}>
                   {/* 기능 태그 */}
                   <div style={{
                     display: "inline-flex", alignItems: "center", gap: 6, marginBottom: 16,
@@ -620,9 +577,9 @@ export default function Home() {
                 </div>
 
                 {/* 오른쪽: 포인트 */}
-                <div style={{ padding: "36px 32px", background: "#FAFBFF", display: "flex", flexDirection: "column", gap: 12, justifyContent: "center" }}>
+                <div className="home-feature-col" style={{ padding: "36px 32px", background: "#FAFBFF", display: "flex", flexDirection: "column", gap: 12, justifyContent: "center" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>
-                    주요 기능
+                    {t("home.featureSection.keyFeatures")}
                   </div>
                   {activeFeature.points.map((pt, i) => {
                     const [title, ...rest] = pt.split(" — ");
@@ -663,14 +620,14 @@ export default function Home() {
       </section>
 
       {/* ── 전략 템플릿 ── */}
-      <section style={{ padding: "80px 20px", background: "white" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      <section style={{ padding: "80px 0", background: "white" }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", width: "100%", padding: "0 20px", boxSizing: "border-box" }}>
           <Reveal>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 40 }}>
             <div>
               <p style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>Templates</p>
-              <h2 style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", margin: "0 0 8px", fontFamily: BASE_FONT }}>검증된 전략 템플릿</h2>
-              <p style={{ fontSize: 14, color: "#64748b", margin: 0 }}>바로 쓸 수 있는 퀀트 전략으로 빠르게 시작하세요.</p>
+              <h2 style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", margin: "0 0 8px", fontFamily: BASE_FONT }}>{t("home.projectSection.title")}</h2>
+              <p style={{ fontSize: 14, color: "#64748b", margin: 0 }}>{t("home.templatesSection.subtitle")}</p>
             </div>
             <button onClick={() => navigate("/alpha?lib=1")} style={{
               display: "flex", alignItems: "center", gap: 6,
@@ -683,12 +640,12 @@ export default function Home() {
               onMouseEnter={e => { e.currentTarget.style.borderColor = "#6366f1"; e.currentTarget.style.color = "#4f46e5"; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = "#E2E8F0"; e.currentTarget.style.color = "#374151"; }}
             >
-              전체 보기 <ArrowRight size={13} />
+              {t("home.projectSection.viewAll")} <ArrowRight size={13} />
             </button>
           </div>
           </Reveal>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
+          <div className="home-grid-3">
             {projects.map((proj, i) => (
               <Reveal key={i} delay={i * 100}>
               <div onClick={() => navigate("/alpha?lib=1")} style={{
@@ -725,16 +682,16 @@ export default function Home() {
       <section style={{
         background: "#080d18",
         backgroundImage: "radial-gradient(ellipse 80% 50% at 50% 100%, rgba(99,102,241,0.15) 0%, transparent 70%)",
-        padding: "96px 20px", textAlign: "center",
+        padding: "96px 0", textAlign: "center",
         borderTop: "1px solid rgba(255,255,255,0.05)",
       }}>
-        <div style={{ maxWidth: 560, margin: "0 auto" }}>
+        <div style={{ maxWidth: 560, margin: "0 auto", padding: "0 20px", boxSizing: "border-box" }}>
           <Reveal>
           <h2 style={{ fontSize: 32, fontWeight: 800, color: "white", lineHeight: 1.3, marginBottom: 14, fontFamily: BASE_FONT }}>
-            첫 번째 전략을 지금 만들어보세요
+            {t("home.cta.title")}
           </h2>
-          <p style={{ fontSize: 14, color: "#4b5563", lineHeight: 1.8, marginBottom: 36 }}>
-            복잡한 코드 없이도 됩니다. AI에게 원하는 전략을 말하면,<br />백테스트부터 실주문까지 Alpha-Helix가 함께합니다.
+          <p style={{ fontSize: 14, color: "#4b5563", lineHeight: 1.8, marginBottom: 36, whiteSpace: "pre-line" }}>
+            {t("home.cta.desc")}
           </p>
           <button onClick={handleNewStrategy} style={{
             padding: "14px 36px", borderRadius: 10, border: "none",
@@ -747,7 +704,7 @@ export default function Home() {
             onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; e.currentTarget.style.transform = "translateY(-1px)"; }}
             onMouseLeave={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "none"; }}
           >
-            워크스페이스 생성하기 →
+            {t("home.cta.btn")}
           </button>
           </Reveal>
         </div>
