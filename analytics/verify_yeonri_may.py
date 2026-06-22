@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-연아무한매수법 5월 정밀 재현 검증 (직접 실행용).
+연리무한매수법 5월 정밀 재현 검증 (직접 실행용).
 
-실행:  cd analytics && .venv/Scripts/python.exe verify_yeona_may.py
+실행:  cd analytics && .venv/Scripts/python.exe verify_yeonri_may.py
 
 무엇을 검증하나:
   실제 이효연님 계좌(KIS)의 2026년 5월 해외주식 실현손익 = ₩8,026,367 (8건 매도).
-  같은 종목(TQQQ/SOXL)·같은 전략(연아무한매수법)을 우리 백테스트 엔진으로 5월 구간 돌렸을 때
+  같은 종목(TQQQ/SOXL)·같은 전략(연리무한매수법)을 우리 백테스트 엔진으로 5월 구간 돌렸을 때
   같은 금액이 나오는지 = "코드로 검증되고 똑같은 결과" 의 증명.
 
 핵심 입력값 (실제 5월 거래 29장 OCR 역산 — docs 참조):
-  · 연아 활성 시드 ≈ ₩170M (= 전체계좌 ₩3.4억의 약 50%, 5월 증액상태)
+  · 연리 활성 시드 ≈ ₩170M (= 전체계좌 ₩3.4억의 약 50%, 5월 증액상태)
   · 일매수 평균: TQQQ ~$2,000 / SOXL ~$860 (가속·재진입 포함)
   · 종목 가중 ≈ TQQQ 0.70 : SOXL 0.30
   · 규칙: 40분할, 평단×1.13 익절(1주 남김), 평단×1.10 보통가매수,
@@ -29,11 +29,11 @@ FX = 1490.0
 REAL_MAY_TOTAL = 8_026_367          # 실제 5월 순손익 (q1~q3 캡처)
 REAL_MAY_SOXL  = 2_500_746          # 그중 SOXL
 REAL_MAY_TQQQ  = 4_064_288          # 그중 TQQQ (나머지는 더보기)
-ACTIVE_SEED_KRW = 170_000_000       # 연아 활성 시드 (역산값)
+ACTIVE_SEED_KRW = 170_000_000       # 연리 활성 시드 (역산값)
 SEED = ACTIVE_SEED_KRW / FX         # USD 환산 ≈ $114k
 W = chr(0x20a9)
 
-# ── 검증된 연아 파라미터 (= YeonaPreset.java 와 동일 규칙) ─────────────
+# ── 검증된 연리 파라미터 (= YeonriPreset.java 와 동일 규칙) ─────────────
 params = InfiniteBuyingParams(
     split=40,
     take_profit_pct=13.0,           # 평단×1.13 익절
@@ -43,7 +43,7 @@ params = InfiniteBuyingParams(
     restart_buy_fraction=0.5,       # 익절후 0.5분할 보통가 재매수(사다리타기)
     ticker_weights={"TQQQ": 0.70, "SOXL": 0.30},
     initial_capital=SEED,
-    variant="yeona",
+    variant="yeonri",
 )
 
 # ── 실제 데이터 로드 (5월 이전부터 = 포지션 쌓이게) + OHLC ──────────────

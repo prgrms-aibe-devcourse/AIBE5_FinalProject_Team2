@@ -5,7 +5,7 @@ Used as a probabilistic signal layer on top of rule-based strategies.
 v2 개선사항 (ai_opt 브랜치):
   - 피처 확장: 13개 → 21개 (MA50/MA200 위치, 볼륨이상치, ATR, Bear Pressure, 장기 모멘텀)
   - Early stopping: eval_set 기반 과적합 방지 (n_estimators 200→400, lr 0.05→0.03)
-  - predict_signal_for_yeona(): 연아무한매수 전용 신호 통합 API
+  - predict_signal_for_yeonri(): 연리무한매수 전용 신호 통합 API
 """
 from __future__ import annotations
 from pathlib import Path
@@ -72,7 +72,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out["vol_ratio_20"] = vol / vol.rolling(20).mean()
 
     # ── v2 신규 피처 ────────────────────────────────────────────
-    # MA50/MA200 위치: 연아 평단매수의 "추세 방향" 컨텍스트
+    # MA50/MA200 위치: 연리 평단매수의 "추세 방향" 컨텍스트
     ma50 = close.rolling(50).mean()
     out["above_ma50"] = (close > ma50).astype(float)
     out["above_ma200"] = (close > sma200).astype(float)
@@ -96,7 +96,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     hl_range = (high - low).replace(0, np.nan)
     out["bear_pressure"] = (high - close) / hl_range
 
-    # 60일 모멘텀: 연아 분할매수 "평단 아래 매수" 효과와 직결
+    # 60일 모멘텀: 연리 분할매수 "평단 아래 매수" 효과와 직결
     out["mom_60"] = close.pct_change(60)
 
     # Target
@@ -224,15 +224,15 @@ def predict_proba_up(df: pd.DataFrame, ticker: str) -> dict | None:
     }
 
 
-def predict_signal_for_yeona(
+def predict_signal_for_yeonri(
     df: pd.DataFrame,
     ticker: str,
     strong_down_threshold: float = 0.38,
 ) -> dict:
     """
-    연아무한매수법 전용 XGBoost 오버레이 신호.
+    연리무한매수법 전용 XGBoost 오버레이 신호.
 
-    연아 매수 로직과의 통합:
+    연리 매수 로직과의 통합:
       - price <= avg_price (loc_avg 평단매수): 항상 실행 (이 함수 무관)
       - avg_price < price <= avg_price*(1+loc_offset) (loc_large):
           proba_up < strong_down_threshold → SKIP_LOC_LARGE (하락 예측 강함)
@@ -249,7 +249,7 @@ def predict_signal_for_yeona(
         return {
             "signal": "NO_MODEL",
             "proba_up": None,
-            "reason": "XGBoost 모델 없음 — 기본 연아 규칙 그대로 실행",
+            "reason": "XGBoost 모델 없음 — 기본 연리 규칙 그대로 실행",
         }
 
     p = result["proba_up"]
