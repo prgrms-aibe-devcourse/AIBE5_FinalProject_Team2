@@ -58,9 +58,10 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   const loc = useLocation();
   const { theme, themeKey, setThemeKey } = useTheme();
   const { lang, setLang, t } = useLanguage();
-  const notifications      = useNotificationStore((s) => s.notifications);
-  const unreadCount        = notifications.filter((n) => !n.read).length;
-  const fetchNotifications = useNotificationStore((s) => s.fetch);
+  const notifications        = useNotificationStore((s) => s.notifications);
+  const unreadCount          = notifications.filter((n) => !n.read).length;
+  const fetchNotifications   = useNotificationStore((s) => s.fetch);
+  const subscribeSSE         = useNotificationStore((s) => s.subscribeSSE);
 
   const [showLogin, setShowLogin]     = useState(false);
   const [langOpen, setLangOpen]       = useState(false);
@@ -80,6 +81,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   const [newStrategyOpen, setNewStrategyOpen] = useState(false);
   const [newStrategyName, setNewStrategyName] = useState("");
   const [newStrategyError, setNewStrategyError] = useState("");
+  const [comingSoonOpen, setComingSoonOpen] = useState(false);
 
   // Workspace flyout (collapsed only)
   const [wsMenuOpen, setWsMenuOpen]   = useState(false);
@@ -131,13 +133,14 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   // Developer IDE 페이지에서 nav 섹션 기본 접기
   // (navCollapsed 제거됨 — DeveloperLab 툴바의 [|>] 버튼으로 전체 사이드바 토글)
 
-  /* ── 미읽은 알림 배지: 로그인 후 즉시 fetch + 30초 폴링 ── */
+  /* ── 미읽은 알림 배지: 로그인 후 초기 fetch + SSE 실시간 push ── */
   useEffect(() => {
     if (!isAuthed) return;
     fetchNotifications();
-    const id = setInterval(fetchNotifications, 30_000);
-    return () => clearInterval(id);
-  }, [fetchNotifications, isAuthed]);
+    // SSE 구독 — 새 알림을 서버가 즉시 push (폴링 불필요)
+    const cleanup = subscribeSSE();
+    return cleanup;
+  }, [fetchNotifications, subscribeSSE, isAuthed]);
 
   /* ── 새 알림 도착 감지 → 토스트 ── */
   useEffect(() => {
@@ -298,14 +301,14 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
   const GearFlyoutContent = () => (
     <>
       <div style={{ position: "relative" }} onMouseEnter={openThemeSub} onMouseLeave={scheduleCloseThemeSub}>
-        <MenuItem icon={<Palette size={15} />} label="Theme 팔레트"
+        <MenuItem icon={<Palette size={15} />} label={t("nav.themePalette")}
           right={<ChevronRight size={14} style={{ color: "#94A3B8" }} />}
           onClick={() => setThemeSubOpen(s => !s)} />
         {themeSubOpen && (
           <div onMouseEnter={openThemeSub} onMouseLeave={scheduleCloseThemeSub}
             style={{ position: "absolute", left: "100%", bottom: 0, paddingLeft: 8, zIndex: 1101, minWidth: 208 }}>
             <div style={{ background: "white", border: "1px solid #E2E8F0", borderRadius: 10, boxShadow: "0 12px 30px rgba(0,0,0,0.18)", padding: 6 }}>
-              <div style={{ padding: "4px 10px 8px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>Alpha-Helix 테마</div>
+              <div style={{ padding: "4px 10px 8px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>{t("nav.alphaHelixTheme")}</div>
               {THEME_PRESETS.map(tp => (
                 <button key={tp.key} onClick={() => applyTheme(tp.key)}
                   style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "7px 10px", borderRadius: 6, border: "none",
@@ -323,18 +326,18 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           </div>
         )}
       </div>
-      <MenuItem icon={<Settings size={15} />} label="설정" hint="Ctrl+,"
+      <MenuItem icon={<Settings size={15} />} label={t("nav.settings")} hint="Ctrl+,"
         onClick={() => { setGearOpen(false); setSettingsOpen(true); }} />
     </>
   );
 
   const HeroFlyoutContent = ({ onClose, flyLeft = false }) => (
     <>
-      <MenuItem icon={<Wallet size={15} />} label="계좌 관리" onClick={() => { onClose(); nav("/alpha/account"); }} />
-      <MenuItem icon={<CreditCard size={15} />} label="구독 관리" onClick={() => { onClose(); setSubOpen(true); }} />
-      <MenuItem icon={<UserCircle size={15} />} label="마이페이지 이동" onClick={() => { onClose(); nav("/mypage"); }} />
+      <MenuItem icon={<Wallet size={15} />} label={t("nav.accountMgmt")} onClick={() => { onClose(); nav("/alpha/account"); }} />
+      <MenuItem icon={<CreditCard size={15} />} label={t("nav.subscriptionMgmt")} onClick={() => { onClose(); setSubOpen(true); }} />
+      <MenuItem icon={<UserCircle size={15} />} label={t("nav.mypage")} onClick={() => { onClose(); nav("/mypage"); }} />
       <div style={{ padding: "6px 10px 4px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 4, borderTop: "1px solid #F1F5F9" }}>
-        Hero 이미지 변경
+        {t("nav.heroImageChange")}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, padding: 6 }}>
         {HEROES.map(h => (
@@ -348,7 +351,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
         ))}
       </div>
       <div style={{ borderTop: "1px solid #F1F5F9", marginTop: 4, paddingTop: 4 }}>
-        <MenuItem icon={<LogOut size={15} />} label="로그아웃" danger onClick={async () => {
+        <MenuItem icon={<LogOut size={15} />} label={t("nav.logout")} danger onClick={async () => {
           onClose();
           try { await authApi.logout(); } catch (_) {}
           ["accessToken","dbId","username","userType"].forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
@@ -369,7 +372,10 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
       boxShadow: "0 12px 30px rgba(0,0,0,0.15)", padding: 6, zIndex: 1100, minWidth: 140,
     }}>
       {LANGS.map(L => (
-        <button key={L.code} onClick={() => { setLang(L.code); setLangOpen(false); }}
+        <button key={L.code} onClick={() => {
+          if (L.code === "jp" || L.code === "zh") { setLangOpen(false); setComingSoonOpen(true); }
+          else { setLang(L.code); setLangOpen(false); }
+        }}
           style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", borderRadius: 6, border: "none",
             background: lang === L.code ? "#EFF6FF" : "transparent", color: lang === L.code ? "#1d4ed8" : "#0F172A",
             fontSize: 13, fontWeight: lang === L.code ? 700 : 500, cursor: "pointer" }}
@@ -505,7 +511,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
             onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.72)"; }}
           >
             <ChevronDown size={16} style={{ flexShrink: 0 }} />
-            {expanded && <span style={{ fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap" }}>상단바 펼치기</span>}
+            {expanded && <span style={{ fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap" }}>{t("nav.expandTopbar")}</span>}
           </button>
         )}
 
@@ -517,7 +523,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           opacity: expanded ? 1 : 0,
           transition: `max-height 0.26s ${EASE}, opacity 0.2s`,
         }}>
-          <WideBtn icon={<PenLine size={15} />} label="새 워크스페이스" onClick={handleNewStrategy} />
+          <WideBtn icon={<PenLine size={15} />} label={t("nav.newWorkspace")} onClick={handleNewStrategy} />
         </div>
 
         {/* ── 3. Divider ───────────────────────────────── */}
@@ -529,7 +535,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           <NavItem
             expanded={expanded}
             icon={<Home size={24} strokeWidth={loc.pathname === "/workhome" ? 2.4 : 1.9} />}
-            label="대시보드"
+            label={t("nav.dashboard")}
             active={loc.pathname === "/workhome"}
             onClick={() => go("/workhome")}
           />
@@ -542,7 +548,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
             <NavItem
               expanded={expanded}
               icon={<Layers size={24} strokeWidth={inAlpha ? 2.4 : 1.9} />}
-              label="워크스페이스"
+              label={t("nav.workspace")}
               active={inAlpha}
               tutorialId="tutorial-sidebar-ws"
               onClick={() => go("/alpha")}
@@ -553,7 +559,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           <NavItem
             expanded={expanded}
             icon={<BookOpenText size={24} strokeWidth={loc.pathname === "/briefing" ? 2.4 : 1.9} />}
-            label="브리핑"
+            label={t("nav.briefing")}
             active={loc.pathname === "/briefing"}
             onClick={() => go("/briefing")}
           />
@@ -562,7 +568,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           <NavItem
             expanded={expanded}
             icon={<ImageIcon size={24} strokeWidth={loc.pathname.startsWith("/vision_board") ? 2.4 : 1.9} />}
-            label="비전 보드"
+            label={t("nav.vision")}
             active={loc.pathname.startsWith("/vision_board")}
             tutorialId="tutorial-sidebar-vision"
             onClick={() => go("/vision_board")}
@@ -572,7 +578,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           <NavItem
             expanded={expanded}
             icon={<CircleDollarSign size={24} strokeWidth={loc.pathname === "/alpha/balance_account" ? 2.4 : 1.9} />}
-            label="종합 계좌 잔고"
+            label={t("nav.account")}
             active={loc.pathname === "/alpha/balance_account"}
             tutorialId="tutorial-sidebar-account"
             onClick={() => go("/alpha/balance_account")}
@@ -582,7 +588,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           <NavItem
             expanded={expanded}
             icon={<Inbox size={24} strokeWidth={loc.pathname === "/alpha/proposals" ? 2.4 : 1.9} />}
-            label="주문 제안"
+            label={t("nav.proposals")}
             active={loc.pathname === "/alpha/proposals"}
             tutorialId="tutorial-sidebar-proposals"
             onClick={() => go("/alpha/proposals")}
@@ -597,7 +603,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
             <NavItem
               expanded={expanded}
               icon={<Laptop size={24} strokeWidth={inDeveloper ? 2.4 : 1.9} />}
-              label="Quant Developer IDE"
+              label={t("nav.developer")}
               active={inDeveloper}
               tutorialId="tutorial-sidebar-developer"
               onClick={() => go("/alpha/developer")}
@@ -615,10 +621,10 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           borderTop: "1px solid rgba(255,255,255,0.12)",
         }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "rgba(255,255,255,0.75)", padding: "10px 8px 5px", letterSpacing: 0.8, textTransform: "uppercase" }}>
-            최근 워크스페이스
+            {t("nav.recentWorkspaces")}
           </div>
           {workspaces.length === 0 ? (
-            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", padding: "4px 8px" }}>전략 없음</div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", padding: "4px 8px" }}>{t("nav.noStrategies")}</div>
           ) : (
             <>
               {workspaces.slice(0, 5).map(ws => (
@@ -636,7 +642,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
                   onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,0.85)"}
                   onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.5)"}
                 >
-                  ··· 더보기 ({workspaces.length - 5}개)
+                  {t("nav.showMore", { count: workspaces.length - 5 })}
                 </button>
               )}
             </>
@@ -657,12 +663,12 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
           flexShrink: 0,
         }}>
           {/* Guide toggle */}
-          <SideIconBtn title="이용 가이드" active={!!guideOpen} onClick={onToggleGuide}>
+          <SideIconBtn title={t("nav.guide")} active={!!guideOpen} onClick={onToggleGuide}>
             <CircleHelp size={expanded ? 18 : 22} />
           </SideIconBtn>
 
           {/* Bell */}
-          <SideIconBtn title="알림함" active={loc.pathname === "/notifications"}
+          <SideIconBtn title={t("nav.notifications")} active={loc.pathname === "/notifications"}
             onClick={() => { if (!isAuthed) { setShowLogin(true); return; } nav("/notifications"); }}>
             <div style={{ position: "relative", display: "inline-flex" }}>
               <Bell size={expanded ? 18 : 22} />
@@ -683,7 +689,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
 
           {/* Lang */}
           <div ref={langRef} style={{ position: "relative", width: 34, height: 34, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <SideIconBtn title="언어 변경" active={langOpen} onClick={() => {
+            <SideIconBtn title={t("nav.changeLang")} active={langOpen} onClick={() => {
               if (!expanded && langRef.current) {
                 const r = langRef.current.getBoundingClientRect();
                 setLangFlyBottom(Math.max(8, window.innerHeight - r.bottom));
@@ -698,7 +704,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
 
           {/* Settings */}
           <div ref={gearRef} style={{ position: "relative", width: 34, height: 34, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <SideIconBtn title="설정" active={gearOpen} onClick={() => {
+            <SideIconBtn title={t("nav.settings")} active={gearOpen} onClick={() => {
               if (gearRef.current) {
                 const r = gearRef.current.getBoundingClientRect();
                 if (expanded) {
@@ -768,7 +774,10 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
             boxShadow: "0 12px 30px rgba(0,0,0,0.18)", padding: 6, zIndex: 1200, minWidth: 140,
           }}>
           {LANGS.map(L => (
-            <button key={L.code} onClick={() => { setLang(L.code); setLangOpen(false); }}
+            <button key={L.code} onClick={() => {
+              if (L.code === "jp" || L.code === "zh") { setLangOpen(false); setComingSoonOpen(true); }
+              else { setLang(L.code); setLangOpen(false); }
+            }}
               style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", borderRadius: 6, border: "none",
                 background: lang === L.code ? "#EFF6FF" : "transparent", color: lang === L.code ? "#1d4ed8" : "#0F172A",
                 fontSize: 13, fontWeight: lang === L.code ? 700 : 500, cursor: "pointer" }}
@@ -810,6 +819,31 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
         error={newStrategyError}
       />
 
+      {/* Coming-soon modal for jp/zh */}
+      {comingSoonOpen && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onMouseDown={() => setComingSoonOpen(false)}
+        >
+          <div
+            style={{ background: "white", borderRadius: 16, padding: "36px 40px", textAlign: "center", maxWidth: 320, width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}
+            onMouseDown={e => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🌏</div>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: "#0f172a", margin: "0 0 10px", fontFamily: "'Inter','Pretendard',sans-serif" }}>{t("nav.comingSoon")}</h3>
+            <p style={{ fontSize: 14, color: "#64748b", lineHeight: 1.7, margin: "0 0 24px", whiteSpace: "pre-line", fontFamily: "'Inter','Pretendard',sans-serif" }}>{t("nav.comingSoonDesc")}</p>
+            <button
+              onClick={() => setComingSoonOpen(false)}
+              style={{ padding: "10px 32px", borderRadius: 9, border: "none", background: "linear-gradient(135deg, #6366f1, #4f46e5)", color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "'Inter','Pretendard',sans-serif" }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
+            >
+              {t("nav.comingSoonBtn")}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Workspace flyout — collapsed only */}
       {!expanded && wsMenuOpen && (
         <div ref={wsFlyoutRef} onMouseEnter={onWsAreaEnter} onMouseLeave={onWsAreaLeave}
@@ -819,7 +853,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
             boxShadow: "0 12px 32px rgba(0,0,0,0.18)", padding: 6, minWidth: 186,
           }}>
             <div style={{ padding: "4px 10px 8px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>
-              워크스페이스
+              {t("nav.workspace")}
             </div>
             {WS_SUBMENUS.map(item => {
               const active = wsTabSel === item.key;
@@ -847,9 +881,9 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
               background: "white", border: "1px solid #E2E8F0", borderRadius: 12,
               boxShadow: "0 12px 32px rgba(0,0,0,0.18)", padding: 6, minWidth: 224,
             }}>
-              <div style={{ padding: "4px 10px 8px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>전략 선택</div>
+              <div style={{ padding: "4px 10px 8px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>{t("nav.selectStrategy")}</div>
               {workspaces.length === 0 ? (
-                <div style={{ padding: "16px 10px", fontSize: 13, color: "#94A3B8", textAlign: "center" }}>워크스페이스 없음</div>
+                <div style={{ padding: "16px 10px", fontSize: 13, color: "#94A3B8", textAlign: "center" }}>{t("nav.noWorkspace")}</div>
               ) : workspaces.map(ws => (
                 <button key={ws.id}
                   onClick={() => { nav(`/alpha/w/${ws.id}?tab=${wsTabSel}`); setWsMenuOpen(false); setWsTabSel(null); }}
@@ -879,7 +913,7 @@ export default function LeftSidebar({ expanded = true, onToggleExpanded, onToggl
             boxShadow: "0 12px 32px rgba(0,0,0,0.18)", padding: 6, minWidth: 200,
           }}>
             <div style={{ padding: "4px 10px 8px", fontSize: 11, color: "#64748B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>
-              Quant Developer IDE
+              {t("nav.developer")}
             </div>
             {DEV_SUBMENUS.map(item => {
               const params = new URLSearchParams(loc.search);

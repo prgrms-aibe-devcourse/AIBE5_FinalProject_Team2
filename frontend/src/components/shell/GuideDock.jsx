@@ -1,33 +1,30 @@
 import { ChevronRight, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useLanguage } from "../../i18n/useLanguage";
 
-const SECTIONS = [
-  { title: "시작하기", items: [
-    { label: "Alpha-Helix 한눈에 보기", to: "/alpha_guide#overview" },
-    { label: "첫 워크스페이스 만들기", to: "/alpha_guide#workspace" },
-  ]},
-  { title: "전략 설계", items: [
-    { label: "Goal Chat (목표 → 전략)", to: "/alpha_guide#goal-chat" },
-    { label: "전략 카드 편집",          to: "/alpha_guide#config" },
-  ]},
-  { title: "검증 & 운영", items: [
-    { label: "백테스트 리포트 보는 법", to: "/alpha_guide#backtest" },
-    { label: "Trust Score 의미",       to: "/alpha_guide#trust" },
-    { label: "주문 제안 승인 큐",      to: "/alpha_guide#orders" },
-  ]},
-  { title: "정책", items: [
-    { label: "개인정보 처리방침", to: "/alpha_privacy" },
-    { label: "이용약관",         to: "/alpha_terms" },
-  ]},
-];
-
-/**
- * 우측 도크형 이용 가이드 패널.
- * - LeftSidebar 의 ⋯ 버튼이 토글
- * - 항목 클릭 시 새 탭에서 가이드 페이지 열림 (vscode 도움말 패널 패턴)
- */
 export default function GuideDock({ open, onClose, width = 320, sidebarWidth = 52 }) {
   const nav = useNavigate();
+  const { t } = useLanguage();
+
+  const SECTIONS = [
+    { title: t("guideDock.gettingStarted"), items: [
+      { label: t("guide.sections.overview"), to: "/alpha_guide#overview" },
+      { label: t("guide.sections.workspace"), to: "/alpha_guide#workspace" },
+    ]},
+    { title: t("guideDock.strategyDesign"), items: [
+      { label: t("guide.sections.goalChat"), to: "/alpha_guide#goal-chat" },
+      { label: t("guide.sections.config"),   to: "/alpha_guide#config" },
+    ]},
+    { title: t("guideDock.verifyOperate"), items: [
+      { label: t("guide.sections.backtest"), to: "/alpha_guide#backtest" },
+      { label: t("guide.sections.trust"),    to: "/alpha_guide#trust" },
+      { label: t("guide.sections.orders"),   to: "/alpha_guide#orders" },
+    ]},
+    { title: t("guideDock.policy"), items: [
+      { label: t("guideDock.privacy"), to: "/alpha_privacy" },
+      { label: t("guideDock.terms"),   to: "/alpha_terms" },
+    ]},
+  ];
 
   const goItem = (to) => {
     window.open(to, "_blank", "noopener");
@@ -49,8 +46,8 @@ export default function GuideDock({ open, onClose, width = 320, sidebarWidth = 5
         display: "flex", alignItems: "center", justifyContent: "space-between",
         borderBottom: "1px solid #F1F5F9",
       }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>이용 가이드</span>
-        <button onClick={onClose} title="닫기" style={{
+        <span style={{ fontSize: 13, fontWeight: 700, color: "#0F172A" }}>{t("nav.guide")}</span>
+        <button onClick={onClose} title={t("guideDock.close")} style={{
           background: "transparent", border: "none", cursor: "pointer",
           color: "#94A3B8", padding: 4, borderRadius: 6,
           display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -91,7 +88,7 @@ export default function GuideDock({ open, onClose, width = 320, sidebarWidth = 5
             background: "linear-gradient(135deg, #60a5fa, #6366f1)",
             color: "white", border: "none", cursor: "pointer",
             fontSize: 12.5, fontWeight: 700,
-          }}>전체 가이드 페이지로</button>
+          }}>{t("guideDock.fullGuide")}</button>
         </div>
       </div>
     </aside>
