@@ -225,6 +225,16 @@ public class AnalyticsClient {
         return callOnce("/lean/health", "GET", null);
     }
 
+    /** GET /lean/nodes — Lean 노드 풀 상태(노드별 slots/active/idle). QC 노드 패널용. */
+    public JsonNode leanNodes() {
+        return callOnce("/lean/nodes", "GET", null);
+    }
+
+    /** GET /lean/queue — Lean 잡 큐/이력(running/queued + 총 슬롯 + 최근 잡 목록). QC 백테스트 목록용. */
+    public JsonNode leanQueue(int limit) {
+        return callOnce("/lean/queue?limit=" + Math.max(1, limit), "GET", null);
+    }
+
     /** GET /data/status — 수집된 시장 데이터 현황(소스/심볼별 행 수 + 최신 시각). */
     public JsonNode dataStatus() {
         return call("/data/status", "GET", null);

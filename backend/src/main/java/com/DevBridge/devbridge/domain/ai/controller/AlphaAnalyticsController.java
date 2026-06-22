@@ -60,18 +60,24 @@ public class AlphaAnalyticsController {
             if (body != null && body.get("end") != null) customParams.put("end", body.get("end"));
             String json = svc.doBacktest(ws, periodFinal, customParams);
 
-            // 백테스트 완료 후 개선 제안서 자동 생성 (비동기 — 응답 블로킹 없음)
+            // 백테스트 완료 후 개선 제안서 자동 생성 (비동기 — 응답 블로킹 없음, 1시간 쿨다운)
             final var wsFinal = ws;
             final Long uidFinal = uid;
             final String pFinal = periodFinal;
             final Map<String, Object> cpFinal = new java.util.HashMap<>(customParams);
-            CompletableFuture.runAsync(() -> {
-                try {
-                    svc.doImproveProposal(wsFinal, uidFinal, pFinal, cpFinal);
-                } catch (Exception ex) {
-                    log.warn("[auto improve-proposal] ws={} {}", id, ex.getMessage());
-                }
-            });
+            boolean improveOnCooldown = wsFinal.getLastImproveAt() != null &&
+                    wsFinal.getLastImproveAt().isAfter(java.time.LocalDateTime.now().minusHours(IMPROVE_COOLDOWN_HOURS));
+            if (!improveOnCooldown) {
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        svc.doImproveProposal(wsFinal, uidFinal, pFinal, cpFinal);
+                        wsFinal.setLastImproveAt(java.time.LocalDateTime.now());
+                        svc.getWorkspaceRepo().save(wsFinal);
+                    } catch (Exception ex) {
+                        log.warn("[auto improve-proposal] ws={} {}", id, ex.getMessage());
+                    }
+                });
+            }
 
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
@@ -94,12 +100,24 @@ public class AlphaAnalyticsController {
         if (uid == null) return unauth();
         var wsOpt = svc.getWorkspaceRepo().findByIdAndUserId(id, uid);
         if (wsOpt.isEmpty()) return ResponseEntity.notFound().build();
+        var ws = wsOpt.get();
+        if (ws.getLastImproveAt() != null &&
+                ws.getLastImproveAt().isAfter(java.time.LocalDateTime.now().minusHours(IMPROVE_COOLDOWN_HOURS))) {
+            long remainMin = java.time.Duration.between(
+                    java.time.LocalDateTime.now(),
+                    ws.getLastImproveAt().plusHours(IMPROVE_COOLDOWN_HOURS)).toMinutes() + 1;
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "개선 제안서는 1시간에 1회 생성 가능합니다.",
+                            "cooldown", true, "remainMinutes", remainMin));
+        }
         try {
             String period = body != null && body.get("period") != null ? String.valueOf(body.get("period")) : null;
             @SuppressWarnings("unchecked")
             Map<String, Object> customParams = (body != null && body.get("customParams") instanceof Map)
                     ? (Map<String, Object>) body.get("customParams") : Map.of();
-            Map<String, Object> result = svc.doImproveProposal(wsOpt.get(), uid, period, customParams);
+            Map<String, Object> result = svc.doImproveProposal(ws, uid, period, customParams);
+            ws.setLastImproveAt(java.time.LocalDateTime.now());
+            svc.getWorkspaceRepo().save(ws);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             log.error("improve-proposal fail ws={}", id, e);
@@ -228,14 +246,29 @@ public class AlphaAnalyticsController {
 
     // ─────────────────────────────────────────── Briefing
 
+    private static final long BRIEFING_COOLDOWN_HOURS = 3;
+    private static final long IMPROVE_COOLDOWN_HOURS = 1;
+
     @PostMapping("/workspaces/{id}/briefing")
     public ResponseEntity<?> briefing(@PathVariable Long id) {
         Long uid = AuthContext.currentUserId();
         if (uid == null) return unauth();
         var wsOpt = svc.getWorkspaceRepo().findByIdAndUserId(id, uid);
         if (wsOpt.isEmpty()) return ResponseEntity.notFound().build();
+        var ws = wsOpt.get();
+        if (ws.getLastBriefingAt() != null &&
+                ws.getLastBriefingAt().isAfter(java.time.LocalDateTime.now().minusHours(BRIEFING_COOLDOWN_HOURS))) {
+            long remainMin = java.time.Duration.between(
+                    java.time.LocalDateTime.now(),
+                    ws.getLastBriefingAt().plusHours(BRIEFING_COOLDOWN_HOURS)).toMinutes() + 1;
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "브리핑은 3시간에 1회 생성 가능합니다.",
+                            "cooldown", true, "remainMinutes", remainMin));
+        }
         try {
-            Map<String, Object> resp = svc.doBriefing(wsOpt.get(), uid);
+            Map<String, Object> resp = svc.doBriefing(ws, uid);
+            ws.setLastBriefingAt(java.time.LocalDateTime.now());
+            svc.getWorkspaceRepo().save(ws);
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             log.error("briefing fail ws={}", id, e);

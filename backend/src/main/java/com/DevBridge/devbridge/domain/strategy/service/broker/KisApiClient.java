@@ -316,24 +316,36 @@ public class KisApiClient {
 
         String token = getAccessToken(b);
         String trId = b.getEnv() == BrokerAccount.Env.REAL ? "TTTS3012R" : "VTTS3012R";
+        String appSecret = crypto.decrypt(b.getAppSecretEnc());
 
-        // 3개 KIS API 동시 발사 (순차 → 병렬)
-        CompletableFuture<JsonNode> balanceFuture = CompletableFuture.supplyAsync(() ->
-                withRateLimitRetry(() -> http(b.getEnv()).get()
-                        .uri(uriBuilder -> uriBuilder.path("/uapi/overseas-stock/v1/trading/inquire-balance")
-                                .queryParam("CANO", b.getCano())
-                                .queryParam("ACNT_PRDT_CD", b.getAcntPrdtCd())
-                                .queryParam("OVRS_EXCG_CD", "NASD")
-                                .queryParam("TR_CRCY_CD", "USD")
-                                .queryParam("CTX_AREA_FK200", "")
-                                .queryParam("CTX_AREA_NK200", "")
-                                .build())
-                        .header("authorization", "Bearer " + token)
-                        .header("appkey", b.getAppKey())
-                        .header("appsecret", crypto.decrypt(b.getAppSecretEnc()))
-                        .header("tr_id", trId)
-                        .retrieve()
-                        .body(JsonNode.class)));
+        // 거래소별 잔고 조회 헬퍼 — NASD / NYSE 병렬 호출하여 전 종목 커버
+        java.util.function.Function<String, CompletableFuture<JsonNode>> exchFuture = excgCd ->
+                CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return withRateLimitRetry(() -> http(b.getEnv()).get()
+                                .uri(uriBuilder -> uriBuilder.path("/uapi/overseas-stock/v1/trading/inquire-balance")
+                                        .queryParam("CANO", b.getCano())
+                                        .queryParam("ACNT_PRDT_CD", b.getAcntPrdtCd())
+                                        .queryParam("OVRS_EXCG_CD", excgCd)
+                                        .queryParam("TR_CRCY_CD", "USD")
+                                        .queryParam("CTX_AREA_FK200", "")
+                                        .queryParam("CTX_AREA_NK200", "")
+                                        .build())
+                                .header("authorization", "Bearer " + token)
+                                .header("appkey", b.getAppKey())
+                                .header("appsecret", appSecret)
+                                .header("tr_id", trId)
+                                .retrieve()
+                                .body(JsonNode.class));
+                    } catch (Exception e) {
+                        log.warn("[KIS] inquire-balance {} failed user={}: {}", excgCd, b.getUser().getId(), e.getMessage());
+                        return null;
+                    }
+                });
+
+        // NASD(나스닥) + NYSE(뉴욕) 병렬 호출
+        CompletableFuture<JsonNode> nasdFuture = exchFuture.apply("NASD");
+        CompletableFuture<JsonNode> nyseFuture  = exchFuture.apply("NYSE");
 
         CompletableFuture<Map<String, Object>> domesticFuture = CompletableFuture.supplyAsync(() -> {
             try { return getDomesticBalance(b, token); }
@@ -353,13 +365,28 @@ public class KisApiClient {
             }
         });
 
-        JsonNode resp = null;
-        try { resp = balanceFuture.get(15, TimeUnit.SECONDS); }
-        catch (Exception e) {
-            log.warn("[KIS] inquire-balance future failed user={}: {}", b.getUser().getId(), e.getMessage());
-        }
+        JsonNode nasdResp = null;
+        try { nasdResp = nasdFuture.get(15, TimeUnit.SECONDS); }
+        catch (Exception e) { log.warn("[KIS] NASD balance future failed user={}: {}", b.getUser().getId(), e.getMessage()); }
 
-        Map<String, Object> out = normalizeBalance(resp);
+        JsonNode nyseResp = null;
+        try { nyseResp = nyseFuture.get(15, TimeUnit.SECONDS); }
+        catch (Exception e) { log.warn("[KIS] NYSE balance future failed user={}: {}", b.getUser().getId(), e.getMessage()); }
+
+        // NASD 응답 기준으로 정규화 후 NYSE 포지션 병합
+        Map<String, Object> out = normalizeBalance(nasdResp);
+        if (nyseResp != null) {
+            Map<String, Object> nyseOut = normalizeBalance(nyseResp);
+            @SuppressWarnings("unchecked")
+            java.util.List<Map<String, Object>> base = new java.util.ArrayList<>((java.util.List<Map<String, Object>>) out.get("positions"));
+            @SuppressWarnings("unchecked")
+            java.util.List<Map<String, Object>> nysePos = (java.util.List<Map<String, Object>>) nyseOut.get("positions");
+            if (nysePos != null && !nysePos.isEmpty()) {
+                base.addAll(nysePos);
+                out.put("positions", base);
+                log.info("[KIS] NYSE merged {} positions user={} env={}", nysePos.size(), b.getUser().getId(), b.getEnv());
+            }
+        }
 
         // 국내주식 잔고: cash_krw + 국내 포지션 병합
         try {
@@ -460,9 +487,10 @@ public class KisApiClient {
             JsonNode out2 = resp.path("output2");
             JsonNode out2Row = out2.isArray() && out2.size() > 0 ? out2.get(0) : out2;
             // prsm_deposit_amt(추정예수금) 우선 — 당일 매매 미결제분 포함(dnca_tot_amt는 T+2 결제 완료분만).
+            // prsm이 음수(미결제 매수 > 잔고)이면 dnca 사용 — 총 자산 계산에서 음수 현금 방지.
             double prsm = out2Row.path("prsm_deposit_amt").asDouble(0);
             double dnca = out2Row.path("dnca_tot_amt").asDouble(0);
-            cashKrw = prsm > 0 ? prsm : dnca;
+            cashKrw = prsm > 0 ? prsm : Math.max(0, dnca);
             if (resp.path("output1").isArray()) {
                 for (JsonNode n : resp.path("output1")) {
                     double qty = n.path("hldg_qty").asDouble(0);
