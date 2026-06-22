@@ -1,26 +1,54 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import { listProposals } from "../alphaApi";
-import { acctLabel, FX_KRW_PER_USD } from "./util";
+import { listProposals, getBrokerQuote } from "../alphaApi";
+import { acctLabel } from "./util";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
 const SIDE_KO = { BUY: "매수", SELL: "매도" };
+const isDomestic = (ticker) => /^\d{6}$/.test(ticker ?? "");
 
-/** 매매 내역: 국내/해외 + 계좌 드롭다운 + (당일체결/기간체결) + 필터 + 표 */
+// 국내 주요 종목 이름 (stockName이 null인 기존 주문 대비 fallback)
+const KR_NAMES = {
+  "005930": "삼성전자", "000660": "SK하이닉스", "035420": "NAVER",
+  "005380": "현대차", "000270": "기아", "006400": "삼성SDI",
+  "051910": "LG화학", "035720": "카카오", "105560": "KB금융",
+  "055550": "신한지주", "028260": "삼성물산", "207940": "삼성바이오로직스",
+  "003670": "포스코홀딩스", "068270": "셀트리온", "096770": "SK이노베이션",
+  "034730": "SK", "012330": "현대모비스", "066570": "LG전자",
+  "032830": "삼성생명", "018260": "삼성에스디에스", "003550": "LG",
+  "017670": "SK텔레콤", "030200": "KT", "015760": "한국전력",
+  "011200": "HMM", "009150": "삼성전기", "000100": "유한양행",
+};
+
+/** 국내: KRW 그대로, 해외: USD */
+const fmtPrice = (v, ticker) => {
+  if (v == null) return "-";
+  if (isDomestic(ticker))
+    return `₩${Math.round(Number(v)).toLocaleString("ko-KR")}`;
+  return `$${Number(v).toFixed(2)}`;
+};
+
+/** 종목 표시명: stockName → KR_NAMES → ticker */
+const stockLabel = (p) => {
+  const name = p.stockName || KR_NAMES[p.ticker];
+  return name ? `${name}(${p.ticker})` : p.ticker;
+};
+
+/** 매매 내역: 계좌 드롭다운 + 국내/해외/전체 필터 + (당일체결/기간체결) + 표 */
 export default function TradesTab({ accountsData, initialAcctId }) {
   const accts = accountsData.map((d) => d.acct);
-  const [region, setRegion] = useState("해외");
   const [acctId, setAcctId] = useState(initialAcctId ? String(initialAcctId) : "");
   const [mode, setMode] = useState("당일체결");
+  const [market, setMarket] = useState("전체");   // 전체 | 국내 | 해외
   const [fillKind, setFillKind] = useState("전체");
   const [sideKind, setSideKind] = useState("전체");
-  const [curMode, setCurMode] = useState("원화");          // 기본값 원화
   const [day, setDay] = useState(todayStr());
   const [from, setFrom] = useState(daysAgoStr(30));
   const [to, setTo] = useState(todayStr());
   const [q, setQ] = useState("");
   const [orders, setOrders] = useState(null);
+  const [quoteCache, setQuoteCache] = useState({});
 
   useEffect(() => { if (!acctId && accts.length) setAcctId(String(accts[0].id)); }, [accts, acctId]);
   useEffect(() => {
@@ -29,17 +57,43 @@ export default function TradesTab({ accountsData, initialAcctId }) {
     return () => { alive = false; };
   }, []);
 
-  // USD 기준 가격 → 통화 설정에 따라 포맷
-  const fmtPrice = (v) => {
-    if (v == null) return "-";
-    if (curMode === "원화") return `₩${Math.round(Number(v) * FX_KRW_PER_USD).toLocaleString("ko-KR")}`;
-    return `$${Number(v).toFixed(2)}`;
-  };
+  // 체결된 시장가 주문 중 fillAvgPrice 없는 건 → 현재 시세 조회 (해외만 실제 조회됨)
+  useEffect(() => {
+    if (!orders || !acctId) return;
+    const acctData = accountsData.find((d) => String(d.acct.id) === String(acctId));
+    if (!acctData) return;
+    const { env, brokerType } = acctData.acct;
+    const tickers = [...new Set(
+      orders
+        .filter((p) => String(p.brokerAccountId) === String(acctId)
+          && (p.status === "EXECUTED" || p.fillStatus === "FILLED")
+          && p.fillAvgPrice == null && p.limitPrice == null && p.ticker)
+        .map((p) => p.ticker)
+    )];
+    if (!tickers.length) return;
+    let alive = true;
+    (async () => {
+      const results = {};
+      await Promise.all(tickers.map(async (ticker) => {
+        try {
+          const res = await getBrokerQuote(env, ticker, brokerType);
+          if (res?.last_price > 0) results[ticker] = Number(res.last_price);
+        } catch (_) {}
+      }));
+      if (alive) setQuoteCache((prev) => ({ ...prev, ...results }));
+    })();
+    return () => { alive = false; };
+  }, [orders, acctId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo(() => {
     if (!orders) return null;
     return orders
       .filter((p) => String(p.brokerAccountId) === String(acctId))
+      .filter((p) => {
+        if (market === "국내") return isDomestic(p.ticker);
+        if (market === "해외") return !isDomestic(p.ticker);
+        return true;
+      })
       .filter((p) => {
         const d = (p.createdAt || "").slice(0, 10);
         if (mode === "당일체결") return d === day;
@@ -52,9 +106,10 @@ export default function TradesTab({ accountsData, initialAcctId }) {
         return true;
       })
       .filter((p) => sideKind === "전체" || SIDE_KO[p.side] === sideKind)
-      .filter((p) => !q || String(p.ticker || "").toUpperCase().includes(q.toUpperCase()))
+      .filter((p) => !q || String(p.ticker || "").toUpperCase().includes(q.toUpperCase())
+        || String(p.stockName || KR_NAMES[p.ticker] || "").includes(q))
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  }, [orders, acctId, mode, day, from, to, fillKind, sideKind, q]);
+  }, [orders, acctId, market, mode, day, from, to, fillKind, sideKind, q]);
 
   const seg = (val, set, opts) => (
     <div style={{ display: "inline-flex", background: "#F1F5F9", borderRadius: 8, padding: 3 }}>
@@ -66,22 +121,24 @@ export default function TradesTab({ accountsData, initialAcctId }) {
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-        {seg(region, setRegion, ["국내", "해외"])}
-        <select value={acctId} onChange={(e) => setAcctId(e.target.value)} style={{ flex: 1, minWidth: 200, padding: "8px 12px", borderRadius: 9, border: "1px solid #E2E8F0", background: "white", fontSize: 13, fontWeight: 600, color: "#0f172a" }}>
+      {/* 계좌 선택 */}
+      <div style={{ marginBottom: 12 }}>
+        <select value={acctId} onChange={(e) => setAcctId(e.target.value)} style={{ width: "100%", padding: "8px 12px", borderRadius: 9, border: "1px solid #E2E8F0", background: "white", fontSize: 13, fontWeight: 600, color: "#0f172a" }}>
           {accts.length === 0 && <option>계좌 없음</option>}
           {accts.map((a) => <option key={a.id} value={a.id}>{acctLabel(a)} (#{a.id})</option>)}
         </select>
       </div>
 
+      {/* 당일/기간 탭 */}
       <div style={{ display: "flex", gap: 18, borderBottom: "1px solid #E2E8F0", marginBottom: 14 }}>
         {["당일체결", "기간체결"].map((s) => (
           <button key={s} onClick={() => setMode(s)} style={{ padding: "8px 2px", background: "none", border: "none", borderBottom: `2px solid ${mode === s ? "#4f46e5" : "transparent"}`, color: mode === s ? "#0f172a" : "#94a3b8", fontSize: 14, fontWeight: mode === s ? 800 : 600, cursor: "pointer", marginBottom: -1 }}>{s}</button>
         ))}
       </div>
 
+      {/* 필터 바 */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap", background: "#F8FAFC", padding: "10px 12px", borderRadius: 10 }}>
-        {seg(curMode, setCurMode, ["원화", "외화"])}
+        {seg(market, setMarket, ["전체", "국내", "해외"])}
         <span style={{ fontSize: 11.5, color: "#64748b" }}>체결</span>{seg(fillKind, setFillKind, ["전체", "체결", "미체결"])}
         <span style={{ fontSize: 11.5, color: "#64748b" }}>구분</span>{seg(sideKind, setSideKind, ["전체", "매수", "매도"])}
         {mode === "당일체결"
@@ -115,15 +172,17 @@ export default function TradesTab({ accountsData, initialAcctId }) {
                   const filledQty = p.filledQtyDecimal != null ? Number(p.filledQtyDecimal)
                                   : p.filledQty != null ? Number(p.filledQty) : null;
                   const remainQty = filledQty != null ? Math.max(0, qty - filledQty) : (filled ? 0 : qty);
-                  const nameLabel = p.stockName ? `${p.stockName}(${p.ticker})` : p.ticker;
-                  const ordPriceDisplay = limitPrice != null ? fmtPrice(limitPrice) : "시장가";
+                  const cachedPrice = quoteCache[p.ticker];
+                  const ordPriceDisplay = limitPrice != null ? fmtPrice(limitPrice, p.ticker) : "시장가";
                   const fillPriceDisplay = fillAvgPrice != null
-                    ? fmtPrice(fillAvgPrice)
-                    : (filled && limitPrice != null ? fmtPrice(limitPrice) : "-");
+                    ? fmtPrice(fillAvgPrice, p.ticker)
+                    : filled && limitPrice != null ? fmtPrice(limitPrice, p.ticker)
+                    : filled && cachedPrice != null ? `${fmtPrice(cachedPrice, p.ticker)} *`
+                    : "-";
 
                   return (
                     <tr key={i}>
-                      <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{nameLabel}</td>
+                      <td style={{ ...td, textAlign: "left", fontWeight: 700 }}>{stockLabel(p)}</td>
                       <td style={{ ...td, color: p.side === "BUY" ? "#16a34a" : "#dc2626", fontWeight: 700 }}>{SIDE_KO[p.side] || p.side}</td>
                       <td style={td}>{qty}</td>
                       <td style={td}>{ordPriceDisplay}</td>

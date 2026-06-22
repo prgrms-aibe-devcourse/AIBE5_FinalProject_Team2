@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { listProposals, backfillProposalPrices } from "../alphaApi";
+import { listProposals, backfillProposalPrices, getBrokerQuote } from "../alphaApi";
 import { pnlColor, fmtPct, FX_KRW_PER_USD, acctLabel } from "./util";
 
 const todayStr = (d = new Date()) => d.toISOString().slice(0, 10);
@@ -15,6 +15,8 @@ export default function BalancePnlTab({ accountsData }) {
   const [to, setTo] = useState(todayStr());
   const [orders, setOrders] = useState(null);
   const [backfilling, setBackfilling] = useState(false);
+  const [quoteCache, setQuoteCache] = useState({});
+  const [quoteFetched, setQuoteFetched] = useState(new Set());
 
   const accts = accountsData.map((d) => d.acct);
   useEffect(() => { if (!acctId && accts.length) setAcctId(String(accts[0].id)); }, [accts, acctId]);
@@ -44,6 +46,35 @@ export default function BalancePnlTab({ accountsData }) {
 
   const acct = accts.find((a) => String(a.id) === String(acctId));
   const data = accountsData.find((d) => String(d.acct.id) === String(acctId));
+
+  // 시장가 주문 중 fillAvgPrice·limitPrice 모두 없는 건 → 현재 시세로 보정
+  useEffect(() => {
+    if (!orders || !acct) return;
+    const tickers = [...new Set(
+      orders
+        .filter((o) => String(o.brokerAccountId) === String(acct.id) && (o.status === "EXECUTED" || o.fillStatus === "FILLED") && o.fillAvgPrice == null && o.limitPrice == null && o.ticker)
+        .map((o) => o.ticker)
+    )];
+    if (!tickers.length) return;
+    let alive = true;
+    (async () => {
+      const results = {};
+      await Promise.all(tickers.map(async (ticker) => {
+        try {
+          const q = await getBrokerQuote(acct.env, ticker, acct.brokerType);
+          if (q?.last_price) {
+            const isKrw = /^\d{6}$/.test(ticker);
+            results[ticker] = isKrw ? Number(q.last_price) / FX_KRW_PER_USD : Number(q.last_price);
+          }
+        } catch (_) {}
+      }));
+      if (alive) {
+        setQuoteCache((prev) => ({ ...prev, ...results }));
+        setQuoteFetched((prev) => new Set([...prev, ...tickers]));
+      }
+    })();
+    return () => { alive = false; };
+  }, [orders, acct?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const fx = curMode === "원화" ? FX_KRW_PER_USD : 1;
   const unit = curMode === "원화" ? "₩" : "$";
   const fmtMoney = (v) => `${v < 0 ? "-" : ""}${unit}${Math.abs((Number(v) || 0) * fx).toLocaleString(undefined, { maximumFractionDigits: curMode === "원화" ? 0 : 2 })}`;
@@ -60,7 +91,8 @@ export default function BalancePnlTab({ accountsData }) {
     }
     const lots = {}; const closed = [];
     for (const o of list) {
-      const t = o.ticker; const qty = Number(o.qtyDecimal ?? o.qty); const price = Number(o.fillAvgPrice ?? o.limitPrice);
+      const t = o.ticker; const qty = Number(o.qtyDecimal ?? o.qty);
+      const price = Number(o.fillAvgPrice ?? o.limitPrice) || quoteCache[t] || 0;
       if (!t || !(qty > 0) || !(price > 0)) continue;
       if (o.side === "BUY") (lots[t] = lots[t] || []).push({ qty, price, stockName: o.stockName });
       else if (o.side === "SELL") {
@@ -82,17 +114,18 @@ export default function BalancePnlTab({ accountsData }) {
     }
     const byTicker = Object.values(byMap).map((r) => ({ ...r, sellAvg: r.sellAmt / r.qty, buyAvg: r.buyAmt / r.qty, pct: r.buyAmt > 0 ? (r.pnl / r.buyAmt) * 100 : 0 }));
     return { total: inRange.reduce((s, c) => s + c.pnl, 0), byTicker, closed: inRange };
-  }, [orders, acct, from, to]);
+  }, [orders, acct, from, to, quoteCache]);
 
-  // EXECUTED 제안 중 가격이 없는 건이 있으면 보정 버튼 표시
+  // EXECUTED 제안 중 가격이 없고 quoteCache로도 커버 안 된 건이 있으면 보정 버튼 표시
   const hasNullPriceExecuted = useMemo(() => {
     if (!orders || !acct) return false;
     return orders.some((p) =>
       String(p.brokerAccountId) === String(acct.id) &&
       p.status === "EXECUTED" &&
-      p.fillAvgPrice == null && p.limitPrice == null
+      p.fillAvgPrice == null && p.limitPrice == null &&
+      !quoteCache[p.ticker] && !quoteFetched.has(p.ticker)
     );
-  }, [orders, acct]);
+  }, [orders, acct, quoteCache, quoteFetched]);
 
   const seg = (val, set, opts) => (
     <div style={{ display: "inline-flex", background: "#F1F5F9", borderRadius: 8, padding: 3 }}>
@@ -203,7 +236,7 @@ function RealizedSub({ realized, fmtMoney, hasNullPriceExecuted, onBackfill, bac
   const td = { padding: "10px", fontSize: 12.5, textAlign: "right", borderTop: "1px solid #F1F5F9" };
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "12px 4px 16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 4px 12px", flexWrap: "wrap", gap: 4 }}>
         <span style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>실현손익</span>
         <span style={{ fontSize: 22, fontWeight: 800, color: pnlColor(realized.total) }}>{fmtMoney(realized.total)}</span>
       </div>
@@ -258,14 +291,16 @@ function TrendSub({ realized, fmtMoney }) {
   const max = Math.max(1, ...pts.map((p) => Math.abs(p.cum)));
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "12px 4px 16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 4px 12px", flexWrap: "wrap", gap: 4 }}>
         <span style={{ fontSize: 15, fontWeight: 800 }}>실현손익 추이 (누적)</span>
         <span style={{ fontSize: 20, fontWeight: 800, color: pnlColor(acc) }}>{fmtMoney(acc)}</span>
       </div>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 160, padding: "0 4px", borderBottom: "1px solid #E2E8F0" }}>
-        {pts.map((p, i) => (
-          <div key={i} title={`${p.date}: 누적 ${fmtMoney(p.cum)}`} style={{ flex: 1, minWidth: 6, height: `${(Math.abs(p.cum) / max) * 100}%`, background: p.cum >= 0 ? "#16a34a" : "#dc2626", borderRadius: "3px 3px 0 0", alignSelf: p.cum >= 0 ? "flex-end" : "flex-start" }} />
-        ))}
+      <div style={{ overflowX: "auto" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 160, padding: "0 4px", borderBottom: "1px solid #E2E8F0", minWidth: 320 }}>
+          {pts.map((p, i) => (
+            <div key={i} title={`${p.date}: 누적 ${fmtMoney(p.cum)}`} style={{ flex: 1, minWidth: 6, height: `${(Math.abs(p.cum) / max) * 100}%`, background: p.cum >= 0 ? "#16a34a" : "#dc2626", borderRadius: "3px 3px 0 0", alignSelf: p.cum >= 0 ? "flex-end" : "flex-start" }} />
+          ))}
+        </div>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>
         <span>{pts[0].date}</span><span>{pts[pts.length - 1].date}</span>

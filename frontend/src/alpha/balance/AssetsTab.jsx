@@ -64,7 +64,7 @@ function Overview({ accountsData, loading, refreshing, onReload, onOpen, onOrder
   return (
     <div>
       {/* 헤더 카드 */}
-      <div style={{ background: BRAND, borderRadius: 18, padding: "22px 24px", color: "white", marginBottom: 18, boxShadow: "0 8px 24px rgba(99,102,241,0.28)" }}>
+      <div style={{ background: BRAND, borderRadius: 18, padding: "16px 18px", color: "white", marginBottom: 18, boxShadow: "0 8px 24px rgba(99,102,241,0.28)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
           <div style={{ fontSize: 14, opacity: 0.92, fontWeight: 600 }}>
             총 자산 ({showKrw ? "KRW" : "USD"} 환산)
@@ -72,14 +72,14 @@ function Overview({ accountsData, loading, refreshing, onReload, onOpen, onOrder
           <CurrencyToggle showKrw={showKrw} setShowKrw={setShowKrw} />
         </div>
         <div style={{ fontSize: 32, fontWeight: 800, letterSpacing: -0.5, margin: "4px 0 12px" }}>{totalFmt}</div>
-        <div style={{ display: "flex", gap: 28, flexWrap: "wrap", fontSize: 14 }}>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 14 }}>
           <div><span style={{ opacity: 0.85 }}>투자손익 </span><b>{pnlFmt}</b></div>
           <div><span style={{ opacity: 0.85 }}>수익률 </span><b>{fmtPct(pct)}</b></div>
         </div>
       </div>
 
       {/* 탭 행 + 새로고침 */}
-      <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 14, borderBottom: "1px solid #E2E8F0", paddingBottom: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, borderBottom: "1px solid #E2E8F0", paddingBottom: 10, flexWrap: "wrap" }}>
         {["계좌별", "종목별", "현금"].map((t) => (
           <button key={t} onClick={() => setSubView(t)} style={{
             background: "none", border: "none", cursor: "pointer", padding: 0,
@@ -152,7 +152,7 @@ function AccountCard({ data, onTrades, onBalance, onOrder, isPrimary, onSetPrima
     : fmtSigned(sum.pnl);
 
   return (
-    <div style={{ border: "1px solid #E2E8F0", borderRadius: 14, padding: "16px 18px", marginBottom: 12, background: "white", boxShadow: "0 2px 10px rgba(15,23,42,0.04)" }}>
+    <div style={{ border: "1px solid #E2E8F0", borderRadius: 14, padding: "14px 14px", marginBottom: 12, background: "white", boxShadow: "0 2px 10px rgba(15,23,42,0.04)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 14.5, fontWeight: 800, color: "#0f172a" }}>{acctLabel(acct)}</span>
@@ -277,7 +277,7 @@ function AccountDetail({ data, onBack, onOrder, showKrw }) {
 
   return (
     <div>
-      <div style={{ background: BRAND, borderRadius: 18, padding: "18px 22px", color: "white", marginBottom: 14 }}>
+      <div style={{ background: BRAND, borderRadius: 18, padding: "14px 16px", color: "white", marginBottom: 14 }}>
         <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 4, background: "none", border: "none", color: "white", cursor: "pointer", fontSize: 13, opacity: 0.9, marginBottom: 8, padding: 0 }}>
           <ChevronLeft size={16} /> 계좌 목록
         </button>
