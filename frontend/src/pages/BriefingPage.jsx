@@ -2,12 +2,14 @@ import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   BookOpenText, RefreshCw, ShieldCheck, Activity, ArrowRight,
-  AlertCircle, Clock, Globe, ChevronDown, ChevronUp,
+  Clock, Globe, ChevronDown, ChevronUp,
   TrendingUp, TrendingDown, Minus, Radio, Square, Newspaper, Layers, Briefcase, Volume2,
 } from "lucide-react";
 import { listWorkspaces, getWorkspace, runBriefing } from "../alpha/alphaApi";
+import { fetchSubscription } from "../lib/aiClient";
 import { useTheme } from "../alpha/ThemeContext";
 import { useLanguage } from "../i18n/useLanguage";
+import SubscriptionModal from "../components/shell/SubscriptionModal";
 
 const F = "'Inter', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const COOLDOWN_MS = 3 * 60 * 60 * 1000;
@@ -241,6 +243,7 @@ function useRadio(script) {
 
 // 카운트다운 타이머
 function Countdown({ generatedAt }) {
+  const { t } = useLanguage();
   const [left, setLeft] = useState(0);
   useEffect(() => {
     const update = () => setLeft(Math.max(0, COOLDOWN_MS - (Date.now() - generatedAt)));
@@ -248,14 +251,14 @@ function Countdown({ generatedAt }) {
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
   }, [generatedAt]);
-  if (left <= 0) return <span style={{ fontSize: 11, color: "#22C55E", fontWeight: 600 }}>갱신 가능</span>;
+  if (left <= 0) return <span style={{ fontSize: 11, color: "#22C55E", fontWeight: 600 }}>{t("briefing.card.countdown.available")}</span>;
   const h = Math.floor(left / 3600000);
   const m = Math.floor((left % 3600000) / 60000);
   const s = Math.floor((left % 60000) / 1000);
   return (
     <span style={{ fontSize: 11, color: "#94A3B8", display: "inline-flex", alignItems: "center", gap: 3 }}>
       <Clock size={10} />
-      {h > 0 ? `${h}h ` : ""}{String(m).padStart(2, "0")}:{String(s).padStart(2, "0")} 후 갱신
+      {h > 0 ? `${h}h ` : ""}{String(m).padStart(2, "0")}:{String(s).padStart(2, "0")} {t("briefing.card.countdown.until")}
     </span>
   );
 }
@@ -288,6 +291,7 @@ function SectionTitle({ icon: Icon, children }) {
 
 // 라디오 음성/언어 설정 팝업 (라디오 버튼 우클릭으로 열림)
 function RadioSettingsPopup({ onClose }) {
+  const { t } = useLanguage();
   const initPref = loadVoicePref();
   const [voices, setVoices] = useState(allVoices());
   const [pref, setPref] = useState({
@@ -359,7 +363,7 @@ function RadioSettingsPopup({ onClose }) {
       <div onClick={e => e.stopPropagation()} style={{ width: 430, maxWidth: "92vw", maxHeight: "84vh", overflow: "auto", background: "white", borderRadius: 16, padding: "20px 22px", boxShadow: "0 20px 50px rgba(0,0,0,0.35)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 16, fontWeight: 800, color: "#0F172A" }}>
-            <Radio size={16} color="#7C3AED" /> 라디오 음성·언어 설정
+            <Radio size={16} color="#7C3AED" /> {t("briefing.radio.settingsTitle")}
           </div>
           <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: "#94A3B8", fontSize: 18, lineHeight: 1 }}>✕</button>
         </div>
@@ -376,14 +380,14 @@ function RadioSettingsPopup({ onClose }) {
         </div>
 
         {/* 음성 프리셋 — 이름 칩(한 줄). 누르면 그 목소리 + 저장된 속도/톤 적용 */}
-        <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748B", marginBottom: 6 }}>음성 프리셋</div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748B", marginBottom: 6 }}>{t("briefing.radio.presets")}</div>
         <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
           {PRESETS.map(p => {
             const active = activePreset === p.key;
             const cur = pickVoiceFor(voices, p.gender, langFilter);
             return (
               <button key={p.key} onClick={() => applyPreset(p)}
-                title={cur ? cur.name : "해당 성별 음성이 없어 속도·톤만 적용돼요"}
+                title={cur ? cur.name : t("briefing.radio.noPreset")}
                 style={{
                   flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 999, whiteSpace: "nowrap",
                   fontSize: 12.5, fontWeight: 700, cursor: "pointer",
@@ -399,11 +403,11 @@ function RadioSettingsPopup({ onClose }) {
         </div>
 
         {/* 음성 목록 */}
-        <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748B", marginBottom: 6 }}>음성 ({filtered.length})</div>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748B", marginBottom: 6 }}>{t("briefing.radio.voices", { count: filtered.length })}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 210, overflow: "auto", marginBottom: 14 }}>
           {filtered.length === 0 && (
             <div style={{ fontSize: 12, color: "#94A3B8", padding: "8px 2px", lineHeight: 1.5 }}>
-              이 언어의 음성이 시스템에 없어요. '전체'에서 고르거나, Edge/OS에 음성을 설치하면 나타나요.
+              {t("briefing.radio.voiceUnavailable")}
             </div>
           )}
           {filtered.map(v => {
@@ -417,7 +421,7 @@ function RadioSettingsPopup({ onClose }) {
               }}>
                 <span style={{ minWidth: 0 }}>
                   <span style={{ fontSize: 12.5, fontWeight: 700, color: "#0F172A" }}>{v.name}</span>
-                  {nice && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 800, color: "#15803D", background: "#DCFCE7", borderRadius: 5, padding: "1px 5px" }}>추천</span>}
+                  {nice && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 800, color: "#15803D", background: "#DCFCE7", borderRadius: 5, padding: "1px 5px" }}>{t("briefing.radio.recommended")}</span>}
                   <span style={{ display: "block", fontSize: 10.5, color: "#94A3B8" }}>{v.lang}{v.localService ? "" : " · online"}</span>
                 </span>
                 {sel && <span style={{ color: "#7C3AED", fontSize: 13, fontWeight: 800, flexShrink: 0 }}>✓</span>}
@@ -429,25 +433,25 @@ function RadioSettingsPopup({ onClose }) {
         {/* 속도 / 톤 / 볼륨 */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
           <label style={{ fontSize: 12, color: "#475569", fontWeight: 600 }}>
-            말하기 속도 — {pref.rate.toFixed(2)}x
+            {t("briefing.radio.speedLabel", { rate: pref.rate.toFixed(2) })}
             <input type="range" min="0.7" max="1.5" step="0.02" value={pref.rate} onChange={e => apply({ rate: parseFloat(e.target.value) })} style={{ width: "100%", accentColor: "#7C3AED" }} />
           </label>
           <label style={{ fontSize: 12, color: "#475569", fontWeight: 600 }}>
-            톤(피치) — {pref.pitch.toFixed(2)}
+            {t("briefing.radio.pitchLabel", { pitch: pref.pitch.toFixed(2) })}
             <input type="range" min="0.6" max="1.4" step="0.02" value={pref.pitch} onChange={e => apply({ pitch: parseFloat(e.target.value) })} style={{ width: "100%", accentColor: "#7C3AED" }} />
           </label>
           <label style={{ fontSize: 12, color: "#475569", fontWeight: 600 }}>
-            볼륨 — {Math.round((pref.volume ?? 1.0) * 100)}%
+            {t("briefing.radio.volumeLabel", { pct: Math.round((pref.volume ?? 1.0) * 100) })}
             <input type="range" min="0" max="1" step="0.05" value={pref.volume ?? 1.0} onChange={e => apply({ volume: parseFloat(e.target.value) })} style={{ width: "100%", accentColor: "#7C3AED" }} />
           </label>
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={preview} style={{ flex: 1, padding: "10px 0", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#a78bfa,#6366f1)", color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>▶ 미리듣기</button>
-          <button onClick={onClose} style={{ flex: 1, padding: "10px 0", borderRadius: 9, border: "1px solid #E2E8F0", background: "white", color: "#334155", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>완료</button>
+          <button onClick={preview} style={{ flex: 1, padding: "10px 0", borderRadius: 9, border: "none", background: "linear-gradient(135deg,#a78bfa,#6366f1)", color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{t("briefing.radio.preview")}</button>
+          <button onClick={onClose} style={{ flex: 1, padding: "10px 0", borderRadius: 9, border: "1px solid #E2E8F0", background: "white", color: "#334155", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>{t("briefing.radio.done")}</button>
         </div>
         <div style={{ fontSize: 10.5, color: "#94A3B8", marginTop: 10, lineHeight: 1.5 }}>
-          💡 위 <b>프리셋</b>을 누르면 목소리·속도·톤이 한 번에 맞춰져요. 직접 고르려면 아래 음성과 슬라이더를 조절하세요. (브라우저 무료 음성)
+          {t("briefing.radio.tip")}
         </div>
       </div>
     </div>
@@ -455,7 +459,7 @@ function RadioSettingsPopup({ onClose }) {
 }
 
 // 브리핑 카드 컴포넌트
-function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrimary = false }) {
+function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrimary = false, quota = null }) {
   const [showRefs, setShowRefs] = useState(false);
   const [showVoiceCfg, setShowVoiceCfg] = useState(false);
   const [radioHover, setRadioHover] = useState(false);
@@ -494,7 +498,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
         <div onClick={() => { if (!isPrimary) setExpanded(v => !v); }}
           style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0, cursor: isPrimary ? "default" : "pointer" }}>
           {isPrimary ? (
-            <span title="대표 전략" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 800, color: "#fde047", background: "rgba(253,224,71,0.15)", border: "1px solid rgba(253,224,71,0.35)", borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>⭐ 대표</span>
+            <span title={t("briefing.card.primary")} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 800, color: "#fde047", background: "rgba(253,224,71,0.15)", border: "1px solid rgba(253,224,71,0.35)", borderRadius: 999, padding: "2px 8px", flexShrink: 0 }}>{t("briefing.card.primary")}</span>
           ) : (
             expanded
               ? <ChevronUp size={16} color="#94A3B8" style={{ flexShrink: 0 }} />
@@ -519,7 +523,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
             </span>
           )}
         </div>
-        <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 7, alignItems: "center", flexWrap: "wrap" }}>
           {sections?.radioScript && radio.supported && (
             <div
               style={{ position: "relative", display: "inline-flex" }}
@@ -540,7 +544,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
                   transition: "border-color .2s",
                 }}
               >
-                {radio.playing ? <><Square size={11} /> 정지</> : <><Radio size={12} /> 10분 라디오</>}
+                {radio.playing ? <><Square size={11} /> {t("briefing.radio.stop")}</> : <><Radio size={12} /> {t("briefing.radio.play")}</>}
                 {/* 노란 그라데이션 코너 액센트 (호버 시 버튼 끝짝) */}
                 <span style={{
                   position: "absolute", top: -4, right: -4, width: 13, height: 13, borderRadius: "50%",
@@ -568,7 +572,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
               display: "inline-flex", alignItems: "center", gap: 5,
               animation: "fadeInVol 0.2s ease",
             }}
-              title={`볼륨 ${Math.round(volume * 100)}%`}>
+              title={t("briefing.radio.volumeLabel", { pct: Math.round(volume * 100) })}>
               <Volume2 size={12} color={volume === 0 ? "#EF4444" : "rgba(255,255,255,0.55)"} />
               <input
                 type="range" min="0" max="1" step="0.05"
@@ -582,6 +586,22 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
               />
             </div>
           )}
+          {quota && (() => {
+            const remaining = quota.dailyLimit - quota.usedToday;
+            const isEmpty = remaining <= 0;
+            return (
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 999,
+                color: isEmpty ? "#FCA5A5" : remaining === 1 ? "#FCD34D" : "#86EFAC",
+                background: isEmpty ? "rgba(239,68,68,0.18)" : remaining === 1 ? "rgba(252,211,77,0.18)" : "rgba(134,239,172,0.18)",
+                border: `1px solid ${isEmpty ? "rgba(239,68,68,0.35)" : remaining === 1 ? "rgba(252,211,77,0.35)" : "rgba(134,239,172,0.35)"}`,
+                whiteSpace: "nowrap",
+              }}>
+                {isEmpty ? t("briefing.card.quota.empty") : t("briefing.card.quota.remaining", { remaining, limit: quota.dailyLimit })}
+              </span>
+            );
+          })()}
           <button onClick={onRefresh} disabled={busy} style={{
             display: "inline-flex", alignItems: "center", gap: 5,
             padding: "7px 13px", borderRadius: 8, border: "1px solid rgba(255,255,255,0.15)",
@@ -597,7 +617,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
             padding: "7px 13px", borderRadius: 8, border: "none",
             background: "rgba(99,102,241,0.55)", color: "white", fontSize: 12, fontWeight: 600, cursor: "pointer",
           }}>
-            워크스페이스 <ArrowRight size={11} />
+            {t("briefing.card.btnOpenWorkspace")} <ArrowRight size={11} />
           </button>
         </div>
       </div>
@@ -628,7 +648,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
       {!briefingData && !busy && (
         <div style={{ padding: "28px 22px", textAlign: "center", color: "#94A3B8", fontSize: 13 }}>
           <BookOpenText size={22} style={{ marginBottom: 8, opacity: 0.35, display: "block", margin: "0 auto 8px" }} />
-          버튼을 눌러 AI가 실시간 시황을 분석하도록 하세요
+          {t("briefing.card.emptyMsg")}
         </div>
       )}
 
@@ -637,7 +657,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
         <div style={{ padding: "28px 22px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#6366F1", fontSize: 13, fontWeight: 600 }}>
             <RefreshCw size={16} style={{ animation: "briefSpin 0.9s linear infinite" }} />
-            Perplexity로 실시간 뉴스 수집 후 AI가 브리핑을 작성 중입니다…
+            {t("briefing.card.loadingMsg")}
           </div>
           <div style={{ marginTop: 10, height: 4, borderRadius: 999, background: "#F1F5F9", overflow: "hidden" }}>
             <div style={{ height: "100%", width: "60%", background: "linear-gradient(90deg,#6366F1,#A78BFA)", borderRadius: 999, animation: "briefBar 1.2s ease-in-out infinite alternate" }} />
@@ -700,7 +720,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
           {/* 전체 증시 (지수) */}
           {indices.length > 0 && (
             <>
-              <SectionTitle icon={Newspaper}>전체 증시</SectionTitle>
+              <SectionTitle icon={Newspaper}>{t("briefing.card.sections.market")}</SectionTitle>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 9 }}>
                 {indices.map((ix, i) => {
                   const tone = changeTone(ix.change);
@@ -726,7 +746,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
           {/* 섹터별 */}
           {sectors.length > 0 && (
             <>
-              <SectionTitle icon={Layers}>섹터별 동향</SectionTitle>
+              <SectionTitle icon={Layers}>{t("briefing.card.sections.sectors")}</SectionTitle>
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                 {sectors.map((sec, i) => (
                   <div key={i} style={{ display: "flex", gap: 10, padding: "10px 13px", background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
@@ -741,7 +761,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
           {/* 내 종목별 */}
           {holdings.length > 0 && (
             <>
-              <SectionTitle icon={Briefcase}>내 포트폴리오 종목별</SectionTitle>
+              <SectionTitle icon={Briefcase}>{t("briefing.card.sections.portfolio")}</SectionTitle>
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                 {holdings.map((h, i) => {
                   const sent = SENTIMENT[h.sentiment] || SENTIMENT.중립;
@@ -768,7 +788,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
                 background: "none", border: "none", cursor: "pointer", padding: 0,
               }}>
                 {showScript ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                <Radio size={13} /> 라디오 스크립트 {radio.supported ? "" : "(이 브라우저는 음성재생 미지원 — 읽기만)"}
+                <Radio size={13} /> {t("briefing.card.sections.radioScript")} {radio.supported ? "" : t("briefing.radio.scriptUnsupported")}
               </button>
               {showScript && (
                 <div style={{ marginTop: 8, padding: "13px 15px", background: "#FAF5FF", border: "1px solid #E9D5FF", borderRadius: 10, fontSize: 13, color: "#3B0764", lineHeight: 1.8 }}>
@@ -783,13 +803,13 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, margin: "16px 0 0" }}>
               {sections.healthComment && (
                 <div style={{ padding: "12px 14px", background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>전략 상태</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>{t("briefing.card.sections.strategyStatus")}</div>
                   <div style={{ fontSize: 13, color: "#0F172A", lineHeight: 1.55 }}><MarkdownLite text={sections.healthComment} /></div>
                 </div>
               )}
               {sections.regimeComment && (
                 <div style={{ padding: "12px 14px", background: "#F8FAFC", borderRadius: 10, border: "1px solid #E2E8F0" }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>시장 국면</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>{t("briefing.card.sections.marketRegime")}</div>
                   <div style={{ fontSize: 13, color: "#0F172A", lineHeight: 1.55 }}><MarkdownLite text={sections.regimeComment} /></div>
                 </div>
               )}
@@ -801,7 +821,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
               )}
               {sections.recommendation && (
                 <div style={{ padding: "12px 14px", background: "#F0FDF4", borderRadius: 10, border: "1px solid #86EFAC" }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "#15803D", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>✅ 오늘의 체크포인트</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "#15803D", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>{t("briefing.card.sections.checkpoint")}</div>
                   <div style={{ fontSize: 13, color: "#14532D", lineHeight: 1.55, fontWeight: 600 }}><MarkdownLite text={sections.recommendation} /></div>
                 </div>
               )}
@@ -827,7 +847,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
       {Array.isArray(briefingData?.liveNews) && briefingData.liveNews.length > 0 && (
         <div style={{ margin: "14px 22px", padding: "11px 14px", background: "#F0F9FF", border: "1px solid #BAE6FD", borderRadius: 10 }}>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: "#0369A1", marginBottom: 7, display: "flex", alignItems: "center", gap: 5 }}>
-            <Globe size={12} /> 실시간 뉴스 출처 (Perplexity)
+            <Globe size={12} /> {t("briefing.card.sections.liveNews")}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             {briefingData.liveNews.map((n, i) => (
@@ -856,7 +876,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
             background: "none", border: "none", cursor: "pointer", padding: 0,
           }}>
             {showRefs ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            📚 분석 근거 출처 ({briefingData.references.length})
+            {t("briefing.card.sections.refs", { count: briefingData.references.length })}
           </button>
           {showRefs && (
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -884,7 +904,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
             {new Date(typeof briefingData.generatedAt === "number"
               ? briefingData.generatedAt
               : Date.parse(briefingData.generatedAt)
-            ).toLocaleString()} 생성
+            ).toLocaleString()} {t("briefing.card.countdown.generatedSuffix")}
           </span>
           <Countdown generatedAt={typeof briefingData.generatedAt === "number"
             ? briefingData.generatedAt
@@ -912,6 +932,8 @@ export default function BriefingPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [cooldownModal, setCooldownModal] = useState(null); // { time: "2h 30m" }
+  const [showSub, setShowSub] = useState(false);            // 구독 모달 (쿼터 초과 시 유입)
+  const [quota, setQuota] = useState(null); // { usedToday, dailyLimit }
   // 대표 워크스페이스 — WorkspaceList 와 동일 키/이벤트(localStorage "alpha.primaryWsId").
   const [primaryId, setPrimaryId] = useState(() => {
     const v = localStorage.getItem("alpha.primaryWsId");
@@ -926,7 +948,7 @@ export default function BriefingPage() {
   const setBusy = (id, val) =>
     setBusyIds(prev => { const s = new Set(prev); val ? s.add(id) : s.delete(id); return s; });
 
-  const generateOne = async (wsId) => {
+  const generateOne = async (wsId, opts = {}) => {
     if (inFlightRef.current.has(wsId)) return; // 이미 생성 중이면 중복 호출 차단
     inFlightRef.current.add(wsId);
     setBusy(wsId, true);
@@ -934,17 +956,21 @@ export default function BriefingPage() {
       const b = await runBriefing(wsId);
       const rec = { ...b, generatedAt: Date.now() };
       setBriefings(prev => ({ ...prev, [wsId]: rec }));
+      if (b.usedToday != null && b.dailyLimit != null) {
+        setQuota({ usedToday: b.usedToday, dailyLimit: b.dailyLimit });
+      }
       try { localStorage.setItem(cacheKey(wsId), JSON.stringify(rec)); } catch (_) {}
     } catch (e) {
       const errMsg = e?.response?.data?.error || e.message;
       const data = e?.response?.data || {};
       if (data.quotaExceeded) {
-        // 구독등급 일일 횟수 초과 — 캐시 유지하고 안내 모달
-        setCooldownModal({ quota: true, message: errMsg, dailyLimit: data.dailyLimit });
+        // 구독등급 일일 횟수 초과 — 캐시 유지. 자동(auto) 호출이면 모달 생략(FREE 진입 시 스팸 방지).
+        if (data.dailyLimit != null) setQuota({ usedToday: data.dailyLimit, dailyLimit: data.dailyLimit });
+        if (!opts.auto) setCooldownModal({ quota: true, message: errMsg, dailyLimit: data.dailyLimit });
       } else if (e?.response?.status === 429 || data.cooldown) {
         // 쿨다운 응답이면 캐시 유지(에러로 덮어쓰지 않음)
         const remainMin = data.remainMinutes;
-        if (remainMin) {
+        if (remainMin && !opts.auto) {
           const h = Math.floor(remainMin / 60), m = remainMin % 60;
           setCooldownModal({ time: h > 0 ? `${h}h ${m}m` : `${m}m` });
         }
@@ -980,19 +1006,25 @@ export default function BriefingPage() {
       });
       setBriefings(cached);
 
-      // LIVE 워크스페이스가 없으면 브리핑 자동 생성 건너뜀.
-      // 각 ~1분 걸리는 Perplexity 호출이 동시에 폭주하지 않도록 '순차'(await)로 한 개씩 실행.
+      // 자동 생성은 대표(primary) 워크스페이스 1개만 — LIVE 전체를 돌리면 워크스페이스 수만큼
+      // Perplexity 호출이 폭주하기 때문. 나머지는 사용자가 직접 버튼으로 생성.
       const liveItems = items.filter(s => s.status === "LIVE");
       if (liveItems.length > 0) {
-        // 시간창 게이팅 + 3시간 쿨다운: 두 조건 모두 충족할 때만 자동 생성.
-        const stale = liveItems.filter(s => {
-          const b = cached[s.id];
-          const ts = b?.generatedAt ? (typeof b.generatedAt === "number" ? b.generatedAt : Date.parse(b.generatedAt)) : 0;
-          if (ts && Date.now() - ts < COOLDOWN_MS) return false; // 3시간 이내 생성됐으면 건너뜀
-          return shouldRegen(s.id === primaryId, ts);
-        });
-        for (let i = 0; i < stale.length; i++) {
-          await generateOne(stale[i].id); // 순차: 한 번에 하나씩 (동시 폭주 방지)
+        // 비용 통제: LIVE 가 여러 개여도 '대표 1개'만 자동 생성 (대표 미설정/비-LIVE면 첫 LIVE 를 대표로).
+        const autoTarget = liveItems.find(s => s.id === primaryId) ?? liveItems[0];
+        const b = cached[autoTarget.id];
+        const ts = b?.generatedAt ? (typeof b.generatedAt === "number" ? b.generatedAt : Date.parse(b.generatedAt)) : 0;
+        const needsRegen =
+          !(ts && Date.now() - ts < COOLDOWN_MS) &&   // 3시간 쿨다운 미경과
+          shouldRegen(true, ts);                        // 시간창 게이팅 (대표 기준)
+        if (needsRegen) {
+          // FREE 등급은 LIVE 브리핑 쿼터가 0 → 자동 호출이 항상 429.
+          // 콘솔에 무의미한 429가 찍혀 "결제/기능이 깨진 것"처럼 오해되므로 등급 선확인 후 스킵.
+          let tier = "FREE";
+          try { tier = (await fetchSubscription())?.tier || "FREE"; } catch (_) {}
+          if (tier !== "FREE") {
+            await generateOne(autoTarget.id, { auto: true }); // 단 1개(대표)만 — 자동이라 모달 미표시
+          }
         }
       }
     } catch (e) {
@@ -1028,7 +1060,7 @@ export default function BriefingPage() {
     (b.id === primaryId ? 1 : 0) - (a.id === primaryId ? 1 : 0));
 
   return (
-    <div style={{ padding: "36px 40px 80px", background: "#F1F5F9", minHeight: "calc(100vh - 44px)", fontFamily: F, color: "#0F172A", animation: "alphaPageIn 0.22s cubic-bezier(0.22,1,0.36,1)" }}>
+    <div className="alpha-briefing-page" style={{ padding: "clamp(16px, 3vw, 36px) clamp(12px, 3vw, 40px) 80px", background: "#F1F5F9", minHeight: "calc(100vh - 44px)", fontFamily: F, color: "#0F172A", animation: "alphaPageIn 0.22s cubic-bezier(0.22,1,0.36,1)" }}>
       <style>{`
         @keyframes alphaPageIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes briefSpin { to { transform: rotate(360deg); } }
@@ -1065,10 +1097,10 @@ export default function BriefingPage() {
               </div>
               <div>
                 <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1e3a8a" }}>
-                  {cooldownModal.quota ? "오늘 브리핑을 다 사용했어요" : "잠시 기다려 주세요"}
+                  {cooldownModal.quota ? t("briefing.cooldown.title") : t("briefing.cooldown.timerTitle")}
                 </h2>
                 <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>
-                  {cooldownModal.quota ? "구독 등급에 따라 하루 LIVE 브리핑 횟수가 정해져요" : "브리핑은 7시간에 한 번 생성할 수 있어요"}
+                  {cooldownModal.quota ? t("briefing.cooldown.sub") : t("briefing.cooldown.timerSub")}
                 </p>
               </div>
             </div>
@@ -1082,34 +1114,42 @@ export default function BriefingPage() {
                 <Clock size={18} color="#7c3aed" style={{ flexShrink: 0 }} />
                 <span style={{ fontSize: 14, color: "#4c1d95", fontWeight: 600 }}>
                   {cooldownModal.quota ? (
-                    cooldownModal.message || "오늘 LIVE 브리핑 횟수를 모두 사용했습니다."
+                    cooldownModal.message || t("briefing.cooldown.quotaBody").split("\n")[0]
                   ) : (
-                    <>다음 생성 가능까지&nbsp;
-                    <span style={{ fontSize: 18, fontWeight: 800, color: "#6d28d9" }}>{cooldownModal.time}</span>
-                    &nbsp;남았습니다</>
+                    t("briefing.cooldown.timerLabel", { time: cooldownModal.time })
                   )}
                 </span>
               </div>
-              <p style={{ margin: "14px 0 0", fontSize: 13, color: "#64748B", lineHeight: 1.7 }}>
-                {cooldownModal.quota ? (
-                  <>구독 등급을 올리면 하루에 더 많은 LIVE 브리핑을 받을 수 있어요.<br />(STANDARD 2 · PREMIUM 4 · EXPERT 7회)</>
-                ) : (
-                  <>Perplexity 실시간 검색과 AI 분석에 시간이 필요합니다.<br />잠시 후 다시 시도해 주세요.</>
-                )}
+              <p style={{ margin: "14px 0 0", fontSize: 13, color: "#64748B", lineHeight: 1.7, whiteSpace: "pre-line" }}>
+                {cooldownModal.quota ? t("briefing.cooldown.quotaBody") : t("briefing.cooldown.timerBody")}
               </p>
             </div>
             {/* 푸터 */}
-            <div style={{ padding: "0 28px 24px", display: "flex", justifyContent: "flex-end" }}>
+            <div style={{
+              padding: "0 28px 24px", display: "flex", alignItems: "center", gap: 10,
+              justifyContent: cooldownModal.quota ? "space-between" : "flex-end",
+            }}>
+              {cooldownModal.quota && (
+                <button onClick={() => { setCooldownModal(null); setShowSub(true); }} style={{
+                  padding: "10px 22px", borderRadius: 999, border: "none",
+                  background: "linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #6366f1 100%)",
+                  color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
+                  boxShadow: "0 4px 12px rgba(59,130,246,0.28)",
+                }}>{t("briefing.cooldown.subscribe")}</button>
+              )}
               <button onClick={() => setCooldownModal(null)} style={{
                 padding: "10px 28px", borderRadius: 10, border: "none",
-                background: "linear-gradient(135deg,#a78bfa 0%,#6366f1 100%)",
-                color: "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
-                boxShadow: "0 3px 10px rgba(99,102,241,0.3)",
-              }}>확인</button>
+                background: cooldownModal.quota ? "#F1F5F9" : "linear-gradient(135deg,#a78bfa 0%,#6366f1 100%)",
+                color: cooldownModal.quota ? "#64748B" : "white", fontSize: 14, fontWeight: 700, cursor: "pointer",
+                boxShadow: cooldownModal.quota ? "none" : "0 3px 10px rgba(99,102,241,0.3)",
+              }}>{t("briefing.cooldown.confirm")}</button>
             </div>
           </div>
         </div>
       )}
+
+      {/* 구독 모달 — 쿼터 초과 모달의 "구독 시작하기"로 유입 */}
+      <SubscriptionModal open={showSub} onClose={() => setShowSub(false)} />
 
       {/* 헤더 */}
       <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 28 }}>
@@ -1152,7 +1192,6 @@ export default function BriefingPage() {
 
       {!loading && strategies.length === 0 && (
         <div style={{ padding: 28, background: "white", border: "1px solid #E2E8F0", borderRadius: 16, textAlign: "center" }}>
-          <AlertCircle size={28} color="#94A3B8" style={{ marginBottom: 8 }} />
           <div style={{ fontSize: 14, color: "#475569", marginBottom: 14 }}>{t("briefing.noWorkspace")}</div>
           <button onClick={() => nav("/alpha?new=1")} style={{
             padding: "10px 18px", borderRadius: 9, border: "none",
@@ -1176,11 +1215,10 @@ export default function BriefingPage() {
             <Radio size={28} color="#16a34a" />
           </div>
           <h3 style={{ fontSize: 16, fontWeight: 800, color: "#0F172A", margin: "0 0 8px" }}>
-            운용 중인 워크스페이스가 없어요
+            {t("briefing.noLive.heading")}
           </h3>
-          <p style={{ fontSize: 13, color: "#64748B", lineHeight: 1.75, margin: "0 0 22px" }}>
-            브리핑은 <b style={{ color: "#16a34a" }}>LIVE 상태</b>인 워크스페이스를 기준으로 생성됩니다.<br />
-            워크스페이스 목록에서 전략을 LIVE로 전환해 주세요.
+          <p style={{ fontSize: 13, color: "#64748B", lineHeight: 1.75, margin: "0 0 22px", whiteSpace: "pre-line" }}>
+            {t("briefing.noLive.body")}
           </p>
           <button onClick={() => nav("/alpha")} style={{
             padding: "10px 22px", borderRadius: 9, border: "none",
@@ -1189,7 +1227,7 @@ export default function BriefingPage() {
             display: "inline-flex", alignItems: "center", gap: 6,
             boxShadow: "0 3px 10px rgba(34,197,94,0.3)",
           }}>
-            <ArrowRight size={14} /> 워크스페이스에서 LIVE 설정하기
+            <ArrowRight size={14} /> {t("briefing.noLive.btn")}
           </button>
         </div>
       )}
@@ -1206,6 +1244,7 @@ export default function BriefingPage() {
               onNavigate={() => nav(`/alpha/w/${s.id}`)}
               t={t}
               isPrimary={s.id === primaryId}
+              quota={quota}
             />
           ))}
         </div>

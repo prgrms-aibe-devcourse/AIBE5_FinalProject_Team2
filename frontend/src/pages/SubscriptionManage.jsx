@@ -125,7 +125,7 @@ export default function SubscriptionManage() {
 
   return (
     <div style={{
-      maxWidth: 820, margin: "0 auto", padding: "48px 24px",
+      maxWidth: 820, margin: "0 auto", padding: "clamp(24px, 5vw, 48px) clamp(16px, 3vw, 24px)",
       fontFamily: BASE, minHeight: "calc(100vh - 120px)",
     }}>
       {/* 헤더 */}
@@ -137,7 +137,7 @@ export default function SubscriptionManage() {
         </p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, alignItems: "start" }}>
         {/* 현재 상태 카드 */}
         <div style={{
           background: "white", borderRadius: 20, padding: 28,

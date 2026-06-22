@@ -268,6 +268,11 @@ function Signup() {
 
   return (
     <div style={{ minHeight: "100vh", fontFamily: F, position: "relative" }}>
+      <style>{`
+        @media (max-width: 1024px) {
+          .signup-two-col { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
       {/* 배경 비디오 (블러) */}
       <video
         ref={videoRef}
@@ -299,7 +304,8 @@ function Signup() {
         <div style={{
           backgroundColor: "white", borderRadius: 24,
           boxShadow: "0 12px 48px rgba(0,0,0,0.13)",
-          padding: "36px 44px 32px",
+          paddingTop: "36px", paddingBottom: "32px",
+          paddingLeft: "clamp(16px, 4vw, 44px)", paddingRight: "clamp(16px, 4vw, 44px)",
           width: "100%", maxWidth: 560,
         }}>
           {/* 타이틀 */}
@@ -441,7 +447,7 @@ function Signup() {
             </div>
 
             {/* 유선 연락처 + 생년월일 */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="signup-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <LBL>{t("signup.phone")}</LBL>
                 <InputIcon icon={Phone} placeholder="+82 (10)-0000-0000" value={form.phone}
@@ -469,7 +475,7 @@ function Signup() {
             </div>
 
             {/* 비밀번호 + 확인 */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="signup-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <LBL>{t("signup.password")}</LBL>
                 <InputIcon

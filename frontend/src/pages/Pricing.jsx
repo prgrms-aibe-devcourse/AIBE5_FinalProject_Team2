@@ -58,7 +58,7 @@ export default function Pricing() {
   const isPro = sub.tier === "PRO";
 
   return (
-    <div style={{ maxWidth: 1100, margin: "60px auto", padding: "0 24px", fontFamily: "Pretendard, sans-serif" }}>
+    <div style={{ maxWidth: 1100, width: "100%", margin: "60px auto", padding: "0 24px", fontFamily: "Pretendard, sans-serif" }}>
       <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 8, color: "#0F172A" }}>
         Alpha-Helix 요금제
       </h1>
@@ -66,11 +66,12 @@ export default function Pricing() {
         4개의 AI를 각자의 강점에 맞게 활용하세요. 무료로도 충분히 시작할 수 있습니다.
       </p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+      <style>{`.pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }`}</style>
+      <div className="pricing-grid" style={{ display: "grid", gap: 24 }}>
         {/* FREE */}
         <div style={{
           background: "white", border: "1px solid #E2E8F0", borderRadius: 16,
-          padding: 32, display: "flex", flexDirection: "column",
+          padding: "clamp(16px, 2.5vw, 32px)", display: "flex", flexDirection: "column",
         }}>
           <div style={{ fontSize: 18, fontWeight: 700, color: "#0F172A" }}>Free</div>
           <div style={{ fontSize: 36, fontWeight: 800, marginTop: 12, color: "#0F172A" }}>
@@ -93,7 +94,7 @@ export default function Pricing() {
         {/* PRO */}
         <div style={{
           background: "linear-gradient(135deg, #EFF6FF 0%, #F5F3FF 100%)",
-          border: "2px solid #6366F1", borderRadius: 16, padding: 32,
+          border: "2px solid #6366F1", borderRadius: 16, padding: "clamp(16px, 2.5vw, 32px)",
           display: "flex", flexDirection: "column", position: "relative",
         }}>
           <div style={{

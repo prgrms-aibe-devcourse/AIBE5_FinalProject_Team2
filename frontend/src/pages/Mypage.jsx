@@ -489,11 +489,16 @@ function Mypage() {
           from { opacity:0; transform:translate(-50%,-12px); }
           to   { opacity:1; transform:translate(-50%,0); }
         }
+        @media (max-width: 1024px) {
+          .mypage-main { padding: 24px 16px 60px !important; }
+          .mypage-form-grid { grid-template-columns: 1fr !important; }
+          .mypage-cancel-btn { padding: 15px 32px !important; }
+        }
       `}</style>
 
       {toast && <Toast msg={toast} onClose={() => setToast(null)} />}
 
-      <main style={{ maxWidth:1200, margin:"0 auto", padding:"36px 40px 80px" }}>
+      <main className="mypage-main" style={{ maxWidth:1200, margin:"0 auto", padding:"36px 40px 80px" }}>
 
         {/* ── 페이지 헤더 ── */}
         <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", marginBottom:32, flexWrap:"wrap", gap:16 }}>
@@ -595,7 +600,7 @@ function Mypage() {
 
             {/* 폼 영역 */}
             <div style={{ padding:"0 28px 28px" }}>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"18px 20px" }}>
+              <div className="mypage-form-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"18px 20px" }}>
 
                 {/* 구독 유형 — 현재 구독 플랜 표시 (수정 불가) */}
                 <div>
@@ -672,6 +677,7 @@ function Mypage() {
                 {isEditing ? (
                   <div style={{ display:"flex", gap:12 }}>
                     <button onClick={handleCancel}
+                      className="mypage-cancel-btn"
                       style={{
                         padding:"15px 90px", borderRadius:14, flexShrink:0,
                         border:"1.5px solid #D1D5DB", background:"white",
