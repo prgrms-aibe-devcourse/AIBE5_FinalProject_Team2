@@ -82,4 +82,26 @@ export const useNotificationStore = create((set, get) => ({
     })),
 
   clearAll: () => set({ notifications: [] }),
+
+  // SSE 실시간 구독 — 새 알림 서버 push 수신
+  // 반환값: cleanup 함수 (컴포넌트 unmount 시 호출)
+  subscribeSSE: () => {
+    const es = new EventSource("/api/notifications/stream", { withCredentials: true });
+
+    es.addEventListener("notification", (e) => {
+      try {
+        const raw = JSON.parse(e.data);
+        const n = toLocal(raw);
+        set((s) => ({
+          notifications: [n, ...s.notifications.filter((x) => x.id !== n.id)],
+        }));
+      } catch {}
+    });
+
+    es.onerror = () => {
+      // EventSource가 자동 재연결 — 여기서는 아무것도 하지 않음
+    };
+
+    return () => es.close();
+  },
 }));
