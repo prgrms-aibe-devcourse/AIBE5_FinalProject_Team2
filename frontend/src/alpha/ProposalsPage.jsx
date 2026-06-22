@@ -24,7 +24,7 @@ function expiryInfo(expiresAt) {
   if (diffMs <= 0) return { expired: true, label: null, urgent: false };
   const h = Math.floor(diffMs / 3600000);
   const m = Math.floor((diffMs % 3600000) / 60000);
-  const label = h > 0 ? `${h}시간 ${m}분` : `${m}분`;
+  const label = h > 0 ? `${h}h ${m}m` : `${m}m`;
   return { expired: false, label, urgent: diffMs < 3600000 };
 }
 
@@ -72,8 +72,10 @@ export default function ProposalsPage() {
   const [createErr, setCreateErr] = useState(null);
   const [activeTab, setActiveTab] = useState("BUY");
   const [fieldErrors, setFieldErrors] = useState({});
+  const [deleteMode, setDeleteMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // { type: "single", id, ticker } | { type: "bulk", count }
 
   // expiresAt 지난 PENDING → 클라이언트에서 EXPIRED로 정규화
   const normalizedRows = allRows.map(r =>
@@ -127,16 +129,16 @@ export default function ProposalsPage() {
   const onSubmitCreate = async (e) => {
     e.preventDefault();
     const errs = {};
-    if (!form.brokerAccountId) errs.brokerAccountId = "계좌를 선택해주세요";
-    if (!form.ticker) errs.ticker = "종목을 선택해주세요";
-    if (!form.qty || Number(form.qty) <= 0) errs.qty = "수량을 입력해주세요";
-    if (form.orderType !== "MARKET" && !form.limitPrice) errs.limitPrice = "단가를 입력해주세요";
+    if (!form.brokerAccountId) errs.brokerAccountId = t("proposals.validate.account");
+    if (!form.ticker) errs.ticker = t("proposals.validate.ticker");
+    if (!form.qty || Number(form.qty) <= 0) errs.qty = t("proposals.validate.qty");
+    if (form.orderType !== "MARKET" && !form.limitPrice) errs.limitPrice = t("proposals.validate.price");
     if (Object.keys(errs).length > 0) { setFieldErrors(errs); return; }
     setFieldErrors({});
     setCreateBusy(true);
     setCreateErr(null);
     const rationaleText = form.rationale.trim()
-      || `${form.orderType === "LIMIT" ? `지정가(${form.kisSubType})` : form.orderType === "MARKET" ? "시장가" : "LOC"} 수동 제안`;
+      || t("proposals.form.defaultRationale", { orderType: form.orderType === "LIMIT" ? `LIMIT(${form.kisSubType})` : form.orderType === "MARKET" ? "MARKET" : "LOC" });
     try {
       await createProposal({
         brokerAccountId: Number(form.brokerAccountId),
@@ -173,8 +175,8 @@ export default function ProposalsPage() {
       await load();
       setToast({
         type: "order",
-        title: "주문 발송 완료",
-        body: `${ticker} ${side === "BUY" ? "매수" : "매도"} 주문이 KIS로 전송되었습니다.`,
+        title: t("proposals.toast.orderSent"),
+        body: t("proposals.toast.orderSentBody", { ticker, side }),
       });
       window.dispatchEvent(new CustomEvent("alpha:proposal-updated"));
       fetchNotifications().catch(() => {});
@@ -198,7 +200,7 @@ export default function ProposalsPage() {
       await rejectProposal(rejecting.id, reason || "거절");
       setRejecting(null);
       await load();
-      setToast({ type: "info", title: "제안 거절 완료", body: `${rejecting.ticker} 제안이 큐에서 제거되었습니다.` });
+      setToast({ type: "info", title: t("proposals.toast.rejected"), body: t("proposals.toast.rejectedBody", { ticker: rejecting.ticker }) });
     } catch (e) {
       setRejectErr(e?.response?.data?.error || e.message);
     } finally {
@@ -243,6 +245,9 @@ export default function ProposalsPage() {
     }
   };
 
+  const enterDeleteMode = () => setDeleteMode(true);
+  const exitDeleteMode = () => { setDeleteMode(false); setSelectedIds(new Set()); };
+
   const toggleSelect = (id) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
@@ -254,36 +259,167 @@ export default function ProposalsPage() {
   const selectAll = () => setSelectedIds(new Set(rows.map(r => r.id)));
   const clearSelection = () => setSelectedIds(new Set());
 
-  const onDeleteOne = async (id) => {
-    if (!window.confirm("이 항목을 삭제할까요?")) return;
+  const onDeleteOne = (id) => {
+    const target = rows.find(r => r.id === id);
+    setDeleteConfirm({ type: "single", id, ticker: target?.ticker || `#${id}`, side: target?.side });
+  };
+
+  const onDeleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    setDeleteConfirm({ type: "bulk", count: selectedIds.size });
+  };
+
+  const executeDeleteOne = async (id) => {
+    setDeleteBusy(true);
     try {
       await deleteProposal(id);
       setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n; });
       await load();
+      setToast({ type: "info", title: t("proposals.toast.deleted"), body: t("proposals.toast.deletedSingle") });
     } catch (e) {
-      setToast({ type: "error", title: "삭제 실패", body: e?.response?.data?.error || e.message });
+      setToast({ type: "error", title: t("proposals.toast.deleteFailed"), body: e?.response?.data?.error || e.message });
+    } finally {
+      setDeleteBusy(false);
+      setDeleteConfirm(null);
     }
   };
 
-  const onDeleteSelected = async () => {
-    if (selectedIds.size === 0) return;
-    if (!window.confirm(`${selectedIds.size}개 항목을 삭제할까요?`)) return;
+  const executeDeleteBulk = async () => {
     setDeleteBusy(true);
     try {
+      const count = selectedIds.size;
       await deleteProposalsBulk([...selectedIds]);
       setSelectedIds(new Set());
+      setDeleteMode(false);
       await load();
-      setToast({ type: "info", title: "삭제 완료", body: `${selectedIds.size}개 항목이 삭제되었습니다.` });
+      setToast({ type: "info", title: t("proposals.toast.deleted"), body: t("proposals.toast.deletedBulk", { count }) });
     } catch (e) {
-      setToast({ type: "error", title: "삭제 실패", body: e?.response?.data?.error || e.message });
+      setToast({ type: "error", title: t("proposals.toast.deleteFailed"), body: e?.response?.data?.error || e.message });
     } finally {
       setDeleteBusy(false);
+      setDeleteConfirm(null);
     }
   };
 
   return (
-    <div className="alpha-proposals" style={{ padding: "36px 40px 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
+    <div className="alpha-proposals" style={{ padding: "clamp(16px, 3vw, 36px) clamp(12px, 3vw, 40px) 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
       {toast && <Toast title={toast.title} body={toast.body} type={toast.type} onClose={() => setToast(null)} />}
+
+      {/* ── 삭제 확인 모달 ── */}
+      {deleteConfirm && (
+        <div
+          onClick={() => !deleteBusy && setDeleteConfirm(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 4000,
+            background: "rgba(2,6,23,0.65)", backdropFilter: "blur(6px)",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: "100%", maxWidth: 400, borderRadius: 20, overflow: "hidden",
+              boxShadow: "0 32px 80px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.05)",
+              animation: "deleteModalIn 0.18s cubic-bezier(0.22,1,0.36,1)",
+            }}
+          >
+            {/* 헤더 */}
+            <div style={{
+              background: "linear-gradient(135deg,#1c0a0a 0%,#2d1515 100%)",
+              padding: "22px 24px 18px",
+              display: "flex", alignItems: "center", gap: 14,
+            }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 14, flexShrink: 0,
+                background: "linear-gradient(135deg,#ef4444,#b91c1c)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: "0 4px 16px rgba(239,68,68,0.45)",
+              }}>
+                <Trash2 size={20} color="white" />
+              </div>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: "white", letterSpacing: -0.3 }}>
+                  {deleteConfirm.type === "bulk" ? t("proposals.deleteModal.titleBulk", { count: deleteConfirm.count }) : t("proposals.deleteModal.title")}
+                </div>
+                <div style={{ fontSize: 12, color: "#94A3B8", marginTop: 3 }}>
+                  {t("proposals.deleteModal.irreversible")}
+                </div>
+              </div>
+            </div>
+
+            {/* 본문 */}
+            <div style={{ background: "white", padding: "22px 24px" }}>
+              {deleteConfirm.type === "single" ? (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "14px 16px", borderRadius: 12,
+                  background: "#FFF5F5", border: "1.5px solid #FECACA",
+                }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                    background: deleteConfirm.side === "BUY" ? "#DCFCE7" : "#DBEAFE",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 13, fontWeight: 800,
+                    color: deleteConfirm.side === "BUY" ? "#15803D" : "#1D4ED8",
+                  }}>
+                    {deleteConfirm.side === "BUY" ? "B" : "S"}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: "#0F172A" }}>{deleteConfirm.ticker}</div>
+                    <div style={{ fontSize: 12, color: "#64748B", marginTop: 1 }}>{t("proposals.deleteModal.singleSub")}</div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  padding: "14px 16px", borderRadius: 12,
+                  background: "#FFF5F5", border: "1.5px solid #FECACA",
+                  fontSize: 14, color: "#7F1D1D", fontWeight: 600, lineHeight: 1.6,
+                }}>
+                  {t("proposals.deleteModal.bulkBody", { count: deleteConfirm.count })}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                <button
+                  onClick={() => !deleteBusy && setDeleteConfirm(null)}
+                  disabled={deleteBusy}
+                  style={{
+                    flex: 1, padding: "13px", borderRadius: 11,
+                    border: "1.5px solid #E2E8F0", background: "white",
+                    color: "#374151", fontSize: 13.5, fontWeight: 700,
+                    cursor: deleteBusy ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {t("proposals.deleteModal.cancel")}
+                </button>
+                <button
+                  onClick={() => deleteConfirm.type === "single"
+                    ? executeDeleteOne(deleteConfirm.id)
+                    : executeDeleteBulk()}
+                  disabled={deleteBusy}
+                  style={{
+                    flex: 1, padding: "13px", borderRadius: 11, border: "none",
+                    background: deleteBusy
+                      ? "#E2E8F0"
+                      : "linear-gradient(135deg,#ef4444 0%,#b91c1c 100%)",
+                    color: deleteBusy ? "#94A3B8" : "white",
+                    fontSize: 13.5, fontWeight: 800,
+                    cursor: deleteBusy ? "not-allowed" : "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    boxShadow: deleteBusy ? "none" : "0 4px 14px rgba(239,68,68,0.4)",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {deleteBusy
+                    ? <><Loader2 size={14} className="spin" /> {t("proposals.deleteModal.deleting")}</>
+                    : <><Trash2 size={14} /> {t("proposals.deleteModal.confirm")}</>}
+                </button>
+              </div>
+            </div>
+          </div>
+          <style>{`@keyframes deleteModalIn { from { opacity:0; transform:scale(0.93) translateY(10px); } to { opacity:1; transform:scale(1) translateY(0); } }`}</style>
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 32, flexWrap: "wrap", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <div style={{
@@ -308,15 +444,30 @@ export default function ProposalsPage() {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={openCreate}
+          {!deleteMode && (
+            <button onClick={openCreate}
+              style={{
+                background: "linear-gradient(135deg,#60a5fa 0%,#6366f1 100%)",
+                color: "white", border: "none",
+                padding: "9px 18px", borderRadius: 12,
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 13,
+                fontWeight: 700, boxShadow: "0 4px 12px rgba(99,102,241,0.28)",
+              }}>
+              <Plus size={14} /> {t("proposals.create") || "수동 제안"}
+            </button>
+          )}
+          <button
+            onClick={deleteMode ? exitDeleteMode : enterDeleteMode}
             style={{
-              background: "linear-gradient(135deg,#60a5fa 0%,#6366f1 100%)",
-              color: "white", border: "none",
+              background: deleteMode ? "#FEF2F2" : "white",
+              border: `1.5px solid ${deleteMode ? "#FECACA" : "#E2E8F0"}`,
+              color: deleteMode ? "#B91C1C" : "#475569",
               padding: "9px 18px", borderRadius: 12,
               cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 13,
-              fontWeight: 700, boxShadow: "0 4px 12px rgba(99,102,241,0.28)",
+              fontWeight: 600, boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
             }}>
-            <Plus size={14} /> {t("proposals.create") || "수동 제안"}
+            <Trash2 size={14} />
+            {deleteMode ? t("proposals.deleteMode.exit") : t("proposals.deleteMode.enter")}
           </button>
           <button onClick={load} disabled={loading}
             style={{
@@ -331,25 +482,25 @@ export default function ProposalsPage() {
         </div>
       </div>
 
-      {/* 선택 삭제 액션 바 */}
-      {selectedIds.size > 0 && (
+      {/* 선택 삭제 액션 바 — 삭제 모드일 때만 표시 */}
+      {deleteMode && (
         <div style={{
           display: "flex", alignItems: "center", gap: 10,
           padding: "10px 16px", marginBottom: 12,
           background: "#FEF2F2", border: "1.5px solid #FECACA",
           borderRadius: 12,
         }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#B91C1C", flex: 1 }}>
-            {selectedIds.size}개 선택됨
+          <span style={{ fontSize: 13, fontWeight: 600, color: selectedIds.size > 0 ? "#B91C1C" : "#94A3B8", flex: 1 }}>
+            {selectedIds.size > 0 ? t("proposals.deleteMode.selectedCount", { count: selectedIds.size }) : t("proposals.deleteMode.prompt")}
           </span>
           <button onClick={selectAll} style={{
             padding: "6px 12px", borderRadius: 8, border: "1px solid #FECACA",
             background: "white", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer",
-          }}>전체 선택</button>
+          }}>{t("proposals.deleteMode.selectAll")}</button>
           <button onClick={clearSelection} style={{
             padding: "6px 12px", borderRadius: 8, border: "1px solid #FECACA",
             background: "white", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer",
-          }}>선택 해제</button>
+          }}>{t("proposals.deleteMode.clearSelection")}</button>
           <button onClick={onDeleteSelected} disabled={deleteBusy} style={{
             padding: "6px 14px", borderRadius: 8, border: "none",
             background: deleteBusy ? "#E2E8F0" : "#EF4444",
@@ -357,7 +508,7 @@ export default function ProposalsPage() {
             fontSize: 12, fontWeight: 700, cursor: deleteBusy ? "not-allowed" : "pointer",
             display: "flex", alignItems: "center", gap: 4,
           }}>
-            <Trash2 size={12} /> {deleteBusy ? "삭제 중..." : "삭제"}
+            <Trash2 size={12} /> {deleteBusy ? t("proposals.deleteMode.deleting") : t("proposals.deleteMode.deleteSelected")}
           </button>
         </div>
       )}
@@ -430,14 +581,16 @@ export default function ProposalsPage() {
                 borderRadius: 12, padding: 14, display: "flex", alignItems: "center", gap: 14,
                 opacity: isClientExpired ? 0.85 : 1,
               }}>
-              {/* 체크박스 */}
-              <input
-                type="checkbox"
-                checked={selectedIds.has(p.id)}
-                onChange={() => toggleSelect(p.id)}
-                onClick={e => e.stopPropagation()}
-                style={{ width: 16, height: 16, cursor: "pointer", flexShrink: 0, accentColor: "#6366F1" }}
-              />
+              {/* 체크박스 — 삭제 모드에서만 표시 */}
+              {deleteMode && (
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(p.id)}
+                  onChange={() => toggleSelect(p.id)}
+                  onClick={e => e.stopPropagation()}
+                  style={{ width: 16, height: 16, cursor: "pointer", flexShrink: 0, accentColor: "#6366F1" }}
+                />
+              )}
               <div style={{
                 background: meta.bg, color: meta.color,
                 padding: "4px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
@@ -461,7 +614,7 @@ export default function ProposalsPage() {
                   {p.rationale || t("proposals.noReason")}
                 </div>
                 <div style={{ fontSize: 11, color: theme.textMuted, opacity: 0.8 }}>
-                  {p.source === "MANUAL" ? "수동 주문" : p.source === "SIGNAL" ? "시그널" : p.source}
+                  {p.source === "MANUAL" ? t("proposals.source.manual") : p.source === "SIGNAL" ? t("proposals.source.signal") : p.source}
                   {p.sourceSignalId && ` · signal#${p.sourceSignalId}`}
                   {" · "}broker#{p.brokerAccountId}
                   {" · "}{new Date(p.createdAt).toLocaleString("ko-KR")}
@@ -526,22 +679,24 @@ export default function ProposalsPage() {
                   </button>
                 </div>
               )}
-              {/* 단일 삭제 버튼 */}
-              <button
-                onClick={e => { e.stopPropagation(); onDeleteOne(p.id); }}
-                title="삭제"
-                style={{
-                  width: 30, height: 30, borderRadius: 8, border: "1px solid #E5E7EB",
-                  background: "white", color: "#9CA3AF", cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  flexShrink: 0,
-                  transition: "background 0.12s, color 0.12s",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = "#FEE2E2"; e.currentTarget.style.color = "#EF4444"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "white"; e.currentTarget.style.color = "#9CA3AF"; }}
-              >
-                <Trash2 size={13} />
-              </button>
+              {/* 단일 삭제 버튼 — 삭제 모드에서만 표시 */}
+              {deleteMode && (
+                <button
+                  onClick={e => { e.stopPropagation(); onDeleteOne(p.id); }}
+                  title={t("proposals.deleteModal.title")}
+                  style={{
+                    width: 30, height: 30, borderRadius: 8, border: "1px solid #E5E7EB",
+                    background: "white", color: "#9CA3AF", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    flexShrink: 0,
+                    transition: "background 0.12s, color 0.12s",
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#FEE2E2"; e.currentTarget.style.color = "#EF4444"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "white"; e.currentTarget.style.color = "#9CA3AF"; }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
             </div>
           );
         })}
@@ -549,8 +704,11 @@ export default function ProposalsPage() {
       <style>{`
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+        @media (max-width: 1024px) {
+          .alpha-proposals h1 { font-size: 20px !important; }
+        }
         @media (max-width: 768px) {
-          .alpha-proposals { padding: 16px 12px !important; }
+          .alpha-proposals { padding: 12px 10px !important; }
           .alpha-proposals h1 { font-size: 22px !important; }
           .alpha-proposals .filter-row { overflow-x: auto; flex-wrap: nowrap !important; -webkit-overflow-scrolling: touch; }
           .alpha-proposals .filter-row button { white-space: nowrap; flex-shrink: 0; }
@@ -611,7 +769,7 @@ export default function ProposalsPage() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 10.5, fontWeight: 700, color: "#475569", letterSpacing: 1.8, textTransform: "uppercase", marginBottom: 4 }}>Order Proposal</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: "white", letterSpacing: -0.3 }}>수동 주문 제안</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "white", letterSpacing: -0.3 }}>{t("proposals.form.title")}</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
@@ -626,11 +784,11 @@ export default function ProposalsPage() {
                         fontSize: 12.5, fontWeight: 600, outline: "none", cursor: "pointer", maxWidth: 200,
                       }}
                     >
-                      <option value="" style={{ color: "#0F172A" }}>계좌 선택 *</option>
+                      <option value="" style={{ color: "#0F172A" }}>{t("proposals.form.selectAccount")}</option>
                       {brokerAccounts.map(a => (
                         <option key={a.id} value={a.id} style={{ color: "#0F172A" }}>
                           [{a.env}] {a.brokerType} {a.accountAlias || a.accountNumber || `#${a.id}`}
-                          {a.tradingEnabled ? "" : " (거래 비활성)"}
+                          {a.tradingEnabled ? "" : ` ${t("proposals.form.tradingDisabled")}`}
                         </option>
                       ))}
                     </select>
@@ -650,11 +808,12 @@ export default function ProposalsPage() {
             {/* ── 탭 ── */}
             <div style={{ display: "flex", background: "#F8FAFC", borderBottom: "1.5px solid #E2E8F0" }}>
               {[
-                { key: "BUY",     label: "매수",     color: "#EF4444", soft: "#FFF1F1" },
-                { key: "SELL",    label: "매도",     color: "#3B82F6", soft: "#EFF6FF" },
-                { key: "CANCEL",  label: "정정/취소", color: "#10B981", soft: "#F0FDF4" },
-                { key: "HISTORY", label: "주문내역",  color: "#8B5CF6", soft: "#F5F3FF" },
-              ].map(({ key, label, color, soft }) => {
+                { key: "BUY",     labelKey: "proposals.form.tabs.buy",     color: "#EF4444", soft: "#FFF1F1" },
+                { key: "SELL",    labelKey: "proposals.form.tabs.sell",    color: "#3B82F6", soft: "#EFF6FF" },
+                { key: "CANCEL",  labelKey: "proposals.form.tabs.cancel",  color: "#10B981", soft: "#F0FDF4" },
+                { key: "HISTORY", labelKey: "proposals.form.tabs.history", color: "#8B5CF6", soft: "#F5F3FF" },
+              ].map(({ key, labelKey, color, soft }) => {
+                const label = t(labelKey);
                 const isAct = activeTab === key;
                 return (
                   <button key={key} type="button"
@@ -674,18 +833,18 @@ export default function ProposalsPage() {
             <div style={{ background: "white" }}>
               {(activeTab === "CANCEL" || activeTab === "HISTORY") ? (
                 <div style={{ padding: "48px 22px", textAlign: "center", color: "#94A3B8", fontSize: 13 }}>
-                  {activeTab === "CANCEL" ? "정정/취소는 체결 목록에서 지원 예정입니다." : "주문내역은 아래 목록에서 확인하세요."}
+                  {activeTab === "CANCEL" ? t("proposals.form.cancelContent") : t("proposals.form.historyContent")}
                 </div>
               ) : (
                 <form onSubmit={onSubmitCreate} style={{ padding: "20px 22px 22px" }}>
 
                   {/* 종목 */}
                   <div style={{ marginBottom: 13 }}>
-                    <label style={mLabelStyle}>종목 <span style={{ color: "#EF4444" }}>*</span></label>
+                    <label style={mLabelStyle}>{t("proposals.form.ticker")} <span style={{ color: "#EF4444" }}>*</span></label>
                     <select required value={form.ticker}
                       onChange={e => { setForm(f => ({ ...f, ticker: e.target.value })); setFieldErrors(fe => { const { ticker: _, ...rest } = fe; return rest; }); }}
                       style={{ ...mInputStyle, borderColor: fieldErrors.ticker ? "#EF4444" : "#E2E8F0", background: fieldErrors.ticker ? "#FFF5F5" : "#FAFAFA" }}>
-                      <option value="">종목 선택</option>
+                      <option value="">{t("proposals.form.tickerSelect")}</option>
                       {(brokerAccounts.find(a => String(a.id) === String(form.brokerAccountId))?.brokerType === "BINANCE"
                         ? CRYPTO_LIST : TICKER_LIST
                       ).map(tk => <option key={tk.value} value={tk.value}>{tk.value} — {tk.name}</option>)}
@@ -695,7 +854,7 @@ export default function ProposalsPage() {
 
                   {/* 주문유형 */}
                   <div style={{ marginBottom: 13 }}>
-                    <label style={mLabelStyle}>주문유형 <span style={{ color: "#EF4444" }}>*</span></label>
+                    <label style={mLabelStyle}>{t("proposals.form.orderType")} <span style={{ color: "#EF4444" }}>*</span></label>
                     <div style={{ display: "flex", gap: 6 }}>
                       {ORDER_TYPES.map(ot => (
                         <button key={ot.value} type="button"
@@ -729,7 +888,7 @@ export default function ProposalsPage() {
                   {/* 수량 + 단가 */}
                   <div style={{ display: "grid", gridTemplateColumns: form.orderType === "MARKET" ? "1fr" : "1fr 1fr", gap: 10, marginBottom: 13 }}>
                     <div>
-                      <label style={mLabelStyle}>수량 <span style={{ color: "#EF4444" }}>*</span></label>
+                      <label style={mLabelStyle}>{t("proposals.form.qty")} <span style={{ color: "#EF4444" }}>*</span></label>
                       <input required type="number" step="any" min="0.0001" placeholder="0"
                         value={form.qty}
                         onChange={e => { setForm(f => ({ ...f, qty: e.target.value })); setFieldErrors(fe => { const { qty: _, ...rest } = fe; return rest; }); }}
@@ -738,7 +897,7 @@ export default function ProposalsPage() {
                     </div>
                     {form.orderType !== "MARKET" && (
                       <div>
-                        <label style={mLabelStyle}>단가 <span style={{ color: "#EF4444" }}>*</span></label>
+                        <label style={mLabelStyle}>{t("proposals.form.price")} <span style={{ color: "#EF4444" }}>*</span></label>
                         <input required type="number" step="any" min="0" placeholder="0.00"
                           value={form.limitPrice}
                           onChange={e => { setForm(f => ({ ...f, limitPrice: e.target.value })); setFieldErrors(fe => { const { limitPrice: _, ...rest } = fe; return rest; }); }}
@@ -750,8 +909,8 @@ export default function ProposalsPage() {
 
                   {/* 사유 */}
                   <div style={{ marginBottom: 4 }}>
-                    <label style={mLabelStyle}>사유 <span style={{ color: "#CBD5E1", fontWeight: 400 }}>(선택)</span></label>
-                    <input placeholder="예: 기술적 지표 기반 매수 판단"
+                    <label style={mLabelStyle}>{t("proposals.form.rationale")} <span style={{ color: "#CBD5E1", fontWeight: 400 }}>({t("proposals.form.optional")})</span></label>
+                    <input placeholder={t("proposals.form.rationalePlaceholder")}
                       value={form.rationale} onChange={e => setForm(f => ({ ...f, rationale: e.target.value }))} style={mInputStyle} />
                   </div>
 
@@ -763,7 +922,7 @@ export default function ProposalsPage() {
                     <button type="button" onClick={() => !createBusy && setCreateOpen(false)} style={{
                       flex: 1, padding: "13px", borderRadius: 11, border: "1.5px solid #E2E8F0",
                       background: "white", color: "#374151", fontSize: 13, fontWeight: 600, cursor: "pointer",
-                    }}>취소</button>
+                    }}>{t("proposals.form.cancel")}</button>
                     <button type="submit" disabled={createBusy} style={{
                       flex: 2, padding: "13px", borderRadius: 11, border: "none",
                       background: createBusy ? "#E2E8F0" : isBuy
@@ -776,7 +935,7 @@ export default function ProposalsPage() {
                       transition: "all 0.15s",
                     }}>
                       {createBusy && <Loader2 size={14} className="spin" />}
-                      {isBuy ? "매수 주문 제출" : "매도 주문 제출"}
+                      {isBuy ? t("proposals.form.submitBuy") : t("proposals.form.submitSell")}
                     </button>
                   </div>
                 </form>

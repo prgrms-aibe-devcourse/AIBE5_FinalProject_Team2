@@ -171,14 +171,28 @@ SKIP_RECENT_DAYS = ${momSkip}       # 최근 제외 (≈1개월)
 TOP_N            = ${momTopN}        # 보유 종목 수 (동일가중)
 REBALANCE_DAYS   = ${momReb}       # 리밸런싱 주기 (영업일)
 CASH_ASSET       = "${momCash}"      # 약세장 대피 자산 (절대모멘텀<=0)
+INITIAL_CAPITAL  = ${initCap}
 
-# 핵심 로직 (실행 엔진: AlphaHelix analytics · vectorbt 기반)
+# 실행 엔진: analytics/app/backtest/momentum_rotation.py (vectorbt 기반 · 271 LOC) — 아래는 그 핵심 규칙
 #   1) 매 REBALANCE_DAYS 마다 각 자산의 12-1 모멘텀(LOOKBACK 수익률 − 최근 SKIP 수익률) 계산
 #   2) 모멘텀 상위 TOP_N 자산을 동일가중(1/TOP_N) 보유, 나머지 전량 매도
 #   3) 절대모멘텀<=0 자산은 CASH_ASSET 으로 대피(리스크오프). 시그널 1bar shift(룩어헤드 방지)
 def run(prices):
-    # ... 12-1 모멘텀 랭킹 / top-N 리밸런싱 / 현금 게이트 (엔진 내부 구현) ...
-    pass
+    cash, holdings = INITIAL_CAPITAL, {}          # holdings: {ticker: shares}
+    n = len(prices[TICKERS[0]])
+    for t in range(LOOKBACK_DAYS, n, REBALANCE_DAYS):   # 리밸런싱일에만 (그 외 보유 유지)
+        # 1) 각 자산의 12-1 모멘텀 = (SKIP일 전 가격 / LOOKBACK일 전 가격) − 1
+        mom = {tk: prices[tk][t - SKIP_RECENT_DAYS] / prices[tk][t - LOOKBACK_DAYS] - 1
+               for tk in TICKERS}
+        # 2) 모멘텀 상위 TOP_N 선택(내림차순). 절대모멘텀 ≤ 0 슬롯은 CASH_ASSET 으로 대피
+        ranked = sorted(mom, key=mom.get, reverse=True)[:TOP_N]
+        picks  = [tk if mom[tk] > 0 else CASH_ASSET for tk in ranked]
+        # 3) 평가총액을 TOP_N 등분 → 선택 자산 동일가중 보유, 나머지는 자동 청산(현금화)
+        equity = cash + sum(holdings.get(tk, 0) * prices[tk][t] for tk in holdings)
+        slot   = equity / TOP_N
+        holdings = {}
+        for tk in picks:
+            holdings[tk] = holdings.get(tk, 0) + int(slot / prices[tk][t])
 `;
   }
 
@@ -253,21 +267,41 @@ class ${clsName}(QCAlgorithm):
     return `# AlphaHelix Strategy: ${name}
 # ════════════════════════════════════════════════════════
 # 전략 유형: 무한매수법 (Infinite Buying · LOC 분할매수)
+# 실행 엔진: analytics/app/backtest/infinite_buying.py (vectorbt 기반 · 452 LOC) — 아래는 그 핵심 규칙
 TICKERS         = [${tickersList}]
-SPLIT           = ${ibSplit}        # 분할 횟수 — 시드를 N등분해 매 거래일 1/N 매수
+SPLIT           = ${ibSplit}        # 분할 횟수 — 시드를 N등분해 매 거래일 1회분 매수
 TAKE_PROFIT_PCT = ${ibTp}        # 평단 대비 익절 목표 수익률(%)
-LOC_OFFSET_PCT  = ${ibLoc}        # 종가 대비 추가매수 지정가 오프셋(%)
+LOC_OFFSET_PCT  = ${ibLoc}        # 평단보다 비싸도 매수 허용하는 상한(%)
 INITIAL_CAPITAL = ${initCap}
+FEES, SLIPPAGE  = 0.0025, 0.001     # KIS 해외주식 수수료 0.25% + 슬리피지 0.10%
 
-# 핵심 로직 (실행 엔진: AlphaHelix analytics · vectorbt 기반)
-#   1) 매 거래일 시드의 1/SPLIT 만큼 분할 매수 (LOC 지정가 = 종가×(1-LOC_OFFSET_PCT/100))
-#   2) 평단가 대비 +TAKE_PROFIT_PCT 도달 시 전량 익절 → 사이클 리셋
-#   3) 시드 소진 시 추가매수 중단, 익절 신호 대기
 def run(prices):
     for ticker in TICKERS:
-        seed_per_buy = INITIAL_CAPITAL / SPLIT
-        # ... 분할매수 / 평단 추적 / 익절 사이클 (엔진 내부 구현) ...
-        pass
+        close  = prices[ticker]            # 일별 종가 시퀀스
+        budget = INITIAL_CAPITAL / SPLIT   # 1회분 매수 예산
+        cash, qty, avg, cycle = INITIAL_CAPITAL, 0.0, 0.0, 0   # 잔고/수량/평단/회차
+        for px in close:                   # 매 거래일 종가 기준
+            # 1) 익절 — 평단 대비 +TAKE_PROFIT_PCT 도달 → 전량 매도 후 사이클 리셋
+            if qty > 0 and px >= avg * (1 + TAKE_PROFIT_PCT / 100):
+                cash += qty * px * (1 - FEES - SLIPPAGE)
+                qty, avg, cycle = 0.0, 0.0, 0
+
+            # 2) 분할 매수 — 시드 미소진(cycle < SPLIT) 시에만
+            elif cycle < SPLIT and cash >= budget:
+                if avg == 0 or px <= avg:                       # 평단 이하 → 1.0회분 (LOC 평단매수)
+                    spend = budget
+                elif px <= avg * (1 + LOC_OFFSET_PCT / 100):    # 평단~밴드 → 0.5회분 (LOC 큰수매수)
+                    spend = budget * 0.5
+                else:                                           # 밴드 밖 → 매수 없음
+                    spend = 0.0
+                if spend > 0:
+                    fill    = px * (1 + SLIPPAGE)
+                    buy_qty = spend / (fill * (1 + FEES))
+                    avg     = (avg * qty + fill * buy_qty) / (qty + buy_qty)
+                    qty    += buy_qty
+                    cash   -= spend
+                    cycle  += 1
+            # 3) 시드 소진 → 추가매수 중단하고 익절 신호 대기
 `;
   }
 
@@ -275,23 +309,41 @@ def run(prices):
     return `# AlphaHelix Strategy: ${name}
 # ════════════════════════════════════════════════════════
 # 전략 유형: 밸류 리밸런싱 (Value Rebalancing)
+# 실행 엔진: analytics/app/backtest/value_rebalancing.py (vectorbt 기반 · 332 LOC) — 아래는 그 핵심 규칙
 TICKERS          = [${tickersList}]
 REBALANCE_DAYS   = ${vrRd}        # 리밸런싱 주기(거래일)
-EXPECTED_RETURN  = ${vrEr}      # 주기당 목표 수익률(밸류 밴드 중심)
+EXPECTED_RETURN  = ${vrEr}      # 주기당 V값 목표 성장률
 BAND_PCT         = ${vrBand}      # 허용 밴드 폭(±, 비율)
-POOL_TARGET_PCT  = ${vrPool}      # 목표 풀(주식) 비중
-INITIAL_POOL_PCT = ${vrIpool}      # 초기 풀 비중
+POOL_TARGET_PCT  = ${vrPool}      # Pool(현금) 상한 = 평가금의 이 비율
+INITIAL_POOL_PCT = ${vrIpool}      # 시작 시 Pool 비중
 INITIAL_CAPITAL  = ${initCap}
+FEES, SLIPPAGE   = 0.0025, 0.001    # 수수료 0.25% + 슬리피지 0.10% (정수 주 매매)
 
-# 핵심 로직 (실행 엔진: AlphaHelix analytics · vectorbt 기반)
-#   1) REBALANCE_DAYS 마다 목표가치 = 직전가치×(1+EXPECTED_RETURN) 산정
-#   2) 평가액이 목표가치×(1±BAND_PCT) 밴드를 벗어나면 풀 비중을 POOL_TARGET_PCT 로 복원
-#   3) 하락 시 저가매수(풀 확대), 상승 시 차익실현(풀 축소)
 def run(prices):
     for ticker in TICKERS:
-        target = INITIAL_CAPITAL * INITIAL_POOL_PCT
-        # ... 주기적 밴드 이탈 점검 / 비중 복원 (엔진 내부 구현) ...
-        pass
+        close  = prices[ticker]
+        pool   = INITIAL_CAPITAL * INITIAL_POOL_PCT          # 현금(Pool)
+        shares = int((INITIAL_CAPITAL - pool) / close[0])    # 시초가 매수(정수 주)
+        pool  -= shares * close[0] * (1 + FEES + SLIPPAGE)
+        V      = shares * close[0]                           # 첫 V값 = 초기 투자금
+        for t, px in enumerate(close):
+            if t == 0 or t % REBALANCE_DAYS != 0:
+                continue                                     # 리밸런싱일에만 점검 (그 외 관망)
+            V_next = V * (1 + EXPECTED_RETURN)               # 다음 목표 V
+            lower  = V * (1 - BAND_PCT)                      # 밴드 하단
+            upper  = V_next * (1 + BAND_PCT)                 # 밴드 상단
+            value  = shares * px                             # 현재 평가금
+            center = (V + V_next) / 2                        # 복원 목표(밴드 중심)
+
+            if value < lower:                                # 하락 → Pool 에서 꺼내 저가매수
+                buy = int(min(center - value, pool) / (px * (1 + FEES + SLIPPAGE)))
+                shares += buy; pool -= buy * px * (1 + FEES + SLIPPAGE)
+            elif value > upper:                              # 상승 → 중심까지 차익실현
+                sell = int((value - center) / px)
+                shares -= sell; pool += sell * px * (1 - FEES - SLIPPAGE)
+                cap = (shares * px) * POOL_TARGET_PCT        # Pool 과다 방지(현금 상한)
+                pool = min(pool, cap) if cap > 0 else pool
+            V = V_next                                       # V값 갱신
 `;
   }
 
@@ -441,11 +493,9 @@ const DATASETS = [
   },
   {
     id:"my_kis", name:"MyPortfolio_KIS", desc:"내 한투 계좌 보유 현황 (실시간)", rows:"실시간",
-    cols:["ticker","qty","avg_price","current","pnl","pnl_pct"],
-    preview:[
-      {ticker:"TQQQ",    qty:"1,240",avg_price:"$42.30",current:"$83.15",pnl:"+$50,499",pnl_pct:"+96.6%"},
-      {ticker:"SOXL",    qty:"860",  avg_price:"$18.40",current:"$31.75",pnl:"+$11,481",pnl_pct:"+72.6%"},
-    ],
+    cols:["ticker","name","qty","avg_price","current","pnl","pnl_pct"],
+    liveKis:true,
+    preview:[],
   },
   {
     id:"my_binance", name:"MyPortfolio_Binance", desc:"내 Binance 계좌 보유 현황 (실시간)", rows:"실시간",
@@ -564,6 +614,58 @@ function DataTableView({ datasetId, datasets }) {
 
   // 테이블 데이터 로드
   useEffect(() => {
+    if (ds && ds.liveKis) {
+      let alive = true;
+      let isFirst = true;
+      const fmt = (n, cur) => {
+        const v = Number(n) || 0;
+        return cur === "KRW"
+          ? v.toLocaleString("ko-KR") + "원"
+          : "$" + v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      };
+      const fmtPct = (pnl, cost) => {
+        if (!cost) return "—";
+        const pct = (Number(pnl) / cost) * 100;
+        return (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%";
+      };
+      const fetchKis = async () => {
+        if (!alive) return;
+        if (isFirst) { setLoading(true); setErr(null); }
+        try {
+          const accts = await listBrokerAccounts();
+          const kis = (accts || []).find(a => a.brokerType === "KIS");
+          if (!kis) { if (alive) { setRows([]); setErr("KIS 계좌 미등록 — 계좌관리에서 등록하세요."); } return; }
+          const bal = await getBrokerBalance(kis.env, "KIS");
+          const positions = (bal && bal.positions) || [];
+          if (alive) {
+            setRows(positions.map(p => {
+              const cur = p.currency || "USD";
+              const cost = (Number(p.avg_price) || 0) * (Number(p.qty) || 0);
+              const currentPrice = p.now_price != null
+                ? Number(p.now_price)
+                : (Number(p.qty) > 0 ? Number(p.market_value) / Number(p.qty) : 0);
+              return {
+                ticker: p.ticker || "",
+                name: p.name || "",
+                qty: Number(p.qty || 0).toLocaleString(),
+                avg_price: fmt(Math.round(Number(p.avg_price) || 0), cur),
+                current: fmt(currentPrice, cur),
+                pnl: (Number(p.unrealized_pnl) >= 0 ? "+" : "") + fmt(p.unrealized_pnl, cur),
+                pnl_pct: fmtPct(p.unrealized_pnl, cost),
+              };
+            }));
+            setErr(null);
+          }
+        } catch (e) {
+          if (alive) setErr("KIS 잔고 로드 실패 — 계좌 연결 테스트 상태를 확인하세요.");
+        } finally {
+          if (alive && isFirst) { setLoading(false); isFirst = false; }
+        }
+      };
+      fetchKis();
+      const timer = setInterval(fetchKis, 60_000);
+      return () => { alive = false; clearInterval(timer); };
+    }
     if (ds && ds.liveBinance) {
       let alive = true;
       setLoading(true); setErr(null);
@@ -765,6 +867,7 @@ function DataTableView({ datasetId, datasets }) {
           <div style={{marginTop:10,fontSize:10,color:"#2d3748"}}>
             {loading ? "실제 DB에서 미리보기 로딩 중…"
               : err ? err
+              : ds.liveKis ? `* 실시간 KIS 잔고 ${rows.length}개 종목`
               : ds.liveBinance ? `* 실시간 Binance 잔고 ${rows.length}개 자산 (0 잔고 제외)`
               : ds.live ? `* 최근 ${rows.length}행 (실제 수집 데이터 · source=${ds.source})  |  전체 ${ds.rows} rows 적재됨`
               : `* 상위 ${rows.length}행 미리보기`}
@@ -779,6 +882,35 @@ function DataTableView({ datasetId, datasets }) {
 const OPT_PARAM_LABEL = { sma_fast:"SMA_FAST", sma_slow:"SMA_SLOW", rsi_period:"RSI_PERIOD", rsi_low:"RSI_LOW", rsi_high:"RSI_HIGH", macd_fast:"MACD_FAST", macd_slow:"MACD_SLOW", macd_signal:"MACD_SIGNAL", vix_threshold:"VIX_THRESHOLD", split:"SPLIT", take_profit_pct:"TAKE_PROFIT_PCT", loc_offset_pct:"LOC_OFFSET_PCT", rebalance_days:"REBALANCE_DAYS", expected_return:"EXPECTED_RETURN", band_pct:"BAND_PCT", pool_target_pct:"POOL_TARGET_PCT", initial_pool_pct:"INITIAL_POOL_PCT" };
 const OPT_METRICS = [["sharpe","샤프 지수"],["total_return_pct","총 수익률"],["annualized_return_pct","연환산 수익률"],["max_drawdown_pct","MDD (낮을수록 좋음)"]];
 const OPT_CONSTRAINT_METRICS = [["max_drawdown_pct","MDD(%)"],["sharpe","샤프"],["total_return_pct","총수익률(%)"],["annualized_return_pct","CAR(%)"],["volatility_pct","변동성(%)"]];
+
+// 퀀트 입문자용 지표 설명 (목표 지표·제약 조건 드롭다운 옆 배너에 사용)
+const OPT_METRIC_DESC = {
+  sharpe: "위험 대비 수익 효율 — '같은 마음졸임(변동성)으로 얼마나 더 벌었나'. 높을수록 좋음(1↑ 양호 · 2↑ 우수). 들쭉날쭉 버는 것보다 완만히 꾸준한 전략이 높게 나옵니다.",
+  total_return_pct: "기간 전체 누적 수익률(%). 100만원이 200만원이 되면 +100%. 단, 중간에 얼마나 출렁였는지는 알려주지 않아요.",
+  annualized_return_pct: "1년 평균으로 환산한 수익률(%). 기간이 다른 전략을 '연 수익률'로 공정하게 비교할 때. 예금 이자율과 같은 단위.",
+  max_drawdown_pct: "최대 낙폭(MDD) — 고점 대비 가장 깊이 빠진 폭(%). -50%면 자산 반토막. 0에 가까울수록 안전하며, 버텨야 할 '최악의 골짜기' 깊이예요.",
+  volatility_pct: "변동성 — 수익률이 얼마나 출렁이는지(연%). 클수록 위아래 흔들림이 큼. 같은 수익이면 변동성이 작은 쪽이 마음 편한 전략입니다.",
+};
+// 스윕 파라미터 설명 (파라미터 이름 hover 툴팁)
+const OPT_PARAM_DESC = {
+  split: "분할 매수 횟수 — 시드를 몇 등분해 나눠 살지. 크면 더 잘게 나눠 천천히 분산 매수(달걀을 여러 바구니에 나눠 담기).",
+  take_profit_pct: "익절 목표(%) — 평단 대비 몇 % 오르면 전량 팔지. 크면 더 오래 들고가고, 작으면 짧게 자주 수익 실현.",
+  loc_offset_pct: "추가매수 지정가 오프셋(%) — 종가보다 얼마나 낮게 추가매수 주문을 걸지. 클수록 더 떨어져야 사들임(더 보수적).",
+  sma_fast: "단기 이동평균 기간(일). 짧을수록 가격 변화에 민감하게 반응.",
+  sma_slow: "장기 이동평균 기간(일). 길수록 큰 추세만 천천히 반영.",
+  rsi_period: "RSI 계산 기간(일) — 과매수/과매도를 재는 창의 길이.",
+  rsi_low: "RSI 매수 기준선 — 이 아래로 떨어지면 '과매도'로 보고 매수.",
+  rsi_high: "RSI 매도 기준선 — 이 위로 오르면 '과매수'로 보고 매도.",
+  macd_fast: "MACD 단기 EMA 기간(일).",
+  macd_slow: "MACD 장기 EMA 기간(일).",
+  macd_signal: "MACD 시그널선 기간(일).",
+  vix_threshold: "VIX(공포지수) 임계값 — 이 위로 오르면 위험회피 모드로 전환.",
+  rebalance_days: "리밸런싱 주기(일) — 며칠마다 비중을 다시 맞출지.",
+  expected_return: "목표 기대수익(비율) — 밸류 리밸런싱의 기준선.",
+  band_pct: "허용 밴드(비율) — 목표에서 이만큼 벗어나면 리밸런싱.",
+  pool_target_pct: "현금 풀 목표 비중.",
+  initial_pool_pct: "초기 현금 풀 비중.",
+};
 
 function OptimizeWizardView({ baseParams, busy, progress, onLaunch }) {
   const numericKeys = Object.entries(baseParams || {}).filter(([k,v]) => typeof v === "number" && k !== "ticker").map(([k])=>k);
@@ -814,18 +946,21 @@ function OptimizeWizardView({ baseParams, busy, progress, onLaunch }) {
   };
   const estSec = Math.round(comboCount * 1.5);
   const estLabel = estSec >= 60 ? `${Math.floor(estSec/60)}분 ${estSec%60}초` : `${estSec}초`;
-  const card = { background:"#161b22", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:"14px 16px", marginBottom:12 };
-  const lbl = { fontSize:10.5, color:"#94A3B8", fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:10 };
-  const inp = { width:58, background:"#0d1117", border:"1px solid rgba(255,255,255,0.12)", borderRadius:5, color:"#E5E7EB", fontSize:11.5, padding:"3px 6px", textAlign:"center" };
+  const card = { background:"#161b22", border:"1px solid rgba(255,255,255,0.08)", borderRadius:10, padding:"18px 22px", marginBottom:16 };
+  const lbl = { fontSize:12.5, color:"#94A3B8", fontWeight:700, letterSpacing:"0.06em", textTransform:"uppercase", marginBottom:10 };
+  const inp = { width:"100%", background:"#0d1117", border:"1px solid rgba(255,255,255,0.12)", borderRadius:5, color:"#E5E7EB", fontSize:13, padding:"5px 6px", textAlign:"center" };
+  const selWide = { width:"100%", background:"#0d1117", border:"1px solid rgba(255,255,255,0.12)", borderRadius:6, color:"#E5E7EB", fontSize:13.5, padding:"7px 10px" };
+  const fieldHint = { fontSize:11.5, color:"#8b97a8", marginTop:7, lineHeight:1.6 };
+  const info = { display:"flex", gap:8, fontSize:11.5, color:"#9fb0c3", lineHeight:1.65, background:"rgba(96,165,250,0.07)", border:"1px solid rgba(96,165,250,0.18)", borderRadius:8, padding:"9px 12px", marginBottom:12 };
 
   return (
     <div className="dark-scroll" style={{flex:1, minHeight:0, overflow:"auto", background:"#0f1117"}}>
-    <div style={{padding:"24px 32px 64px", color:"#E5E7EB", maxWidth:720, fontFamily:"'Inter',sans-serif"}}>
+    <div style={{padding:"24px 40px 64px", color:"#E5E7EB", maxWidth:1200, fontFamily:"'Inter',sans-serif"}}>
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-        <BarChart3 size={20} color="#F59E0B"/>
-        <span style={{fontSize:18,fontWeight:800}}>최적화 (파라미터 그리드)</span>
+        <BarChart3 size={22} color="#F59E0B"/>
+        <span style={{fontSize:20,fontWeight:800}}>최적화 (파라미터 그리드)</span>
       </div>
-      <div style={{fontSize:12,color:"#94A3B8",marginBottom:18}}>
+      <div style={{fontSize:13,color:"#94A3B8",marginBottom:18}}>
         파라미터 범위를 스윕하며 백테스트를 반복 실행해 견고성·민감도를 평가합니다. (기존 vectorbt 엔진으로 실제 백테스트)
       </div>
 
@@ -834,42 +969,48 @@ function OptimizeWizardView({ baseParams, busy, progress, onLaunch }) {
           <span style={{transform:openSec.params?"rotate(90deg)":"none", transition:"transform .15s", display:"inline-block", fontSize:9}}>▶</span> 파라미터 &amp; 범위 · 제약
         </div>
         {openSec.params && (numericKeys.length===0 ? (
-          <div style={{fontSize:12,color:"#fbbf24",lineHeight:1.6}}>코드에서 스윕 가능한 숫자 파라미터(SMA_FAST 등)를 찾지 못했습니다. main.py 상단에 <code>SMA_FAST = 20</code> 형태로 정의하세요.</div>
+          <div style={{fontSize:13,color:"#fbbf24",lineHeight:1.6}}>코드에서 스윕 가능한 숫자 파라미터(SMA_FAST 등)를 찾지 못했습니다. main.py 상단에 <code>SMA_FAST = 20</code> 형태로 정의하세요.</div>
         ) : (
           <>
-            <div style={{display:"grid",gridTemplateColumns:"22px 1fr 60px 60px 60px",gap:8,alignItems:"center",fontSize:9.5,color:"#64748B",fontWeight:700,marginBottom:6,paddingLeft:2}}>
+            <div style={info}>
+              <span style={{flexShrink:0}}>💡</span>
+              <span><b style={{color:"#cbd5e1"}}>MIN~MAX</b> 사이를 <b style={{color:"#cbd5e1"}}>STEP</b> 간격으로 바꿔가며 전부 시험합니다. 오븐 온도를 170~190도까지 5도씩 바꿔 빵을 구워보는 것과 같아요. 체크한 파라미터(<b style={{color:"#cbd5e1"}}>최대 2개</b>)만 스윕하고 나머지는 현재 값으로 고정합니다. <b style={{color:"#cbd5e1"}}>파라미터 이름에 마우스를 올리면</b> 뜻이 나와요.</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"24px 1fr 80px 80px 80px",gap:12,alignItems:"center",fontSize:11,color:"#64748B",fontWeight:700,marginBottom:8,paddingLeft:2}}>
               <span/><span>파라미터</span><span style={{textAlign:"center"}}>MIN</span><span style={{textAlign:"center"}}>MAX</span><span style={{textAlign:"center"}}>STEP</span>
             </div>
             {rows.map((r,i)=>(
-              <div key={r.name} style={{display:"grid",gridTemplateColumns:"22px 1fr 60px 60px 60px",gap:8,alignItems:"center",marginBottom:7}}>
-                <input type="checkbox" checked={r.enabled} onChange={e=>setRow(i,{enabled:e.target.checked})} style={{accentColor:"#F59E0B",width:15,height:15}}/>
-                <span style={{fontSize:12,fontFamily:"monospace",color:r.enabled?"#E5E7EB":"#64748B"}}>{OPT_PARAM_LABEL[r.name]||r.name} <span style={{color:"#64748B"}}>={baseParams[r.name]}</span></span>
+              <div key={r.name} style={{display:"grid",gridTemplateColumns:"24px 1fr 80px 80px 80px",gap:12,alignItems:"center",marginBottom:9}}>
+                <input type="checkbox" checked={r.enabled} onChange={e=>setRow(i,{enabled:e.target.checked})} style={{accentColor:"#F59E0B",width:16,height:16}}/>
+                <span title={OPT_PARAM_DESC[r.name]||""} style={{fontSize:13.5,fontFamily:"monospace",color:r.enabled?"#E5E7EB":"#64748B",cursor:"help"}}>{OPT_PARAM_LABEL[r.name]||r.name} <span style={{color:"#64748B"}}>={baseParams[r.name]}</span></span>
                 <input style={inp} value={r.min} disabled={!r.enabled} onChange={e=>setRow(i,{min:e.target.value})}/>
                 <input style={inp} value={r.max} disabled={!r.enabled} onChange={e=>setRow(i,{max:e.target.value})}/>
                 <input style={inp} value={r.step} disabled={!r.enabled} onChange={e=>setRow(i,{step:e.target.value})}/>
               </div>
             ))}
-            <div style={{fontSize:10.5,color:"#64748B",marginTop:8}}>최대 2개까지 사용(2개면 2D 히트맵). 선택 {Math.min(enabled.length,2)}개 · 예상 백테스트 <b style={{color: comboCount>64?"#f87171":"#93c5fd"}}>{comboCount}</b>회{comboCount>64?" (64회 이하로 줄이세요)":""}</div>
+            <div style={{fontSize:12,color:"#64748B",marginTop:10}}>최대 2개까지 사용(2개면 2D 히트맵). 선택 {Math.min(enabled.length,2)}개 · 예상 백테스트 <b style={{color: comboCount>64?"#f87171":"#93c5fd"}}>{comboCount}</b>회{comboCount>64?" (64회 이하로 줄이세요)":""}</div>
           </>
         ))}
       </div>
 
-      <div style={{...card, display:"flex", gap:24, alignItems:"center", flexWrap:"wrap"}}>
-        <div><div style={lbl}>최적화 전략</div>
-          <select value={optStrategy} onChange={e=>setOptStrategy(e.target.value)} style={{background:"#0d1117",border:"1px solid rgba(255,255,255,0.12)",borderRadius:6,color:"#E5E7EB",fontSize:12,padding:"5px 8px"}}>
+      <div style={{...card, display:"flex", gap:24, alignItems:"flex-start", flexWrap:"wrap"}}>
+        <div style={{flex:"1 1 200px", minWidth:190}}><div style={lbl}>최적화 전략</div>
+          <select value={optStrategy} onChange={e=>setOptStrategy(e.target.value)} style={selWide}>
             <option value="grid">Grid Search</option>
           </select>
-          <div style={{fontSize:9.5,color:"#64748B",marginTop:4}}>{metric==="max_drawdown_pct"?"Min":"Max"} of {(OPT_METRICS.find(m=>m[0]===metric)||[])[1]||metric}</div>
+          <div style={fieldHint}>모든 조합을 격자처럼 빠짐없이 전부 시험하는 방식 — 가장 확실하지만 조합이 많으면 느려요. (현재 {metric==="max_drawdown_pct"?"Min":"Max"} of {(OPT_METRICS.find(m=>m[0]===metric)||[])[1]||metric})</div>
         </div>
-        <div><div style={lbl}>목표 지표</div>
-          <select value={metric} onChange={e=>setMetric(e.target.value)} style={{background:"#0d1117",border:"1px solid rgba(255,255,255,0.12)",borderRadius:6,color:"#E5E7EB",fontSize:12,padding:"5px 8px"}}>
+        <div style={{flex:"1 1 200px", minWidth:190}}><div style={lbl}>목표 지표</div>
+          <select value={metric} onChange={e=>setMetric(e.target.value)} style={selWide}>
             {OPT_METRICS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
           </select>
+          <div style={fieldHint}>{OPT_METRIC_DESC[metric]||"이 점수가 가장 좋은 조합을 '최적'으로 고릅니다."}</div>
         </div>
-        <div><div style={lbl}>기간</div>
-          <select value={period} onChange={e=>setPeriod(e.target.value)} style={{background:"#0d1117",border:"1px solid rgba(255,255,255,0.12)",borderRadius:6,color:"#E5E7EB",fontSize:12,padding:"5px 8px"}}>
+        <div style={{flex:"1 1 200px", minWidth:190}}><div style={lbl}>기간</div>
+          <select value={period} onChange={e=>setPeriod(e.target.value)} style={selWide}>
             {["1y","3y","5y","10y"].map(p=><option key={p} value={p}>{p}</option>)}
           </select>
+          <div style={fieldHint}>백테스트에 쓸 과거 데이터 길이 (5y = 최근 5년). 길수록 상승·하락 등 다양한 장세를 더 많이 검증합니다.</div>
         </div>
       </div>
 
@@ -880,8 +1021,12 @@ function OptimizeWizardView({ baseParams, busy, progress, onLaunch }) {
           <button onClick={()=>setConstraints(cs=>[...cs,{metric:"max_drawdown_pct",op:"<=",value:30}])}
             style={{display:"flex",alignItems:"center",gap:4,padding:"4px 10px",borderRadius:6,border:"1px solid rgba(255,255,255,0.14)",background:"transparent",color:"#cbd5e1",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ 제약 추가</button>
         </div>
+        <div style={info}>
+          <span style={{flexShrink:0}}>💡</span>
+          <span><b style={{color:"#cbd5e1"}}>예선 통과 기준</b>이에요. 여기 건 조건을 못 넘는 조합은 아무리 수익이 좋아도 '최적 후보'에서 탈락합니다. 예: <b style={{color:"#cbd5e1"}}>MDD ≤ 30</b>(자산이 반토막 이상 빠지는 전략 제외), <b style={{color:"#cbd5e1"}}>샤프 ≥ 1.0</b>(위험 대비 효율 기준선). 비워두면 모든 조합이 후보가 됩니다.</span>
+        </div>
         {constraints.length===0
-          ? <div style={{fontSize:10.5,color:"#64748B"}}>제약 없음 — 모든 조합이 최적 후보. 예: MDD ≤ 30, 샤프 ≥ 1.0 (모두 만족하는 조합만 best).</div>
+          ? <div style={{fontSize:12,color:"#64748B"}}>제약 없음 — 모든 조합이 최적 후보.</div>
           : constraints.map((c,i)=>{
               const sel = {background:"#0d1117",border:"1px solid rgba(255,255,255,0.12)",borderRadius:6,color:"#E5E7EB",fontSize:11.5,padding:"4px 6px"};
               return (
@@ -902,23 +1047,28 @@ function OptimizeWizardView({ baseParams, busy, progress, onLaunch }) {
           <span style={{transform:openSec.nodes?"rotate(90deg)":"none", transition:"transform .15s", display:"inline-block", fontSize:9}}>▶</span> 예상 백테스트 수 &amp; 컴퓨트 노드
         </div>
         {openSec.nodes && (<>
-        <div style={{fontSize:12,color:"#cbd5e1",marginBottom:12}}>예상 <b style={{color: comboCount>64?"#f87171":"#93c5fd"}}>{comboCount}</b>회 · 약 <b style={{color:"#93c5fd"}}>{estLabel}</b> <span style={{fontSize:10.5,color:"#64748B"}}>(조합당 ~1.5s · 우리 클라우드 분석 서버에서 순차 실행)</span></div>
-        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-          {[["O2","L2-4 · 2CPU 4GB","2 vCPU · 4GB","무료/STANDARD"],["O4","L4-8 · 4CPU 8GB","4 vCPU · 8GB","STANDARD"],["O8","L8-16 · 8CPU 16GB","8 vCPU · 16GB","PREMIUM"]].map(([id,name,spec,plan])=>{
+        <div style={{fontSize:13,color:"#cbd5e1",marginBottom:10}}>예상 <b style={{color: comboCount>64?"#f87171":"#93c5fd"}}>{comboCount}</b>회 · 약 <b style={{color:"#93c5fd"}}>{estLabel}</b> <span style={{fontSize:11,color:"#64748B"}}>(조합당 ~1.5s · 우리 클라우드 분석 서버에서 순차 실행)</span></div>
+        <div style={info}>
+          <span style={{flexShrink:0}}>💡</span>
+          <span>소요 시간 ≈ <b style={{color:"#cbd5e1"}}>조합 수 × 약 1.5초</b>. 노드는 백테스트를 돌리는 클라우드 컴퓨터예요 — <b style={{color:"#cbd5e1"}}>CPU(vCPU)는 동시에 일하는 일꾼 수</b>, <b style={{color:"#cbd5e1"}}>RAM(GB)은 작업대 크기</b>입니다. 큰 노드일수록 여러 백테스트를 한꺼번에 병렬로 돌려 더 빨라져요(병렬 실행은 PREMIUM 로드맵).</span>
+        </div>
+        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+          {[["O2","L2-4 · 2CPU 4GB","2 vCPU · 4GB","무료/STANDARD","가벼운 탐색용 — 조합이 적을 때(≤25회) 충분. 무료·STANDARD 기본 노드."],["O4","L4-8 · 4CPU 8GB","4 vCPU · 8GB","STANDARD","일꾼·작업대 2배 — 조합이 많거나 기간이 길 때 여유롭게. 권장 기본값."],["O8","L8-16 · 8CPU 16GB","8 vCPU · 16GB","PREMIUM","최상위 — 대규모 그리드를 병렬로 가장 빠르게(병렬은 로드맵). PREMIUM."]].map(([id,name,spec,plan,desc])=>{
             const on = nodeTier===id;
             return (
-              <div key={id} onClick={()=>setNodeTier(id)} style={{flex:"1 1 150px",minWidth:140,padding:"11px 13px",borderRadius:9,cursor:"pointer",
+              <div key={id} onClick={()=>setNodeTier(id)} style={{flex:"1 1 200px",minWidth:190,padding:"13px 15px",borderRadius:9,cursor:"pointer",
                 border:`1.5px solid ${on?"#F59E0B":"rgba(255,255,255,0.1)"}`,background:on?"rgba(245,158,11,0.08)":"transparent"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
-                  <span style={{fontSize:12,fontWeight:800,color:on?"#fbbf24":"#cbd5e1"}}>{name}</span>
-                  <span style={{fontSize:8.5,fontWeight:700,padding:"1px 6px",borderRadius:999,background:"rgba(167,139,250,0.15)",color:"#c4b5fd"}}>{plan}</span>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3,gap:8}}>
+                  <span style={{fontSize:13,fontWeight:800,color:on?"#fbbf24":"#cbd5e1"}}>{name}</span>
+                  <span style={{fontSize:8.5,fontWeight:700,padding:"1px 6px",borderRadius:999,background:"rgba(167,139,250,0.15)",color:"#c4b5fd",whiteSpace:"nowrap",flexShrink:0}}>{plan}</span>
                 </div>
-                <div style={{fontSize:10,color:"#64748B"}}>{spec}</div>
+                <div style={{fontSize:11,color:"#64748B"}}>{spec}</div>
+                <div style={{fontSize:11,color:"#7c899c",marginTop:7,lineHeight:1.55}}>{desc}</div>
               </div>
             );
           })}
         </div>
-        <div style={{fontSize:10,color:"#64748B",marginTop:8,lineHeight:1.5}}>* 현재는 단일 분석 서버에서 순차 실행됩니다. 고성능·병렬 노드(잡큐)는 PREMIUM 클라우드 컴퓨트 로드맵입니다.</div>
+        <div style={{fontSize:11,color:"#64748B",marginTop:10,lineHeight:1.5}}>* 현재는 단일 분석 서버에서 순차 실행됩니다. 고성능·병렬 노드(잡큐)는 PREMIUM 클라우드 컴퓨트 로드맵입니다.</div>
         </>)}
       </div>
 
@@ -982,21 +1132,20 @@ function OptHeatmap({ combos, p1, p2, a1, a2, metric, label, best, lowerBetter }
     <div style={{ ...dashCard, marginBottom: 0, flex: "1 1 210px", minWidth: 196 }}>
       <div style={{ fontSize: 10.5, color: "#cbd5e1", fontWeight: 700, marginBottom: 8 }}>{label}{lowerBetter ? " ↓우수" : " ↑우수"}</div>
       <div style={{ overflow: "auto" }}>
-        <table style={{ borderCollapse: "separate", borderSpacing: 2 }}>
+        <table style={{ borderCollapse: "separate", borderSpacing: 2, width: "100%" }}>
           <tbody>
             {p2 ? a2.slice().reverse().map(v2 => (
               <tr key={v2}>
-                <td style={{ fontSize: 9, color: DASH.muted, paddingRight: 5, textAlign: "right", fontFamily: "monospace" }}>{v2}</td>
-                {a1.map(v1 => { const c = findCombo(v1, v2); const isBest = best && c && c.params[p1] === best.params[p1] && c.params[p2] === best.params[p2]; const v = c ? valOf(c) : null; return <td key={v1} onMouseMove={e=>setTip({x:e.clientX,y:e.clientY,text:`${fmt(v)} : (${v1}, ${v2})`})} onMouseLeave={()=>setTip(null)} style={{ background: colorFor(v), width: 38, height: 26, textAlign: "center", fontSize: 7.5, color: "#fff", borderRadius: 3, outline: isBest ? "2px solid #fff" : "none", cursor:"crosshair" }}>{fmt(v)}</td>; })}
+                <td style={{ fontSize: 12, color: DASH.muted, paddingRight: 5, textAlign: "right", fontFamily: "monospace", width: 1, whiteSpace: "nowrap" }}>{v2}</td>
+                {a1.map(v1 => { const c = findCombo(v1, v2); const isBest = best && c && c.params[p1] === best.params[p1] && c.params[p2] === best.params[p2]; const v = c ? valOf(c) : null; return <td key={v1} onMouseMove={e=>setTip({x:e.clientX,y:e.clientY,text:`${fmt(v)} : (${v1}, ${v2})`})} onMouseLeave={()=>setTip(null)} style={{ background: colorFor(v), height: 40, textAlign: "center", fontSize: 13, fontWeight: 600, color: "#fff", borderRadius: 3, outline: isBest ? "2px solid #fff" : "none", cursor:"crosshair" }}>{fmt(v)}</td>; })}
               </tr>
             )) : (
-              <tr>{a1.map(v1 => { const c = findCombo(v1); const isBest = best && c && c.params[p1] === best.params[p1]; const v = c ? valOf(c) : null; return <td key={v1} onMouseMove={e=>setTip({x:e.clientX,y:e.clientY,text:`${fmt(v)} : (${v1})`})} onMouseLeave={()=>setTip(null)} style={{ background: colorFor(v), width: 44, height: 34, textAlign: "center", fontSize: 8.5, color: "#fff", borderRadius: 3, outline: isBest ? "2px solid #fff" : "none", cursor:"crosshair" }}>{fmt(v)}</td>; })}</tr>
+              <tr>{a1.map(v1 => { const c = findCombo(v1); const isBest = best && c && c.params[p1] === best.params[p1]; const v = c ? valOf(c) : null; return <td key={v1} onMouseMove={e=>setTip({x:e.clientX,y:e.clientY,text:`${fmt(v)} : (${v1})`})} onMouseLeave={()=>setTip(null)} style={{ background: colorFor(v), height: 44, textAlign: "center", fontSize: 13, fontWeight: 600, color: "#fff", borderRadius: 3, outline: isBest ? "2px solid #fff" : "none", cursor:"crosshair" }}>{fmt(v)}</td>; })}</tr>
             )}
-            <tr><td />{a1.map(v1 => <td key={v1} style={{ fontSize: 8.5, color: DASH.muted, textAlign: "center", fontFamily: "monospace", paddingTop: 2 }}>{v1}</td>)}</tr>
+            <tr><td />{a1.map(v1 => <td key={v1} style={{ fontSize: 12, color: DASH.muted, textAlign: "center", fontFamily: "monospace", paddingTop: 2 }}>{v1}</td>)}</tr>
           </tbody>
         </table>
       </div>
-      <div style={{ fontSize: 8.5, color: "#64748b", marginTop: 4 }}>↔ {OPT_PARAM_LABEL[p1] || p1}{p2 ? ` · ↕ ${OPT_PARAM_LABEL[p2] || p2}` : ""}</div>
       {tip && <div style={{position:"fixed",left:tip.x+12,top:tip.y+12,zIndex:9999,background:"#0b0e14",border:`1px solid ${DASH.border}`,borderRadius:6,padding:"4px 9px",fontSize:11,fontWeight:700,color:"#E5E7EB",pointerEvents:"none",whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(0,0,0,0.5)"}}>{tip.text}</div>}
     </div>
   );
@@ -1009,6 +1158,7 @@ function OptimizeResultView({ results, busy, progress, onApply, onOpenCombo, com
   const [minSharpe, setMinSharpe] = useState(""); // 필터: 최소 Sharpe
   const [hideErr, setHideErr] = useState(false);  // 필터: 오류 조합 숨김
   const [pq, setPq] = useState("");               // 필터: 파라미터 검색
+  const [applyHover, setApplyHover] = useState(false); // '이 파라미터 적용' 버튼 호버(노란빛+설명 툴팁)
   if (!results) {
     return <div style={{padding:"40px 32px",color:"#94A3B8",fontSize:13,fontFamily:"'Inter',sans-serif"}}>
       {busy ? `최적화 실행 중…  ${progress.done}/${progress.total} 백테스트` : "최적화 위저드(🎯)에서 'Launch Optimization' 을 누르세요."}
@@ -1026,6 +1176,8 @@ function OptimizeResultView({ results, busy, progress, onApply, onOpenCombo, com
     if (pq) { const txt = Object.entries(c.params).map(([k,v])=>`${OPT_PARAM_LABEL[k]||k}=${v}`).join(" ").toLowerCase(); if (!txt.includes(pq.toLowerCase())) return false; }
     return true;
   });
+
+  const optTitle = { ...dashCardTitle, fontSize: dashCardTitle.fontSize + 2 }; // 최적화 결과 탭 섹션 제목 +2pt 통일
 
   return (
     <div style={{flex:1, minHeight:0, overflow:"auto", padding:"18px 24px 40px", color:DASH.text, background:DASH.bg, fontFamily:"'Inter',sans-serif"}}>
@@ -1075,9 +1227,33 @@ function OptimizeResultView({ results, busy, progress, onApply, onOpenCombo, com
               {best.stats && <> · 수익 {fmt(best.stats.total_return_pct)} · Sharpe {best.stats.sharpe?.toFixed?.(2) ?? "—"} · MDD {best.stats.max_drawdown_pct?.toFixed?.(1) ?? "—"}%</>}
             </div>
           </div>
-          <button onClick={()=>onApply(best.params)} style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6,padding:"9px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#16a34a,#15803d)",color:"white",fontSize:12.5,fontWeight:700,cursor:"pointer"}}>
-            <CheckCircle2 size={14}/> 이 파라미터 적용
-          </button>
+          <div style={{position:"relative", marginLeft:"auto"}}
+               onMouseEnter={()=>setApplyHover(true)} onMouseLeave={()=>setApplyHover(false)}>
+            <button onClick={()=>onApply(best.params)} style={{
+              position:"relative", display:"flex", alignItems:"center", gap:6, padding:"9px 16px", borderRadius:8,
+              border: applyHover ? "1px solid #fde047" : "1px solid transparent",
+              background:"linear-gradient(135deg,#16a34a,#15803d)", color:"white", fontSize:12.5, fontWeight:700, cursor:"pointer",
+              boxShadow: applyHover ? "0 0 0 3px rgba(253,224,71,0.22), 0 4px 16px rgba(253,224,71,0.45)" : "none",
+              transition:"box-shadow .2s, border-color .2s",
+            }}>
+              <CheckCircle2 size={14}/> 이 파라미터 적용
+              {/* 노란 코너 액센트 (호버 시) */}
+              <span style={{position:"absolute",top:-4,right:-4,width:13,height:13,borderRadius:"50%",
+                background:"radial-gradient(circle at 70% 30%, #fef08a, #f59e0b)",
+                opacity:applyHover?1:0,transition:"opacity .2s",boxShadow:"0 0 8px rgba(245,158,11,0.85)",pointerEvents:"none"}}/>
+            </button>
+            {/* 호버 설명 툴팁 */}
+            {applyHover && (
+              <div style={{position:"absolute", top:"calc(100% + 8px)", right:0, zIndex:30, width:288,
+                background:"linear-gradient(135deg,#1f2937,#111827)", border:"1px solid #fde047", borderRadius:9,
+                padding:"10px 13px", boxShadow:"0 10px 28px rgba(0,0,0,0.55)"}}>
+                <div style={{fontSize:11.5,fontWeight:800,color:"#fde047",marginBottom:5,display:"flex",alignItems:"center",gap:5}}>🟡 최적 파라미터를 코드에 적용</div>
+                <div style={{fontSize:11,color:"#e5e7eb",lineHeight:1.65}}>
+                  최적 조합(<b style={{color:"#fff",fontFamily:"monospace"}}>{Object.entries(best.params).map(([k,v])=>`${OPT_PARAM_LABEL[k]||k}=${v}`).join(" · ")}</b>)을 <b style={{color:"#fff"}}>main.py 상수에 덮어쓰고 저장</b>합니다. 이후 <b style={{color:"#93c5fd"}}>Run Backtest</b> · <b style={{color:"#c4b5fd"}}>Deploy to Live</b> 에 이 값이 그대로 반영돼요.
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1091,13 +1267,17 @@ function OptimizeResultView({ results, busy, progress, onApply, onOpenCombo, com
 
       {/* 모든 조합 에쿼티 오버레이 */}
       {!hidden.equity && combos.some(c=>Array.isArray(c.equity)&&c.equity.length>1) && (
-        <div style={dashCard}><div style={dashCardTitle}>📈 조합별 전략 에쿼티 ({combos.length}개 · 최적 강조)</div><OptEquityOverlay combos={combos} best={best}/></div>
+        <div style={dashCard}><div style={optTitle}>📈 조합별 전략 에쿼티 ({combos.length}개 · 최적 강조)</div><OptEquityOverlay combos={combos} best={best}/></div>
       )}
 
       {/* 다중 히트맵 (샤프 / MDD / CAR / 총수익률) */}
       {OPT_HEATMAP_METRICS.some(([m])=>!hidden[m]) && (
       <div style={{marginBottom:14}}>
-        <div style={{...dashCardTitle, marginBottom:8}}>🔥 파라미터 민감도 히트맵 {p2?`(${OPT_PARAM_LABEL[p1]||p1} × ${OPT_PARAM_LABEL[p2]||p2})`:`(${OPT_PARAM_LABEL[p1]||p1} 스윕)`}</div>
+        <div style={{...optTitle, marginBottom:8, display:"flex", alignItems:"baseline", gap:10}}>
+          <span>🔥 파라미터 민감도 히트맵 {p2?`(${OPT_PARAM_LABEL[p1]||p1} × ${OPT_PARAM_LABEL[p2]||p2})`:`(${OPT_PARAM_LABEL[p1]||p1} 스윕)`}</span>
+          <span style={{flex:1}}/>
+          <span style={{fontWeight:400, color:"#64748b", fontSize:11}}>↔ {OPT_PARAM_LABEL[p1]||p1}{p2?` · ↕ ${OPT_PARAM_LABEL[p2]||p2}`:""}</span>
+        </div>
         <div style={{display:"flex",flexWrap:"wrap",gap:12}}>
           {OPT_HEATMAP_METRICS.filter(([m])=>!hidden[m]).map(([m,lbl])=>(
             <OptHeatmap key={m} combos={combos} p1={p1} p2={p2} a1={a1} a2={a2||[null]} metric={m} label={lbl} best={best} lowerBetter={m==="max_drawdown_pct"}/>
@@ -1110,7 +1290,7 @@ function OptimizeResultView({ results, busy, progress, onApply, onOpenCombo, com
       {/* 백테스트 목록 — 필터 + PSR + 행클릭 풀리포트 */}
       <div style={dashCard}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
-          <div style={dashCardTitle} >백테스트 목록 ({filteredRows.length}/{sortedRows.length}) <span style={{fontWeight:400,color:"#64748b"}}>· 행 클릭 → 풀 리포트</span></div>
+          <div style={optTitle} >백테스트 목록 ({filteredRows.length}/{sortedRows.length}) <span style={{fontWeight:400,color:"#64748b"}}>· 행 클릭 → 풀 리포트</span></div>
           <div style={{flex:1}}/>
           <input value={pq} onChange={e=>setPq(e.target.value)} placeholder="파라미터 검색" style={{background:"#0d1117",border:"1px solid rgba(255,255,255,0.12)",borderRadius:6,color:"#E5E7EB",fontSize:11,padding:"4px 8px",width:130}}/>
           <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#cbd5e1",whiteSpace:"nowrap"}}>Sharpe ≥ <input value={minSharpe} onChange={e=>setMinSharpe(e.target.value)} style={{background:"#0d1117",border:"1px solid rgba(255,255,255,0.12)",borderRadius:6,color:"#E5E7EB",fontSize:11,padding:"4px 6px",width:50,textAlign:"center"}}/></label>
@@ -1133,7 +1313,7 @@ function OptimizeResultView({ results, busy, progress, onApply, onOpenCombo, com
       {/* 행 클릭한 조합의 풀 백테스트 리포트 (인라인) */}
       {comboFull && (
         <div style={{...dashCard, padding:0, overflow:"hidden", borderColor:"rgba(96,165,250,0.35)"}}>
-          <div style={{...dashCardTitle, padding:"12px 16px 0", display:"flex", alignItems:"center", gap:8}}>
+          <div style={{...optTitle, padding:"12px 16px 0", display:"flex", alignItems:"center", gap:8}}>
             <span>🔍 선택 조합 백테스트 — {Object.entries(comboFull.params||{}).map(([k,v])=>`${OPT_PARAM_LABEL[k]||k}=${v}`).join(" · ")}</span>
             <div style={{flex:1}}/>
             <button onClick={onCloseCombo} style={{background:"none",border:"none",color:"#94A3B8",cursor:"pointer",fontSize:13}}>✕ 닫기</button>
@@ -1149,7 +1329,7 @@ function OptimizeResultView({ results, busy, progress, onApply, onOpenCombo, com
       {/* 최적 파라미터 적용 풀 백테스트 → 리치 대시보드 재사용 */}
       {bestFull && best && (
         <div style={{...dashCard, padding:0, overflow:"hidden"}}>
-          <div style={{...dashCardTitle, padding:"12px 16px 0"}}>🏆 최적 파라미터 적용 백테스트 — {Object.entries(best.params).map(([k,v])=>`${OPT_PARAM_LABEL[k]||k}=${v}`).join(" · ")}</div>
+          <div style={{...optTitle, padding:"12px 16px 0"}}>🏆 최적 파라미터 적용 백테스트 — {Object.entries(best.params).map(([k,v])=>`${OPT_PARAM_LABEL[k]||k}=${v}`).join(" · ")}</div>
           <BacktestReportView btResult={bestFull} />
         </div>
       )}
@@ -1183,10 +1363,15 @@ function LiveDashboard({ wsId, done, strategyName, autoRestart, onStop }) {
   const handleStop = async () => {
     setStopping(true);
     try {
+      // 배포 때 켠 자동체결까지 함께 끈다 — 안 끄면 시그널 스케줄이 계속 자동 주문해 라이브가 안 멈춘다.
+      try { await setBrokerAutoExecute(done.env, false, done.brokerType); } catch (_) {}
       await setBrokerTrading(done.env, false, done.brokerType);
       await updateWorkspaceStatus(wsId, "IDLE");
       onStop();
-    } catch (e) { setStopping(false); }
+    } catch (e) {
+      setStopping(false);
+      alert("중지 실패: " + (e?.response?.data?.error || e?.message || String(e)));  // 조용히 삼키지 않음
+    }
   };
 
   const handleLiquidate = async () => {
@@ -1201,7 +1386,8 @@ function LiveDashboard({ wsId, done, strategyName, autoRestart, onStop }) {
   const lastVal = liveEq.length ? liveEq[liveEq.length - 1].value : null;
 
   return (
-    <div style={{padding:"22px 28px",color:"#E5E7EB",maxWidth:760,fontFamily:"'Inter',sans-serif"}}>
+    <div className="dark-scroll" style={{flex:1, minHeight:0, overflow:"auto", background:"#0f1117"}}>
+    <div style={{padding:"22px 40px 60px",color:"#E5E7EB",maxWidth:1180,fontFamily:"'Inter',sans-serif"}}>
       {/* 확인 다이얼로그 */}
       {confirmLiq && (
         <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.75)",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -1217,16 +1403,16 @@ function LiveDashboard({ wsId, done, strategyName, autoRestart, onStop }) {
       )}
       {/* 헤더 */}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
-        <Rocket size={18} color="#4ade80"/>
-        <span style={{fontSize:17,fontWeight:800}}>라이브 대시보드</span>
-        <span style={{fontSize:11.5,color:"#64748b"}}>{strategyName}</span>
-        <span style={{fontSize:10,padding:"3px 9px",borderRadius:999,background:"rgba(34,197,94,0.15)",color:"#4ade80",fontWeight:700,marginLeft:"auto",flexShrink:0}}>● LIVE</span>
+        <Rocket size={22} color="#4ade80"/>
+        <span style={{fontSize:21,fontWeight:800}}>라이브 대시보드</span>
+        <span style={{fontSize:13,color:"#64748b"}}>{strategyName}</span>
+        <span style={{fontSize:11,padding:"3px 10px",borderRadius:999,background:"rgba(34,197,94,0.15)",color:"#4ade80",fontWeight:700,marginLeft:"auto",flexShrink:0}}>● LIVE</span>
         <button onClick={() => setConfirmLiq(true)}
-          style={{padding:"6px 14px",borderRadius:7,border:"1px solid rgba(239,68,68,0.4)",background:"rgba(239,68,68,0.1)",color:"#f87171",fontSize:11.5,fontWeight:700,cursor:"pointer"}}>
+          style={{padding:"8px 18px",borderRadius:7,border:"1px solid rgba(239,68,68,0.4)",background:"rgba(239,68,68,0.1)",color:"#f87171",fontSize:13,fontWeight:700,cursor:"pointer"}}>
           Liquidate
         </button>
         <button onClick={handleStop} disabled={stopping}
-          style={{padding:"6px 14px",borderRadius:7,border:"1px solid rgba(239,68,68,0.2)",background:"rgba(239,68,68,0.06)",color:"#fca5a5",fontSize:11.5,fontWeight:700,cursor:stopping?"not-allowed":"pointer",opacity:stopping?0.6:1}}>
+          style={{padding:"8px 18px",borderRadius:7,border:"1px solid rgba(239,68,68,0.2)",background:"rgba(239,68,68,0.06)",color:"#fca5a5",fontSize:13,fontWeight:700,cursor:stopping?"not-allowed":"pointer",opacity:stopping?0.6:1}}>
           {stopping ? "중지 중…" : "Stop"}
         </button>
       </div>
@@ -1240,26 +1426,26 @@ function LiveDashboard({ wsId, done, strategyName, autoRestart, onStop }) {
           { label:"자동체결", value: done.autoExec ? "ON" : "OFF", color: done.autoExec ? "#4ade80" : "#64748b" },
           { label:"폴링", value:"5초", color:"#64748b" },
         ].map((k,i)=>(
-          <div key={i} style={{padding:"10px 16px",borderRight:"1px solid rgba(255,255,255,0.06)",flex:1,minWidth:80}}>
-            <div style={{fontSize:12.5,fontWeight:800,color:k.color,whiteSpace:"nowrap"}}>{k.value}</div>
-            <div style={{fontSize:9.5,color:"#4B5563",fontWeight:600,textTransform:"uppercase",marginTop:3}}>{k.label}</div>
+          <div key={i} style={{padding:"14px 20px",borderRight:"1px solid rgba(255,255,255,0.06)",flex:1,minWidth:92}}>
+            <div style={{fontSize:16,fontWeight:800,color:k.color,whiteSpace:"nowrap"}}>{k.value}</div>
+            <div style={{fontSize:11,color:"#4B5563",fontWeight:600,textTransform:"uppercase",marginTop:4}}>{k.label}</div>
           </div>
         ))}
       </div>
       {/* 라이브 에쿼티 차트 */}
-      <div style={{background:"#161b22",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
-        <div style={{fontSize:10.5,color:"#94a3b8",fontWeight:700,marginBottom:8}}>📈 실시간 자산 추이 (5초 갱신)</div>
+      <div style={{background:"#161b22",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,padding:"16px 18px",marginBottom:14}}>
+        <div style={{fontSize:13,color:"#94a3b8",fontWeight:700,marginBottom:10}}>📈 실시간 자산 추이 (5초 갱신)</div>
         {eqSeries.length > 0
-          ? <TrendLineChart series={eqSeries} theme={LD_THEME} height={140}/>
+          ? <TrendLineChart series={eqSeries} theme={LD_THEME} height={200}/>
           : <div style={{textAlign:"center",color:"#4B5563",padding:"28px 0",fontSize:11}}>자산 데이터 수집 중…</div>}
       </div>
       {/* 보유 포지션 */}
       {(bal?.positions || []).length > 0 && (
-        <div style={{background:"#161b22",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,padding:"12px 14px"}}>
-          <div style={{fontSize:10.5,color:"#94a3b8",fontWeight:700,marginBottom:8}}>📦 보유 포지션</div>
-          <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+        <div style={{background:"#161b22",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,padding:"16px 18px"}}>
+          <div style={{fontSize:13,color:"#94a3b8",fontWeight:700,marginBottom:10}}>📦 보유 포지션</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {(bal.positions).slice(0,16).map((p,i)=>(
-              <span key={i} style={{fontSize:10.5,padding:"3px 8px",borderRadius:5,background:"rgba(255,255,255,0.06)",color:"#cbd5e1"}}>
+              <span key={i} style={{fontSize:12.5,padding:"4px 10px",borderRadius:5,background:"rgba(255,255,255,0.06)",color:"#cbd5e1"}}>
                 {p.ticker} <b>{p.qtyDecimal ?? p.qty ?? ""}</b>
               </span>
             ))}
@@ -1267,9 +1453,10 @@ function LiveDashboard({ wsId, done, strategyName, autoRestart, onStop }) {
         </div>
       )}
       {/* 안내 */}
-      <div style={{fontSize:10.5,color:"#4B5563",marginTop:14,lineHeight:1.6}}>
-        ⚠️ {done.env === "REAL" ? "실거래: 전역 kill-switch·1건/일일 한도 적용." : "모의(MOCK): 자본 위험 없음."}{autoRestart ? " · 자동 재가동 ON." : ""} Stop은 워크스페이스를 IDLE로 전환합니다.
+      <div style={{fontSize:12,color:"#4B5563",marginTop:16,lineHeight:1.6}}>
+        ⚠️ {done.env === "REAL" ? "실거래: 전역 kill-switch·1건/일일 한도 적용." : "모의(MOCK): 자본 위험 없음."}{autoRestart ? " · 자동 재가동 ON." : ""} Stop은 매매·자동체결을 끄고 워크스페이스를 IDLE로 전환합니다.
       </div>
+    </div>
     </div>
   );
 }
@@ -1334,9 +1521,9 @@ function DeployWizardView({ wsId, strategyName }) {
     } finally { setBusy(false); }
   };
 
-  const card = { background: "#161b22", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, marginBottom: 12, overflow: "hidden" };
-  const rowS = { display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderBottom: "1px solid rgba(255,255,255,0.05)" };
-  const rowLbl = { display: "flex", alignItems: "center", gap: 8, width: 150, flexShrink: 0, fontSize: 12.5, color: "#cbd5e1", fontWeight: 600 };
+  const card = { background: "#161b22", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, marginBottom: 14, overflow: "hidden" };
+  const rowS = { display: "flex", alignItems: "center", gap: 14, padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.05)" };
+  const rowLbl = { display: "flex", alignItems: "center", gap: 8, width: 190, flexShrink: 0, fontSize: 14, color: "#cbd5e1", fontWeight: 600 };
 
   if (done) {
     return <LiveDashboard wsId={wsId} done={done} strategyName={strategyName} autoRestart={autoRestart} onStop={() => setDone(null)} />;
@@ -1351,7 +1538,8 @@ function DeployWizardView({ wsId, strategyName }) {
   const stageOrder = DEPLOY_STAGES.map(s => s.id);
 
   return (
-    <div style={{ padding: "22px 32px", color: "#E5E7EB", maxWidth: 760, fontFamily: "'Inter',sans-serif", position: "relative" }}>
+    <div className="dark-scroll" style={{flex:1, minHeight:0, overflow:"auto", background:"#0f1117"}}>
+    <div style={{ padding: "22px 40px 60px", color: "#E5E7EB", maxWidth: 1180, fontFamily: "'Inter',sans-serif", position: "relative" }}>
       {/* ═ 배포 단계별 오버레이 모달 ═ */}
       {deployStage && (
         <div style={{position:"fixed",inset:0,zIndex:9999,background:"rgba(0,0,0,0.78)",display:"flex",alignItems:"center",justifyContent:"center"}}>
@@ -1385,11 +1573,11 @@ function DeployWizardView({ wsId, strategyName }) {
       )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Rocket size={20} color="#a78bfa" /><span style={{ fontSize: 18, fontWeight: 800 }}>Deploy Live</span>
-          <span style={{ fontSize: 11.5, color: "#94A3B8" }}>{strategyName || "전략"}</span>
+          <Rocket size={22} color="#a78bfa" /><span style={{ fontSize: 20, fontWeight: 800 }}>Deploy Live</span>
+          <span style={{ fontSize: 13, color: "#94A3B8" }}>{strategyName || "전략"}</span>
         </div>
         <button onClick={deploy} disabled={busy || !sel}
-          style={{ padding: "8px 22px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 800, cursor: busy || !sel ? "not-allowed" : "pointer", color: "white", background: busy || !sel ? "rgba(124,58,237,0.3)" : (isReal ? "linear-gradient(135deg,#dc2626,#b91c1c)" : "linear-gradient(135deg,#7c3aed,#6d28d9)") }}>
+          style={{ padding: "9px 24px", borderRadius: 8, border: "none", fontSize: 14, fontWeight: 800, cursor: busy || !sel ? "not-allowed" : "pointer", color: "white", background: busy || !sel ? "rgba(124,58,237,0.3)" : (isReal ? "linear-gradient(135deg,#dc2626,#b91c1c)" : "linear-gradient(135deg,#7c3aed,#6d28d9)") }}>
           {busy ? "배포 중…" : "Deploy"}
         </button>
       </div>
@@ -1400,7 +1588,7 @@ function DeployWizardView({ wsId, strategyName }) {
           <div style={rowLbl}>🏦 Brokerage</div>
           {accts.length === 0
             ? <div style={{ fontSize: 12, color: "#fbbf24" }}>등록된 계좌 없음 — '종합 계좌 잔고'에서 KIS/Binance 등록</div>
-            : <select value={selId} onChange={e => setSelId(e.target.value)} style={{ flex: 1, background: "#0d1117", border: `1px solid ${isReal ? "#f87171" : "rgba(255,255,255,0.14)"}`, borderRadius: 8, color: "#E5E7EB", fontSize: 13, padding: "9px 11px", fontWeight: 600 }}>
+            : <select value={selId} onChange={e => setSelId(e.target.value)} style={{ flex: 1, background: "#0d1117", border: `1px solid ${isReal ? "#f87171" : "rgba(255,255,255,0.14)"}`, borderRadius: 8, color: "#E5E7EB", fontSize: 14.5, padding: "11px 13px", fontWeight: 600 }}>
                 {accts.map(a => <option key={a.id} value={a.id}>{acctName(a)}</option>)}
               </select>}
         </div>
@@ -1416,7 +1604,7 @@ function DeployWizardView({ wsId, strategyName }) {
         {/* Node */}
         <div style={rowS}>
           <div style={rowLbl}>🖧 Node</div>
-          <div style={{ fontSize: 12.5, color: "#e2e8f0" }}>AlphaHelix 클라우드 노드 <span style={{ color: "#64748B", fontSize: 11 }}>· analytics(c6i) · 관리형 실행</span></div>
+          <div style={{ fontSize: 14, color: "#e2e8f0" }}>AlphaHelix 클라우드 노드 <span style={{ color: "#64748B", fontSize: 12 }}>· analytics(c6i) · 관리형 실행</span></div>
         </div>
 
         {/* Data Provider */}
@@ -1476,19 +1664,20 @@ function DeployWizardView({ wsId, strategyName }) {
       {err && <div style={{ padding: "10px 14px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, color: "#fca5a5", fontSize: 12, marginBottom: 12 }}>⚠ {err}</div>}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ fontSize: 10.5, color: "#64748B", lineHeight: 1.6 }}>Deploy = 워크스페이스 LIVE + 계좌 연결 + 매매 스위치 ON{autoExec ? " + 자동 체결" : ""}. 라이브 배포 시 약관에 동의합니다.</div>
+        <div style={{ fontSize: 12, color: "#64748B", lineHeight: 1.6 }}>Deploy = 워크스페이스 LIVE + 계좌 연결 + 매매 스위치 ON{autoExec ? " + 자동 체결" : ""}. 라이브 배포 시 약관에 동의합니다.</div>
         <button onClick={deploy} disabled={busy || !sel}
-          style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "11px 26px", borderRadius: 9, border: "none", fontSize: 13.5, fontWeight: 800, cursor: busy || !sel ? "not-allowed" : "pointer", color: "white", background: busy || !sel ? "rgba(124,58,237,0.3)" : (isReal ? "linear-gradient(135deg,#dc2626,#b91c1c)" : "linear-gradient(135deg,#7c3aed,#6d28d9)"), boxShadow: busy || !sel ? "none" : "0 3px 12px rgba(109,40,217,0.4)" }}>
-          {busy ? <Loader size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Rocket size={14} />}
+          style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "13px 30px", borderRadius: 9, border: "none", fontSize: 15, fontWeight: 800, cursor: busy || !sel ? "not-allowed" : "pointer", color: "white", background: busy || !sel ? "rgba(124,58,237,0.3)" : (isReal ? "linear-gradient(135deg,#dc2626,#b91c1c)" : "linear-gradient(135deg,#7c3aed,#6d28d9)"), boxShadow: busy || !sel ? "none" : "0 3px 12px rgba(109,40,217,0.4)" }}>
+          {busy ? <Loader size={15} style={{ animation: "spin 1s linear infinite" }} /> : <Rocket size={15} />}
           {busy ? "배포 중…" : (isReal ? "실거래 배포" : "모의 배포")}
         </button>
       </div>
     </div>
+    </div>
   );
 }
-const linkBtn = { background: "none", border: "none", color: "#60a5fa", fontSize: 11.5, fontWeight: 700, cursor: "pointer", flexShrink: 0 };
-const chkLbl = { display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 12.5, color: "#cbd5e1" };
-const chkBox = { accentColor: "#a78bfa", width: 15, height: 15 };
+const linkBtn = { background: "none", border: "none", color: "#60a5fa", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 };
+const chkLbl = { display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 14, color: "#cbd5e1" };
+const chkBox = { accentColor: "#a78bfa", width: 16, height: 16 };
 
 // ── QC급 백테스트 대시보드 — 공통 팔레트 + 포맷터 ──
 const DASH = { bg:"#0f1117", panel:"#161b22", border:"rgba(255,255,255,0.08)", text:"#E5E7EB", muted:"#94A3B8", green:"#22c55e", red:"#ef4444", blue:"#60a5fa", amber:"#f59e0b", violet:"#a78bfa" };
@@ -2109,11 +2298,15 @@ const NB_PARAM_DESC = {
   SPLIT:"분할 매수 횟수(시드 N등분)", TAKE_PROFIT_PCT:"평단 대비 익절 목표(%)", LOC_OFFSET_PCT:"종가 대비 추가매수 지정가 오프셋(%)",
   REBALANCE_DAYS:"리밸런싱 주기(거래일)", EXPECTED_RETURN:"주기당 목표 수익률", BAND_PCT:"허용 밴드 폭(±)",
   POOL_TARGET_PCT:"목표 풀(주식) 비중", INITIAL_POOL_PCT:"초기 풀 비중", INITIAL_CAPITAL:"초기 자본금",
+  LOOKBACK_DAYS:"룩백 기간(12-1 모멘텀, ≈12개월)", SKIP_RECENT_DAYS:"최근 제외 기간(≈1개월)",
+  TOP_N:"보유 종목 수(동일가중)", CASH_ASSET:"약세장 대피 자산",
 };
 
 function buildNotebookCells(code) {
   if (!code) return [];
-  const kind = /SPLIT\s*=/.test(code) ? "ib" : /REBALANCE_DAYS\s*=/.test(code) ? "vr"
+  const kind = /SPLIT\s*=/.test(code) ? "ib"
+    : (/TOP_N\s*=/.test(code) || /LOOKBACK_DAYS\s*=/.test(code)) ? "mom"   // 모멘텀은 REBALANCE_DAYS 도 쓰므로 vr 보다 먼저
+    : /REBALANCE_DAYS\s*=/.test(code) ? "vr"
     : /RSI_PERIOD\s*=/.test(code) ? "rsi" : /MACD_/.test(code) ? "macd"
     : /VIX_THRESHOLD\s*=/.test(code) ? "vix" : "sma";
   // 빈 줄 기준 블록 분할
@@ -2137,8 +2330,9 @@ function buildNotebookCells(code) {
     if (/def\s+OnEndOfAlgorithm/.test(t))
       return { title:"종료 처리 (OnEndOfAlgorithm)", icon:"🏁", code:t, md:"백테스트가 끝날 때 호출됩니다. 최종 포트폴리오 가치를 로그로 남겨 결과를 확인합니다." };
     if (/def\s+run/.test(t)) {
-      const md = kind==="ib" ? "무한매수법의 핵심 실행 로직입니다. 매 거래일 시드를 `SPLIT` 등분한 금액으로 분할 매수하고, 평단가 대비 `TAKE_PROFIT_PCT` 도달 시 전량 익절한 뒤 사이클을 반복합니다. (실제 시뮬레이션은 AlphaHelix analytics 의 vectorbt 기반 엔진이 수행)"
-        : "밸류 리밸런싱의 핵심 실행 로직입니다. `REBALANCE_DAYS` 마다 목표가치를 갱신하고, 평가액이 밴드(±`BAND_PCT`)를 벗어나면 풀(주식) 비중을 `POOL_TARGET_PCT` 로 복원합니다 — 하락 시 저가매수, 상승 시 차익실현.";
+      const md = kind==="ib" ? "무한매수법의 **실제 실행 로직**입니다 (analytics 엔진과 동일 규칙). 매 거래일 종가가 평단 이하면 1회분, 평단~LOC 밴드면 0.5회분 분할 매수하고, 평단 대비 `TAKE_PROFIT_PCT` 도달 시 전량 익절 후 사이클을 리셋합니다. 시드(`SPLIT` 회) 소진 시 추가매수를 멈추고 익절 신호를 기다립니다."
+        : kind==="mom" ? "모멘텀 로테이션의 **실제 실행 로직**입니다. `REBALANCE_DAYS` 마다 각 자산의 12-1 모멘텀(`LOOKBACK_DAYS` 수익률에서 최근 `SKIP_RECENT_DAYS` 제외)을 계산해 상위 `TOP_N` 을 동일가중 보유하고, 모멘텀이 0 이하인 자산은 `CASH_ASSET` 으로 대피합니다(리스크오프)."
+        : "밸류 리밸런싱의 **실제 실행 로직**입니다. `REBALANCE_DAYS` 마다 V값을 `EXPECTED_RETURN` 만큼 키우고, 평가금이 밴드(±`BAND_PCT`)를 벗어나면 밴드 중심까지 복원합니다 — 하단 이탈 시 Pool(현금)로 저가매수, 상단 초과 시 차익실현(Pool 상한 `POOL_TARGET_PCT`).";
       return { title:"백테스트 실행 로직 (run)", icon:"⚡", code:t, md };
     }
     if (t.trim().split("\n").every(l => /^\s*(from|import)\s/.test(l)))
@@ -2339,20 +2533,43 @@ function DatasetsBrowser() {
 function RunProgressOverlay({ engine }) {
   const [sec, setSec] = React.useState(0);
   React.useEffect(() => { const t = setInterval(() => setSec(s => Math.round((s + 0.1) * 10) / 10), 100); return () => clearInterval(t); }, []);
-  const steps = ["요청 전송 (Requesting)", "엔진 실행 (Launching)", "결과 대기 (Waiting for Results)"];
-  const active = sec < 0.8 ? 0 : (engine === "lean" ? (sec < 4 ? 1 : 2) : (sec < 1.6 ? 1 : 2));
+  const isLean = engine === "lean";
+  const steps = [
+    { t: "요청 전송",        d: "Requesting · 워크스페이스 파라미터·전략 코드 전송" },
+    { t: "과거 데이터 로드",  d: "Loading OHLCV · Polygon→yfinance 폴백" },
+    { t: "비용·슬리피지 반영", d: "수수료 0.25% + 슬리피지 0.10% · 신호 1bar shift(룩어헤드 방지)" },
+    { t: "엔진 시뮬레이션",   d: isLean ? "Lean · QuantConnect 엔진 실행" : "vectorbt Portfolio.from_signals 실행" },
+    { t: "결과 집계",        d: "메트릭·에쿼티커브·리포트 생성" },
+  ];
+  // 엔진별 단계 타임게이트(Lean 이 느림) — 마지막 단계는 결과 도착 시 언마운트되며 끝.
+  const gates = isLean ? [0.6, 2.0, 3.2, 6.5] : [0.4, 0.9, 1.3, 2.2];
+  let active = steps.length - 1;
+  for (let i = 0; i < gates.length; i++) { if (sec < gates[i]) { active = i; break; } }
   return (
-    <div style={{ position: "fixed", top: "44%", left: "56%", transform: "translate(-50%,-50%)", zIndex: 9999, width: 348, background: DASH.panel, border: `1px solid ${DASH.border}`, borderRadius: 14, padding: "18px 22px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)" }}>
+    <div style={{ position: "fixed", top: "44%", left: "56%", transform: "translate(-50%,-50%)", zIndex: 9999, width: 420, background: DASH.panel, border: `1px solid ${DASH.border}`, borderRadius: 14, padding: "20px 24px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: "#e2e8f0", fontWeight: 800, marginBottom: 4 }}>
+        <BarChart3 size={16} color="#fbbf24" /> 백테스트 진행 중…
+      </div>
       <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, color: DASH.muted, marginBottom: 14, lineHeight: 1.5 }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#fbbf24", flexShrink: 0 }} />
-        {engine === "lean" ? "Lean · QuantConnect 엔진" : "vectorbt 엔진"} · AlphaHelix 클라우드 노드에서 실행 중
+        {isLean ? "Lean · QuantConnect 엔진" : "vectorbt 엔진"} · AlphaHelix 클라우드 노드에서 실행 중
       </div>
-      {steps.map((s, i) => (
-        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", opacity: i <= active ? 1 : 0.4 }}>
-          {i < active ? <CheckCircle2 size={16} color="#4ade80" /> : i === active ? <Loader size={16} color="#60a5fa" style={{ animation: "spin 1s linear infinite" }} /> : <div style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid #475569" }} />}
-          <span style={{ fontSize: 12.5, color: i <= active ? "#e2e8f0" : "#64748B", fontWeight: i === active ? 700 : 500 }}>{s}</span>
-        </div>
-      ))}
+      {steps.map((s, i) => {
+        const isDone = i < active, isActive = i === active;
+        return (
+          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "8px 0", borderBottom: i < steps.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
+            <div style={{ width: 22, height: 22, borderRadius: "50%", flexShrink: 0, marginTop: 1, display: "flex", alignItems: "center", justifyContent: "center",
+              background: isDone ? "rgba(34,197,94,0.15)" : isActive ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.04)",
+              border: `1px solid ${isDone ? "rgba(74,222,128,0.45)" : isActive ? "rgba(96,165,250,0.45)" : "rgba(255,255,255,0.1)"}` }}>
+              {isDone ? <CheckCircle2 size={13} color="#4ade80" /> : isActive ? <Loader size={11} color="#60a5fa" style={{ animation: "spin 1s linear infinite" }} /> : <span style={{ fontSize: 9.5, fontWeight: 800, color: "#4B5563" }}>{i + 1}</span>}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13, color: isDone ? "#4ade80" : isActive ? "#e2e8f0" : "#64748B", fontWeight: isDone || isActive ? 700 : 500 }}>{s.t}</div>
+              <div style={{ fontSize: 10.5, color: "#64748B", marginTop: 1, lineHeight: 1.4 }}>{s.d}</div>
+            </div>
+          </div>
+        );
+      })}
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${DASH.border}`, fontSize: 11, color: DASH.muted }}>
         <Loader size={11} style={{ animation: "spin 1s linear infinite" }} /> {sec.toFixed(1)}s 경과
       </div>
@@ -2984,10 +3201,27 @@ export default function DeveloperLab() {
     setWsLoading(true);
     getWorkspace(id)
       .then(data => {
+        // 복원할 값(열린 탭/활성 탭/마지막 백테스트 결과)을 setWsId 이전에 먼저 읽는다.
+        // setWsId 가 저장 effect 를 트리거해 localStorage 를 덮어쓰기 전에 캡처해야 새로고침 복원이 안전하다.
+        let savedTabs = null, savedBt = null;
+        try { savedTabs = JSON.parse(localStorage.getItem(`ah.workbench.tabs.${id}`) || "null"); } catch (_) {}
+        try { savedBt = JSON.parse(localStorage.getItem(`ah.workbench.btResult.${id}`) || "null"); } catch (_) {}
         setWsId(id);
         localStorage.setItem("alpha.lastWsId", id);
         setStrategyName(data.name || "AlphaHelix Strategy");
-        setBtResult(null);
+        setBtResult(savedBt || null);
+        // 새로고침/워크스페이스 전환 시 이 워크스페이스에 마지막으로 열려있던 탭 복원(없으면 main.py 만).
+        if (savedTabs && Array.isArray(savedTabs.openTabs) && savedTabs.openTabs.length) {
+          setOpenTabs(savedTabs.openTabs);
+          setActiveTabId(
+            savedTabs.openTabs.some(t => t.id === savedTabs.activeTabId)
+              ? savedTabs.activeTabId
+              : savedTabs.openTabs[savedTabs.openTabs.length - 1].id
+          );
+        } else {
+          setOpenTabs([{ id:"tab_main", name:"main.py", type:"code", fileKey:"main" }]);
+          setActiveTabId("tab_main");
+        }
         // 전략 후보(3개) + 선택 id 추출 — 워크스페이스 패널의 전략 트리에 사용
         try {
           const cfg0 = data.strategyConfig
@@ -3021,11 +3255,27 @@ export default function DeveloperLab() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 열린 탭/활성 탭을 워크스페이스별로 영속화 → 새로고침/재진입 시 loadWorkspace 가 복원.
+  useEffect(() => {
+    if (!wsId) return;
+    try { localStorage.setItem(`ah.workbench.tabs.${wsId}`, JSON.stringify({ openTabs, activeTabId })); } catch (_) {}
+  }, [wsId, openTabs, activeTabId]);
+
+  // 마지막 백테스트 결과를 워크스페이스별로 영속화 → '백테스트 결과' 탭 복원용.
+  // quota 초과 시 무시(보고서 탭은 '결과 없음'으로 degrade — 크래시 없음).
+  useEffect(() => {
+    if (!wsId) return;
+    try {
+      if (btResult) localStorage.setItem(`ah.workbench.btResult.${wsId}`, JSON.stringify(btResult));
+      else localStorage.removeItem(`ah.workbench.btResult.${wsId}`);
+    } catch (_) {}
+  }, [wsId, btResult]);
+
   // ── 워크스페이스 패널 액션: 전환 / 추가 / 전략후보 선택 ──
   const handleSwitchWorkspace = useCallback((id) => {
     if (!id || String(id) === String(wsId)) return;
-    setOpenTabs([{ id:"tab_main", name:"main.py", type:"code", fileKey:"main" }]);
-    setActiveTabId("tab_main");
+    // 탭 리셋/복원은 loadWorkspace 가 담당(해당 워크스페이스에 저장된 탭 복원, 없으면 main.py).
+    // 여기서 먼저 리셋하면 직전 워크스페이스(wsId) 키로 저장 effect 가 발화해 그 워크스페이스의 저장 탭을 덮어쓴다.
     loadWorkspace(id);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsId, loadWorkspace]);
@@ -3056,6 +3306,8 @@ export default function DeveloperLab() {
         const code = generateCodeFromConfig(cand);
         if (code) { setFileContents({ main: code }); await saveCode(wsId, JSON.stringify({ main: code })).catch(() => {}); }
       }
+      // 새 후보 = 새 코드 → 이전 후보의 백테스트 결과는 무효. 저장된 결과를 지워 stale 복원 방지.
+      try { localStorage.removeItem(`ah.workbench.btResult.${wsId}`); } catch (_) {}
       loadWorkspace(wsId);
     } catch (e) {
       alert("전략 선택 실패: " + (e?.response?.data?.error || e.message));
@@ -3631,19 +3883,29 @@ export default function DeveloperLab() {
 
   // 최적화 결과의 best 파라미터를 코드에 적용
   const applyOptParams = useCallback((paramsObj) => {
-    setFileContents(prev => {
-      let code = prev.main || "";
-      const MAP = { sma_fast:"SMA_FAST", sma_slow:"SMA_SLOW", rsi_period:"RSI_PERIOD", rsi_low:"RSI_LOW", rsi_high:"RSI_HIGH", macd_fast:"MACD_FAST", macd_slow:"MACD_SLOW", macd_signal:"MACD_SIGNAL", vix_threshold:"VIX_THRESHOLD", split:"SPLIT", take_profit_pct:"TAKE_PROFIT_PCT", loc_offset_pct:"LOC_OFFSET_PCT", rebalance_days:"REBALANCE_DAYS", expected_return:"EXPECTED_RETURN", band_pct:"BAND_PCT", pool_target_pct:"POOL_TARGET_PCT", initial_pool_pct:"INITIAL_POOL_PCT" };
-      for (const [k, v] of Object.entries(paramsObj)) {
-        const CONST = MAP[k]; if (!CONST) continue;
-        code = code.replace(new RegExp(`^(\\s*${CONST}\\s*=\\s*)[\\d.]+`, "m"), `$1${v}`);
-      }
-      const next = { ...prev, main: code };
-      if (wsId) saveCode(wsId, JSON.stringify(next)).catch(()=>{});
-      return next;
-    });
+    const MAP = { sma_fast:"SMA_FAST", sma_slow:"SMA_SLOW", rsi_period:"RSI_PERIOD", rsi_low:"RSI_LOW", rsi_high:"RSI_HIGH", macd_fast:"MACD_FAST", macd_slow:"MACD_SLOW", macd_signal:"MACD_SIGNAL", vix_threshold:"VIX_THRESHOLD", split:"SPLIT", take_profit_pct:"TAKE_PROFIT_PCT", loc_offset_pct:"LOC_OFFSET_PCT", rebalance_days:"REBALANCE_DAYS", expected_return:"EXPECTED_RETURN", band_pct:"BAND_PCT", pool_target_pct:"POOL_TARGET_PCT", initial_pool_pct:"INITIAL_POOL_PCT" };
+    let code = fileContents.main || "";
+    const changes = [];   // 콘솔에 어떤 상수가 어떻게 바뀌었는지 표시 (old→new)
+    for (const [k, v] of Object.entries(paramsObj)) {
+      const CONST = MAP[k]; if (!CONST) continue;
+      const re = new RegExp(`^(\\s*${CONST}\\s*=\\s*)([\\d.]+)`, "m");
+      const m = code.match(re);
+      if (m && String(m[2]) !== String(v)) changes.push(`${CONST} ${m[2]}→${v}`);
+      code = code.replace(re, `$1${v}`);
+    }
+    const next = { ...fileContents, main: code };
+    setFileContents(next);
+    if (wsId) saveCode(wsId, JSON.stringify(next)).catch(()=>{});
+    const ts = new Date().toLocaleTimeString();
+    if (changes.length) {
+      setLogLines(p => [...p,
+        { type:"success", msg:`[apply] 최적 파라미터를 main.py 에 적용 — ${changes.join(" · ")}`, ts },
+        { type:"info",    msg:`[saved] 저장 완료 · Run Backtest / Deploy to Live 에 이 값이 반영됩니다`, ts }]);
+    } else {
+      setLogLines(p => [...p, { type:"info", msg:`[apply] 변경 없음 — main.py 가 이미 최적값과 동일합니다`, ts }]);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsId]);
+  }, [wsId, fileContents]);
 
   // 최적화 결과 표에서 조합 행 클릭 → 그 파라미터로 풀 백테스트 1회 실행 → 인라인 리포트
   const handleOpenCombo = useCallback(async (comboParams) => {
@@ -3791,7 +4053,6 @@ export default function DeveloperLab() {
           <span style={{fontSize:10,padding:"2px 9px",borderRadius:999,
             background:"rgba(16,185,129,0.15)",color:"#10B981",fontWeight:600}}>{queueMsg}</span>
         )}
-        <span style={{fontSize:10,color:"#cbd5e1",fontFamily:"monospace"}}>{activeTab?.name||""}</span>
         <button onClick={handleSave}
           style={{display:"flex",alignItems:"center",gap:4,padding:"4px 9px",borderRadius:5,
             background:"transparent",border:"1px solid rgba(255,255,255,0.1)",
@@ -4449,7 +4710,7 @@ export default function DeveloperLab() {
         <div style={{flex:1, minWidth:0, display:"flex", flexDirection:"column", overflow:"hidden"}}>
 
           {/* 탭 바 */}
-          <div style={{
+          <div className="dark-scroll" style={{
             display:"flex", alignItems:"center", flexShrink:0,
             background:"#161b22", borderBottom:"1px solid rgba(255,255,255,0.07)",
             overflowX:"auto", minHeight:34,
@@ -4457,8 +4718,8 @@ export default function DeveloperLab() {
             {openTabs.map(tab=>(
               <div key={tab.id} onClick={()=>setActiveTabId(tab.id)}
                 style={{
-                  display:"flex", alignItems:"center", gap:5,
-                  padding:"0 14px", height:34, flexShrink:0, cursor:"pointer",
+                  display:"flex", alignItems:"center", gap:4,
+                  padding:"0 9px", height:34, flexShrink:0, cursor:"pointer",
                   background:activeTabId===tab.id?"#0f1117":"transparent",
                   borderBottom:activeTabId===tab.id?"2px solid #60a5fa":"2px solid transparent",
                   color:activeTabId===tab.id?"#e2e8f0":"#4B5563",
@@ -4718,7 +4979,7 @@ export default function DeveloperLab() {
                   onMouseEnter={e=>e.currentTarget.style.color="#e5e7eb"} onMouseLeave={e=>e.currentTarget.style.color="#6B7280"}/>
               </div>
               {/* 대화 — VSCode Claude Code 식, 도크 안에 누적 */}
-              <div ref={claudeScrollRef} style={{flex:1, minHeight:0, overflowY:"auto", padding:"4px 12px 8px",
+              <div ref={claudeScrollRef} className="dark-scroll" style={{flex:1, minHeight:0, overflow:"auto", padding:"4px 12px 8px",
                 display:"flex", flexDirection:"column", gap:9}}>
                 {claudeMessages.length === 0 && (
                   <div style={{display:"flex", flexDirection:"column",

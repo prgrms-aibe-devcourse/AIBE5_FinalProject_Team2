@@ -11,15 +11,16 @@ import { CircleDollarSign } from "lucide-react";
 import { listBrokerAccounts, getBrokerBalance, listProposals } from "./alphaApi";
 import { summarizeBalance } from "./balance/util";
 import AssetsTab from "./balance/AssetsTab";
-import BalancePnlTab from "./balance/BalancePnlTab";
 import TradesTab from "./balance/TradesTab";
 import { useNotificationStore } from "../store/useNotificationStore";
 import { brokerCache } from "./brokerCache";
+import { useLanguage } from "../i18n/useLanguage";
 
-const TABS = ["종합 자산", "잔고·손익", "매매 내역"];
+const TABS = ["assets", "trades"];
 
 export default function BalanceAccountPage() {
-  const [tab, setTab] = useState("종합 자산");
+  const { t } = useLanguage();
+  const [tab, setTab] = useState("assets");
   const [accountsData, setAccountsData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -27,6 +28,11 @@ export default function BalanceAccountPage() {
   const [primaryAcctId, setPrimaryAcctId] = useState(() => {
     try { return localStorage.getItem("alpha.balance.primaryAcct") || ""; } catch { return ""; }
   });
+
+  const TAB_LABEL = {
+    assets: t("balance.tabAssets"),
+    trades: t("balance.tabTrades"),
+  };
 
   // 주문 체결 알림이 새로 오면 자동 재조회
   const orderFillCount = useNotificationStore(
@@ -118,7 +124,7 @@ export default function BalanceAccountPage() {
   }, [orderFillCount, reload]);
 
   return (
-    <div style={{ padding: "36px 40px 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
+    <div style={{ padding: "clamp(16px, 3vw, 36px) clamp(12px, 3vw, 40px) 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
       <style>{`@media (max-width:768px){ .bal-wrap{padding:16px 12px!important} }`}</style>
       <div className="bal-wrap">
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 32, flexWrap: "wrap", gap: 16 }}>
@@ -136,9 +142,9 @@ export default function BalanceAccountPage() {
                 margin: 0, fontSize: 26, fontWeight: 800, lineHeight: 1.15,
                 background: "linear-gradient(90deg,#3b82f6 0%,#6366f1 100%)",
                 WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-              }}>종합 계좌 잔고</h1>
+              }}>{t("balance.title")}</h1>
               <p style={{ margin: "5px 0 0", fontSize: 13, color: "#64748B", fontWeight: 500 }}>
-                전 계좌(KIS·Binance)의 자산·손익·매매 내역을 한 곳에서 관리합니다.
+                {t("balance.subtitle")}
               </p>
             </div>
           </div>
@@ -152,20 +158,19 @@ export default function BalanceAccountPage() {
               fontSize: 15, fontWeight: tab === tb ? 800 : 600,
               color: tab === tb ? "#4f46e5" : "#94a3b8",
               borderBottom: `3px solid ${tab === tb ? "#6366f1" : "transparent"}`, marginBottom: -1,
-            }}>{tb}</button>
+            }}>{TAB_LABEL[tb]}</button>
           ))}
         </div>
 
-        {tab === "종합 자산" && <AssetsTab accountsData={accountsData} loading={loading} refreshing={refreshing} onReload={reload}
-          onGotoTrades={(acct) => { setTradesAcctId(acct?.id ?? ""); setTab("매매 내역"); }}
+        {tab === "assets" && <AssetsTab accountsData={accountsData} loading={loading} refreshing={refreshing} onReload={reload}
+          onGotoTrades={(acct) => { setTradesAcctId(acct?.id ?? ""); setTab("trades"); }}
           primaryAcctId={primaryAcctId}
           onSetPrimary={(id) => {
             const v = String(id) === String(primaryAcctId) ? "" : String(id);
             setPrimaryAcctId(v);
             try { localStorage.setItem("alpha.balance.primaryAcct", v); } catch (_) {}
           }} />}
-        {tab === "잔고·손익" && <BalancePnlTab accountsData={accountsData} refreshing={refreshing} />}
-        {tab === "매매 내역" && <TradesTab accountsData={accountsData} initialAcctId={tradesAcctId} />}
+        {tab === "trades" && <TradesTab accountsData={accountsData} initialAcctId={tradesAcctId} />}
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { X, AlertTriangle, CheckCircle2, Loader2, Settings2 } from "lucide-react";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
-import { listBrokerAccounts, patchBrokerLimits } from "./alphaApi";
+import { listBrokerAccounts, patchBrokerLimits, getBrokerQuote } from "./alphaApi";
 
 /**
  * 주문 승인 확인 모달.
@@ -21,6 +21,30 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
   const [isMobile, setIsMobile] = useState(
     typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches
   );
+
+  // ── 시장가 현재가 조회 ─────────────────────────────────────────
+  const [marketPrice, setMarketPrice] = useState(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || proposal?.limitPrice != null) { setMarketPrice(null); return; }
+    let aborted = false;
+    setQuoteLoading(true);
+    (async () => {
+      try {
+        const list = await listBrokerAccounts();
+        if (aborted) return;
+        const acct = list.find((b) => b.id === proposal.brokerAccountId);
+        if (!acct) return;
+        const q = await getBrokerQuote(acct.env, proposal.ticker, acct.brokerType);
+        if (!aborted) setMarketPrice(q?.last_price ?? null);
+      } catch (_) {
+      } finally {
+        if (!aborted) setQuoteLoading(false);
+      }
+    })();
+    return () => { aborted = true; };
+  }, [open, proposal?.limitPrice, proposal?.brokerAccountId, proposal?.ticker]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 한도 인라인 편집용 상태 ───────────────────────────────────
   const [brokerEnv, setBrokerEnv] = useState(null);   // "MOCK" | "REAL"
@@ -139,15 +163,14 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
   const isCrypto = proposal.qtyDecimal != null;   // Binance 분수수량 제안
   const qtyNum = isCrypto ? Number(proposal.qtyDecimal) : Number(proposal.qty);
   const qtyLabel = isCrypto ? `${proposal.qtyDecimal} · ${proposal.ticker}` : `${proposal.qty}주 · ${proposal.ticker}`;
-  const estUsd = proposal.limitPrice
-    ? Number(proposal.limitPrice) * qtyNum
-    : null;
+  const effectivePrice = proposal.limitPrice != null ? Number(proposal.limitPrice) : marketPrice;
+  const estUsd = effectivePrice != null ? effectivePrice * qtyNum : null;
   const sheet = {
     background: theme.panel,
     color: theme.text,
     boxShadow: "0 -8px 30px rgba(0,0,0,0.25)",
     // shorthand padding 과 조건부 paddingBottom 혼용 시 React 리렌더 경고 → 개별 속성으로 분리.
-    paddingTop: 24, paddingRight: 24, paddingBottom: 24, paddingLeft: 24,
+    paddingTop: "clamp(20px, 3vw, 36px)", paddingRight: "clamp(16px, 3vw, 32px)", paddingBottom: "clamp(20px, 3vw, 36px)", paddingLeft: "clamp(16px, 3vw, 32px)",
     width: "100%",
     boxSizing: "border-box",
     ...(isMobile
@@ -161,6 +184,7 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
       : {
           borderRadius: 16,
           maxWidth: 440,
+          width: "calc(100% - 32px)",
           margin: "auto",
         }),
   };
@@ -221,13 +245,30 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
           <div style={{ fontSize: 26, fontWeight: 900, marginBottom: 4, letterSpacing: -0.5 }}>
             {qtyLabel}
           </div>
-          {proposal.limitPrice && (
+          {proposal.limitPrice != null ? (
             <div style={{ fontSize: 14, color: theme.textMuted }}>
               지정가 {isCrypto ? `${Number(proposal.limitPrice)} USDT` : `$${Number(proposal.limitPrice).toFixed(2)}`}
-              {estUsd && (
+              {estUsd != null && (
                 <span style={{ marginLeft: 10, color: theme.text, fontWeight: 700 }}>
                   예상 ${estUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
                 </span>
+              )}
+            </div>
+          ) : (
+            <div style={{ fontSize: 14, color: theme.textMuted }}>
+              시장가
+              {quoteLoading && <span style={{ marginLeft: 8, fontSize: 12, color: theme.textMuted }}>현재가 조회 중…</span>}
+              {!quoteLoading && marketPrice != null && (
+                <>
+                  <span style={{ marginLeft: 6 }}>
+                    · 현재 {isCrypto ? `${Number(marketPrice).toFixed(4)} USDT` : `$${Number(marketPrice).toFixed(2)}`}
+                  </span>
+                  <span style={{ marginLeft: 10, color: theme.text, fontWeight: 700 }}>
+                    예상 {isCrypto
+                      ? `${estUsd.toFixed(4)} USDT`
+                      : `$${estUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}`}
+                  </span>
+                </>
               )}
             </div>
           )}
