@@ -103,7 +103,9 @@ export default function RegimePanel({ id, ws, onChange }) {
               <p style={{ margin: "0 0 10px", fontSize: 12, color: theme.textMuted, lineHeight: 1.55 }}>
                 각 색깔 배경이 시장 국면을 나타냅니다. 파란 선은 종가입니다. 마우스를 올리면 상세 정보가 표시됩니다.
               </p>
-              <RegimeTimelineChart timeline={data.regime_timeline} theme={theme} ticker={data.ticker} />
+              <div style={{ overflowX: "auto" }}>
+                <RegimeTimelineChart timeline={data.regime_timeline} theme={theme} ticker={data.ticker} />
+              </div>
             </Card>
           )}
           <Card title="ℹ️ 어떻게 계산했나요?" theme={theme} titleSize={20}>
@@ -139,7 +141,8 @@ export default function RegimePanel({ id, ws, onChange }) {
               </p>
             </div>
           </Card>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 12 }}>
+          <div style={{ overflowX: "auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
             {ALL_KEYS.map((k) => {
               const v = data.per_regime?.[k];
               const missing = !v;
@@ -160,6 +163,7 @@ export default function RegimePanel({ id, ws, onChange }) {
                 </Card>
               );
             })}
+          </div>
           </div>
           <RegimeReadout data={data} theme={theme} labels={labels} />
         </>

@@ -279,7 +279,7 @@ function DecisionCard({ row }) {
     <div style={{
       border: `1.5px solid ${row.status === "ACCEPTED" ? "#86EFAC" : row.status === "HOLD" ? "#FDE68A" : "#E2E8F0"}`,
       borderRadius: 14,
-      padding: "18px 22px",
+      padding: "14px 16px",
       boxShadow: row.status === "ACCEPTED" ? "0 2px 16px rgba(16,185,129,0.10)" : "0 2px 12px rgba(15,23,42,0.04)",
       background: row.status === "ACCEPTED" ? "linear-gradient(145deg,#f0fdf4,#ffffff)" : "#FFFFFF",
     }}>
@@ -530,7 +530,8 @@ export default function LogPanel({ id, ws }) {
         const visible = rows.slice(0, visibleCount);
         const hasMore = rows.length > visibleCount;
         return (
-          <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+          <div style={{ overflowX: "auto" }}>
+          <div style={{ display: "flex", gap: 20, alignItems: "flex-start", minWidth: 0 }}>
 
             {/* ── 타임라인 ── */}
             <div style={{ flex: 1, minWidth: 0, position: "relative", paddingLeft: 28 }}>
@@ -581,10 +582,10 @@ export default function LogPanel({ id, ws }) {
 
             {/* ── 범례 ── */}
             <div style={{
-              width: 108, flexShrink: 0,
+              width: 100, flexShrink: 0,
               background: "#F8FAFC", borderRadius: 12,
               border: "1px solid #E2E8F0",
-              padding: "12px 13px",
+              padding: "10px 11px",
               position: "sticky", top: 20,
               fontFamily: "'Inter','Pretendard',sans-serif",
             }}>
@@ -608,6 +609,7 @@ export default function LogPanel({ id, ws }) {
               ))}
             </div>
 
+          </div>
           </div>
         );
       })()}

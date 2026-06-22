@@ -176,18 +176,20 @@ function SeedSizingCard({ ws, theme, onRunBacktest, btBusy, disabled }) {
               {res.variant && <span> · {res.variant === "yeonri" ? "연리식" : res.variant === "laoer" ? "라오어식" : res.variant} 기준</span>}
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${Object.keys(res.per_ticker).length}, 1fr)`, gap: 10, marginBottom: 10 }}>
-            {Object.entries(res.per_ticker).map(([t, v]) => (
-              <div key={t} style={{ padding: "12px 14px", borderRadius: 10, background: theme.panel, border: `1px solid ${theme.panelBorder}` }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: theme.text, marginBottom: 6 }}>{t}</div>
-                <div style={{ fontSize: 11, color: theme.textMuted }}>필요 시드</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: theme.text, marginBottom: 6 }}>{fmtKRW(v.seed_krw)}</div>
-                {res.split && v.daily_buy_krw != null && (<>
-                  <div style={{ fontSize: 11, color: theme.textMuted }}>하루 매수액 (1/{res.split})</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{fmtKRW(v.daily_buy_krw)} <span style={{ color: theme.textMuted, fontWeight: 400 }}>(${Math.round(v.daily_buy_usd).toLocaleString()})</span></div>
-                </>)}
-              </div>
-            ))}
+          <div style={{ overflowX: "auto", minWidth: 0, marginBottom: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${Object.keys(res.per_ticker).length}, minmax(140px, 1fr))`, gap: 10 }}>
+              {Object.entries(res.per_ticker).map(([t, v]) => (
+                <div key={t} style={{ padding: "12px 14px", borderRadius: 10, background: theme.panel, border: `1px solid ${theme.panelBorder}` }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: theme.text, marginBottom: 6 }}>{t}</div>
+                  <div style={{ fontSize: 11, color: theme.textMuted }}>필요 시드</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: theme.text, marginBottom: 6 }}>{fmtKRW(v.seed_krw)}</div>
+                  {res.split && v.daily_buy_krw != null && (<>
+                    <div style={{ fontSize: 11, color: theme.textMuted }}>하루 매수액 (1/{res.split})</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{fmtKRW(v.daily_buy_krw)} <span style={{ color: theme.textMuted, fontWeight: 400 }}>(${Math.round(v.daily_buy_usd).toLocaleString()})</span></div>
+                  </>)}
+                </div>
+              ))}
+            </div>
           </div>
           <div style={{ fontSize: 11, lineHeight: 1.6, padding: "8px 12px", borderRadius: 8,
             background: "#fef3c7", border: "1px solid #fde68a", color: "#92400e" }}>
@@ -268,7 +270,9 @@ function ChartTabs({ bt, theme }) {
           <><b>{tabs[tab].label}</b>의 백테스트 기간 동안 <b>실제 가격 추이</b>입니다. 포트폴리오가 어떤 종목 움직임 위에서 돌아갔는지 확인하세요.</>
         )}
       </p>
-      <TrendLineChart series={activeSeries} theme={theme} height={280} toggleable initialHidden={["EMA 20", "BB 상단", "BB 하단"]} />
+      <div style={{ overflowX: "auto", minWidth: 0 }}>
+        <TrendLineChart series={activeSeries} theme={theme} height={210} toggleable initialHidden={["EMA 20", "BB 상단", "BB 하단"]} />
+      </div>
       {tab === 0 && (
         <>
           <div style={{ display: "flex", gap: 7, alignItems: "center", margin: "12px 0 2px", flexWrap: "wrap" }}>
@@ -333,8 +337,17 @@ export default function ReportPanel({ id, ws, onChange }) {
               align-items: flex-start !important;
               gap: 4px !important;
             }
+            @media (max-width: 1024px) {
+              .stats-grid-5col { grid-template-columns: repeat(3, 1fr) !important; }
+              .stats-grid-4col { grid-template-columns: repeat(2, 1fr) !important; }
+              .bigstat-card { padding: 10px 12px !important; }
+            }
+            @media (max-width: 640px) {
+              .stats-grid-5col { grid-template-columns: repeat(2, 1fr) !important; }
+              .stats-grid-4col { grid-template-columns: repeat(2, 1fr) !important; }
+            }
           `}</style>
-          <div className="stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 16, containerType: "inline-size" }}>
+          <div className="stats-grid stats-grid-5col" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10, marginBottom: 16, containerType: "inline-size" }}>
             <BigStat label="총 수익률" value={bt.stats?.total_return_pct} unit="%" theme={theme} positive hint="백테스트 전체 기간의 누적 수익률입니다. 매수 후 보유 대비 전략의 성과를 보여줍니다." />
             <BigStat label="연환산 수익" value={bt.stats?.annualized_return_pct} unit="%" theme={theme} hint="CAGR — 1년 단위로 환산했을 때의 평균 수익률. 기간이 달라도 비교 가능한 표준 지표입니다." />
             <BigStat label="MDD" value={bt.stats?.max_drawdown_pct} unit="%" theme={theme} negative hint="Maximum Drawdown — 고점 대비 최대 낙폭. 가장 불운한 타이밍에 매수했을 때 겪을 수 있는 최대 손실입니다." />
@@ -354,7 +367,7 @@ export default function ReportPanel({ id, ws, onChange }) {
           {/* 위험지표 — 1줄 4지표 + 쉬운 설명 */}
           {bt.risk_metrics && (
             <Card title="📐 위험지표 상세 (QuantStats)" theme={theme} titleSize={20}>
-              <div className="stats-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, containerType: "inline-size" }}>
+              <div className="stats-grid stats-grid-4col" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, containerType: "inline-size" }}>
                 <BigStat label="CAGR" value={rm.cagr_pct} unit="%" theme={theme} hint="복리 연환산 수익률 — 1년에 평균 몇 % 불어났는지." />
                 <BigStat label="변동성" value={rm.volatility_pct} unit="%" theme={theme} hint="연환산 변동성. 일별 수익률 표준편차 × √252. 높을수록 자산가치 등락이 큽니다." />
                 <BigStat label="VaR(95%)" value={rm.var_95_pct} unit="%" theme={theme} negative hint="95% 신뢰수준에서 하루에 발생 가능한 최대 손실. -2%면 95% 확률로 하루 손실이 2% 이내." />

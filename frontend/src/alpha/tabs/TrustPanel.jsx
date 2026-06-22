@@ -85,7 +85,7 @@ function TrustNarrative({ trust, theme }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* 점수 + 등급 */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", maxWidth: "100%" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
           <span style={{ fontSize: 56, fontWeight: 900, color: theme.accent, lineHeight: 1 }}>{score}</span>
           <span style={{ fontSize: 16, color: theme.textMuted }}>/ 100</span>
@@ -110,9 +110,10 @@ function TrustNarrative({ trust, theme }) {
       )}
 
       {/* 강점 / 보완 필요 */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
         {p.strength && (
           <div style={{
+            flex: "1 1 240px", minWidth: 0,
             padding: "12px 14px", borderRadius: 12,
             background: "linear-gradient(135deg,#d1fae5,#a7f3d0)",
             border: "1px solid #6ee7b7",
@@ -127,6 +128,7 @@ function TrustNarrative({ trust, theme }) {
         )}
         {p.weakness && (
           <div style={{
+            flex: "1 1 240px", minWidth: 0,
             padding: "12px 14px", borderRadius: 12,
             background: "linear-gradient(135deg,#fef3c7,#fde68a)",
             border: "1px solid #fcd34d",
@@ -247,13 +249,13 @@ export default function TrustPanel({ id, ws, onChange }) {
                 margin: "6px 0 10px", padding: "8px 12px", background: theme.codeBg || "#f8fafc",
                 border: `1px solid ${theme.panelBorder}`, borderRadius: 8, fontSize: 12, overflowX: "auto",
                 fontFamily: "inherit",
-              }}>{`trust = 0.30·일반화 + 0.25·국면견고성 + 0.20·파라미터안정성 + 0.15·리스크통제 + 0.10·통계적유의성 − |과적합패널티|`}</pre>
+              }}>{`trust = 0.25·일반화 + 0.20·국면견고성 + 0.15·파라미터안정성 + 0.20·리스크통제 + 0.20·통계적유의성 − |과적합패널티|`}</pre>
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 <li><b>일반화 (Generalization)</b> — Walk-Forward(In-Sample→Out-of-Sample)에서 OOS Sharpe가 IS와 얼마나 일관되나. 과거에 잘되던 게 미래에도 될지 검증.</li>
                 <li><b>시장국면 견고성 (Regime Robustness)</b> — 4가지 시장 국면 중 가장 안 좋은 국면의 Sharpe가 얼마나 방어적인지.</li>
                 <li><b>파라미터 안정성 (Parameter Stability)</b> — 주요 파라미터를 ±10% 흔들었을 때 결과가 크게 바뀌지 않는지.</li>
                 <li><b>리스크 통제 (Risk Control)</b> — 목표 MDD를 잘 지켰는지, 손실 제한이 의도대로 작동했는지.</li>
-                <li><b>통계적 유의성 (Statistical Confidence)</b> — 수익 평균이 0과 유의하게 다른가 (t-stat 기반).</li>
+                <li><b>통계적 유의성 (Statistical Confidence)</b> — 수익이 우연이 아닌가. 여러 번 시도해 우연히 잘 나올 가능성까지 차감한 <b>DSR(Deflated Sharpe)</b> 기반.</li>
               </ul>
               <p style={{ margin: "10px 0 0", fontSize: 11.5, color: theme.textMuted }}>
                 세부 점수 항목의 <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 13, height: 13, borderRadius: "50%", background: "#22c55e", color: "white", fontSize: 7, fontWeight: 900 }}>!</span> 아이콘에 마우스를 올리면 개별 설명이 나타나요.

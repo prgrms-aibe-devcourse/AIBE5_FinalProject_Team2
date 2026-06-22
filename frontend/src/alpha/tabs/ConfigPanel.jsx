@@ -246,7 +246,7 @@ function GoalProfileSummary({ profile, theme, wsId, onChange }) {
       </div>
 
       {/* 필드 그리드 */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+      <div className="cfg-fields-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         {FIELDS.map((f) => {
           const isMuted = f.muted?.();
           return (
@@ -589,7 +589,7 @@ function BrokerLimitsCard({ theme }) {
               whiteSpace: "nowrap",
             }}>{(b.brokerType === "BINANCE" ? "Binance " : "KIS ") + (b.env === "REAL" ? "실전" : "모의")}</span>
             {/* 필드 2컬럼 */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div className="cfg-broker-limits-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {["maxOrderUsd", "dailyOrderUsd"].map((key) => {
                 const dk = draftKey(b, key);
                 const label = key === "maxOrderUsd" ? "1건당 한도" : "일일 누적 한도";
@@ -700,7 +700,17 @@ export default function ConfigPanel({ id, ws, onChange, setTab, topSummary }) {
 
   return (
     <div>
-      <style>{`@keyframes candidateSpin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes candidateSpin { to { transform: rotate(360deg); } }
+        @media (max-width: 1024px) {
+          .cfg-outer-grid { grid-template-columns: 1fr !important; }
+          .cfg-outer-grid > * { min-width: 0; }
+          .cfg-fields-grid { grid-template-columns: 1fr !important; }
+          .cfg-fields-grid > * { grid-column: auto !important; }
+          .cfg-broker-limits-grid { grid-template-columns: 1fr !important; }
+          .cfg-panel-header-action { flex-wrap: wrap; }
+        }
+      `}</style>
       <PanelHeader
         icon="🧩"
         title="Strategy Card"
@@ -715,7 +725,7 @@ export default function ConfigPanel({ id, ws, onChange, setTab, topSummary }) {
 
       {topSummary}
 
-      <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr 1fr" }}>
+      <div className="cfg-outer-grid" style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr 1fr" }}>
         <Card title="Goal Profile (사용자 목표 구조화)" theme={theme} titleSize={19}>
           {ws.goalProfile
             ? <GoalProfileSummary profile={ws.goalProfile} theme={theme} wsId={id} onChange={onChange} />
