@@ -3,18 +3,18 @@
 
 두 가지 변형(variant)을 지원:
   • "laoer" (기본, 라오어식): 전량 익절 + 균등 자본분할 + 복리.
-  • "yeona"  (연아무한매수법): 평단×1.13 익절 후 1주만 남김 + 종목 가중분할 + 고정 일매수.
+  • "yeonri"  (연리무한매수법): 평단×1.13 익절 후 1주만 남김 + 종목 가중분할 + 고정 일매수.
 
 핵심 규칙 (사용자 정의):
   - 원금 capital을 split(=40) 회차로 분할 → daily_budget = (가중)자본 / split
   - 매일 종가 기준으로:
       종가 <= 평단가          → daily_budget 전액으로 매수  (LOC 평단매수 1.0회)
-      평단 < 종가 <= 평단*(1+loc_offset)  → daily_budget * 0.5 매수 (LOC 큰수매수 0.5회 / 연아는 보통가)
+      평단 < 종가 <= 평단*(1+loc_offset)  → daily_budget * 0.5 매수 (LOC 큰수매수 0.5회 / 연리는 보통가)
       그 외                    → 매수 없음
   - 보유 중 종가 >= 평단 * (1 + take_profit_pct/100)  → 익절(leave_shares 남기고 매도) + 사이클 리셋
   - 마지막 날 미청산 포지션은 mark-to-market
 
-연아무한매수법 권장 파라미터: split=40, take_profit_pct=13, loc_offset_pct=10,
+연리무한매수법 권장 파라미터: split=40, take_profit_pct=13, loc_offset_pct=10,
   leave_shares=1, compound=False, ticker_weights={"TQQQ":0.87,"SOXL":0.13}
 
 지원: 단일 티커 + 멀티 티커 (자본을 가중치 또는 균등 분할).
@@ -31,22 +31,22 @@ import pandas as pd
 @dataclass
 class InfiniteBuyingParams:
     split: int = 40                  # 분할 횟수 (원금/40)
-    take_profit_pct: float = 10.0    # 평단 대비 익절 트리거 (%) — 연아: 13
-    loc_offset_pct: float = 15.0     # 평단보다 비싸도 매수 허용 상한 (%) — 연아: 10
+    take_profit_pct: float = 10.0    # 평단 대비 익절 트리거 (%) — 연리: 13
+    loc_offset_pct: float = 15.0     # 평단보다 비싸도 매수 허용 상한 (%) — 연리: 10
     initial_capital: float = 10_000.0  # USD 기본값 (사용자가 KRW 환산 후 주입)
     fees: float = 0.0025  # 0.25% KIS 해외주식 실수수료
     slippage: float = 0.001  # 0.10% 슬리피지
-    # ── 연아무한매수법 옵션 ──
-    leave_shares: float = 0.0        # 익절 시 남겨둘 수량 (연아: 1주). 0 = 전량 매도
-    compound: bool = True            # True=익절 후 잔고로 1회분 재계산(복리), False=고정 일매수(연아)
-    ticker_weights: Optional[dict] = None  # {ticker: weight} 자본 배분(미지정=균등). 연아: TQQQ 多
-    variant: str = "laoer"           # "laoer"(기본) | "yeona"(연아무한매수법) — 표시/메타용
+    # ── 연리무한매수법 옵션 ──
+    leave_shares: float = 0.0        # 익절 시 남겨둘 수량 (연리: 1주). 0 = 전량 매도
+    compound: bool = True            # True=익절 후 잔고로 1회분 재계산(복리), False=고정 일매수(연리)
+    ticker_weights: Optional[dict] = None  # {ticker: weight} 자본 배분(미지정=균등). 연리: TQQQ 多
+    variant: str = "laoer"           # "laoer"(기본) | "yeonri"(연리무한매수법) — 표시/메타용
     # 익절 직후 새 사이클 첫 매수: 0.5분할을 보통가(현재가)로 매수해 평단을 현재가에 재기준.
-    # → 랠리에서 익절→재매수→익절 '사다리타기'를 재현 (연아: 0.5). 0이면 비활성(라오어).
+    # → 랠리에서 익절→재매수→익절 '사다리타기'를 재현 (연리: 0.5). 0이면 비활성(라오어).
     restart_buy_fraction: float = 0.0
     # ── XGBoost 오버레이 (ai_opt 브랜치) ──
     # xgb_overlay=True 이면 loc_large 매수 시 XGBoost 신호를 참조해 하락 예측 강할 때 스킵.
-    # loc_avg(평단매수)는 연아 원칙상 항상 실행 — XGBoost 무관.
+    # loc_avg(평단매수)는 연리 원칙상 항상 실행 — XGBoost 무관.
     xgb_overlay: bool = False
     xgb_ticker: str = ""              # 학습된 모델 파일명 기준 티커 (기본: tickers[0])
     xgb_skip_threshold: float = 0.38  # 상승 확률 이 미만이면 loc_large 스킵
@@ -94,12 +94,12 @@ def run_infinite_buying(
     _xgb_skip_dates: set = set()
     if p.xgb_overlay:
         try:
-            from app.models.xgb_signal import predict_signal_for_yeona
+            from app.models.xgb_signal import predict_signal_for_yeonri
             xgb_ticker = p.xgb_ticker or tickers[0]
             combined_close = list(closes.values())[0]
             # Volume이 없을 경우 Close만으로 데이터프레임 구성
             xgb_df = combined_close.to_frame(name="Close")
-            sig = predict_signal_for_yeona(xgb_df, xgb_ticker, strong_down_threshold=p.xgb_skip_threshold)
+            sig = predict_signal_for_yeonri(xgb_df, xgb_ticker, strong_down_threshold=p.xgb_skip_threshold)
             if sig.get("signal") == "SKIP_LOC_LARGE" and sig.get("as_of"):
                 _xgb_skip_dates.add(sig["as_of"])
         except Exception:
@@ -114,7 +114,7 @@ def run_infinite_buying(
     df_open = (pd.concat({t: opens[t] for t in tickers if t in opens}, axis=1)
                .reindex(df.index).ffill()) if opens else None
 
-    # 자본 배분: ticker_weights 지정 시 가중(연아 TQQQ:SOXL≈400:60), 미지정 시 균등
+    # 자본 배분: ticker_weights 지정 시 가중(연리 TQQQ:SOXL≈400:60), 미지정 시 균등
     if p.ticker_weights:
         wsum = sum(max(0.0, p.ticker_weights.get(t, 0.0)) for t in tickers) or 1.0
         alloc = {t: p.initial_capital * (max(0.0, p.ticker_weights.get(t, 0.0)) / wsum) for t in tickers}
@@ -149,7 +149,7 @@ def run_infinite_buying(
                     day_open = float(ov)
 
             # 1) 익절 체크 (보유 중이고 평단 대비 +take_profit_pct 이상)
-            #    연아무한매수법: 평단×1.13 정규장 지정가 익절 → 1주(leave_shares)만 남기고 매도 후 사이클 재시작.
+            #    연리무한매수법: 평단×1.13 정규장 지정가 익절 → 1주(leave_shares)만 남기고 매도 후 사이클 재시작.
             #    OHLC 모드: 고가가 평단×1.13 도달 시 그 지정가에 체결(갭상승이면 시가). → 실현률 ≈ 정확히 +13%.
             if s.qty > 0 and s.avg_price > 0:
                 trigger = s.avg_price * (1.0 + p.take_profit_pct / 100.0)
@@ -187,10 +187,10 @@ def run_infinite_buying(
                         s.cycle_idx = 0
                         s.cycles_completed += 1
                         # 복리(compound=True): 익절 후 남은 현금 기준으로 1회차 예산 재계산.
-                        # 연아(compound=False): 일매수액 고정 — cycle_budget 그대로.
+                        # 연리(compound=False): 일매수액 고정 — cycle_budget 그대로.
                         if p.compound and s.cash_alloc > 0:
                             s.cycle_budget = s.cash_alloc / p.split
-                        # ── 연아: 익절 직후 0.5분할 보통가(현재가) 매수로 평단 재기준 ──
+                        # ── 연리: 익절 직후 0.5분할 보통가(현재가) 매수로 평단 재기준 ──
                         # "처음 시작할 때 0.5분할을 정규가로 사서 LOC평단을 만든다" → 새 사이클이
                         # 현재 시세에서 출발 → 랠리에서 익절→재매수→익절 사다리타기 재현.
                         if p.restart_buy_fraction > 0 and s.cash_alloc > 0:
@@ -429,7 +429,7 @@ def latest_order_plan(
 
         if qty > 0 and avg > 0 and last_close >= avg * (1 + p.take_profit_pct / 100):
             side, reason = "SELL", "take_profit"
-            # 연아: 1주(leave_shares) 남기고 매도
+            # 연리: 1주(leave_shares) 남기고 매도
             amount = max(0.0, qty - p.leave_shares) * last_close
         elif avg <= 0 or last_close <= avg:
             side, reason = "BUY", "loc_avg"

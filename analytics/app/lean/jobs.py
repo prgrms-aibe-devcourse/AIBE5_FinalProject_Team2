@@ -174,6 +174,20 @@ class LeanCluster:
         total = sum(max(1, n.slots) for n in node_list)
         logger.info("[LeanCluster] 시작 — 노드 %d개, 총 슬롯 %d", len(node_list), total)
 
+    def add_node(self, node: LeanNode) -> None:
+        """런타임 노드 추가(동적 스케일 · 다중 노드 레지스트리). 이미 start 됐으면 즉시 워커 기동.
+        (단계 2: 원격 워커가 자기를 등록하는 진입점이기도 함 — 현재는 로컬 슬롯 추가.)"""
+        with self._lock:
+            if node.id in self.nodes:
+                raise ValueError(f"node already exists: {node.id}")
+            self.nodes[node.id] = node
+            started = self._started
+        if started:
+            for i in range(max(1, node.slots)):
+                threading.Thread(target=self._worker, args=(node,),
+                                 name=f"lean-{node.id}-{i}", daemon=True).start()
+        logger.info("[LeanCluster] 노드 추가 %s (slots=%d, 즉시기동=%s)", node.id, node.slots, started)
+
     def submit(self, meta: Dict[str, Any], run_with_job: Callable[[LeanJob], None]) -> LeanJob:
         """잡 큐잉. 빈 슬롯이 있으면 워커가 즉시 집어 실행, 없으면 큐 대기."""
         job = LeanJob(uuid.uuid4().hex[:12], meta=meta)
