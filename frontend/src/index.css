@@ -114,3 +114,46 @@
   background: transparent;
 }
 
+/* AppShell active: lock html+body scroll so html{zoom:1.1} never creates a
+   document-level scrollbar (which breaks position:fixed in Chrome/Blink) */
+html.alpha-shell-html,
+body.alpha-shell-body {
+  overflow: hidden;
+}
+
+/* ── Responsive utilities (1366px laptop / 1024px tablet) ── */
+
+/* Responsive page container — add class "rp-page" to top-level page divs */
+.rp-page { padding: 36px 40px 80px; }
+@media (max-width: 1366px) { .rp-page { padding: 24px 24px 60px; } }
+@media (max-width: 1024px) { .rp-page { padding: 16px 16px 48px; } }
+
+/* Responsive header row */
+.rp-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 32px; flex-wrap: wrap; gap: 16px; }
+@media (max-width: 1024px) { .rp-header { margin-bottom: 20px; gap: 10px; } }
+
+/* Responsive 2-col grid */
+.rp-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 1024px) { .rp-grid-2 { grid-template-columns: 1fr; } }
+
+/* Responsive 3-col grid */
+.rp-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+@media (max-width: 1366px) { .rp-grid-3 { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 1024px) { .rp-grid-3 { grid-template-columns: 1fr; } }
+
+/* Responsive card padding */
+.rp-card { padding: 28px 32px; }
+@media (max-width: 1366px) { .rp-card { padding: 20px 24px; } }
+@media (max-width: 1024px) { .rp-card { padding: 16px 18px; } }
+
+/* Responsive h1 font size */
+.rp-h1 { font-size: 26px; }
+@media (max-width: 1366px) { .rp-h1 { font-size: 22px; } }
+@media (max-width: 1024px) { .rp-h1 { font-size: 20px; } }
+
+/* Responsive button row — wraps on small screens */
+.rp-btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+/* Overflow-safe wide content (tables, charts) */
+.rp-scroll { overflow-x: auto; }
+
