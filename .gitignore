@@ -18,6 +18,8 @@ frontend/.vite/
 
 # 개인 금융정보 캡처 (실계좌·실명 포함) — 절대 커밋 금지
 frontend/stock_asset/
+frontend/stock_chart/
+frontend/balance_account/
 frontend/src/assets/q1.jpg
 frontend/src/assets/q2.jpg
 frontend/src/assets/q3.jpg
@@ -129,3 +131,4 @@ replay_pid*.log
 
 # Lean CLI workspace (데이터 db·프로젝트·결과는 init 시 자동 스캐폴드/다운로드)
 analytics/.lean-workspace/
+deploy/k8s/lean-worker/app/
