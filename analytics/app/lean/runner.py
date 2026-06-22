@@ -75,15 +75,20 @@ def _fetch_ohlcv(symbol: str, start: str, end: str, market: str) -> pd.DataFrame
     from app.data.yf_client import get_history
     start_dt = datetime.strptime(start, "%Y-%m-%d")
     end_dt = datetime.strptime(end, "%Y-%m-%d")
-    days = (end_dt - start_dt).days
-    if days <= 365:
+    # period 는 "지금부터 거꾸로 N" 이므로, 요청 '시작일'까지 닿도록 (요청 기간 길이가 아니라)
+    # now-start 기준으로 산정해야 한다. range 길이로 잡으면 과거 구간 백테스트 시 period 창이
+    # 현재 부근에 머물러 [start,end] 필터 후 빈 데이터가 된다(과거 백테스트 전부 실패 버그).
+    span_days = (datetime.now() - start_dt).days
+    if span_days <= 370:
         period = "1y"
-    elif days <= 730:
+    elif span_days <= 740:
         period = "2y"
-    elif days <= 1825:
+    elif span_days <= 1850:
         period = "5y"
-    else:
+    elif span_days <= 3700:
         period = "10y"
+    else:
+        period = "max"
 
     df = get_history(symbol, period=period, interval="1d")
     # 인덱스를 datetime → 'date' 컬럼으로 (DataConverter 기대 형식)
@@ -118,6 +123,7 @@ def run_lean_backtest(req: LeanBacktestRequest, progress_cb=None) -> LeanBacktes
         import kis_backtest.strategies.preset  # noqa: F401
         from kis_backtest.strategies.registry import StrategyRegistry
         from kis_backtest.codegen.generator import LeanCodeGenerator, CodeGenConfig
+        from kis_backtest.codegen.raw_algos import RAW_ALGOS, render_raw_algo, raw_algo_meta, render_custom
         from kis_backtest.lean.executor import LeanExecutor
         from kis_backtest.lean.project_manager import LeanProjectManager
         from kis_backtest.lean.data_converter import DataConverter
@@ -129,21 +135,31 @@ def run_lean_backtest(req: LeanBacktestRequest, progress_cb=None) -> LeanBacktes
             error=f"kis_backtest import 실패: {e}",
         )
 
-    try:
-        # 1. 전략 조회 + 파라미터 적용
-        if req.param_overrides:
-            definition = StrategyRegistry.build_with_params(req.strategy_id, **req.param_overrides)
-        else:
-            definition = StrategyRegistry.build(req.strategy_id)
-    except KeyError:
-        return LeanBacktestResult(
-            success=False, run_id=run_id, statistics={}, equity_curve=[], trades_count=0,
-            error=f"Strategy not found: {req.strategy_id}. "
-                  f"가능: {', '.join(StrategyRegistry.list_all())}",
-        )
+    # raw-algo(무한매수법 등 stateful)·custom(IDE/Claude 자유 main.py)은 DSL codegen 우회.
+    is_raw = req.strategy_id in RAW_ALGOS
+    custom_src = (req.param_overrides or {}).get("main_py")
+    definition = None
+    if custom_src:
+        strat_name = "사용자 전략"
+    elif is_raw:
+        strat_name = raw_algo_meta(req.strategy_id).get("name", req.strategy_id)
+    else:
+        try:
+            # 1. 전략 조회 + 파라미터 적용
+            if req.param_overrides:
+                definition = StrategyRegistry.build_with_params(req.strategy_id, **req.param_overrides)
+            else:
+                definition = StrategyRegistry.build(req.strategy_id)
+        except KeyError:
+            return LeanBacktestResult(
+                success=False, run_id=run_id, statistics={}, equity_curve=[], trades_count=0,
+                error=f"Strategy not found: {req.strategy_id}. "
+                      f"가능: {sorted(StrategyRegistry.list().keys())} + {sorted(RAW_ALGOS)}",
+            )
+        strat_name = definition.name
 
     try:
-        _emit("phase", f"전략 로드: {definition.name}")
+        _emit("phase", f"전략 로드: {strat_name}")
         # 2. 데이터 fetch (우리 yf/Polygon)
         data_dict: Dict[str, pd.DataFrame] = {}
         for sym in req.symbols:
@@ -169,7 +185,7 @@ def run_lean_backtest(req: LeanBacktestRequest, progress_cb=None) -> LeanBacktes
             strategy_type=req.strategy_id,
             strategy_params=req.param_overrides or {},
             strategy_id=req.strategy_id,
-            strategy_name=definition.name,
+            strategy_name=strat_name,
             market_type=market_type,
             currency=currency,
         )
@@ -178,18 +194,25 @@ def run_lean_backtest(req: LeanBacktestRequest, progress_cb=None) -> LeanBacktes
         _emit("phase", f"데이터 CSV 변환 ({len(data_dict)} 종목)")
         DataConverter.export(data_dict, str(project.data_dir), market_type=market_type)
 
-        # 5. main.py 코드 생성
-        from kis_backtest.core.converters import from_definition
-        schema = from_definition(definition)
-        gen_config = CodeGenConfig(
-            market=market_type,
-            commission_rate=req.commission_rate,
-            tax_rate=req.tax_rate,
-            slippage=req.slippage,
-            initial_capital=req.initial_capital,
-        )
-        generator = LeanCodeGenerator(schema, gen_config)
-        lean_code = generator.generate(req.symbols, req.start_date, req.end_date)
+        # 5. main.py 코드 생성 — custom(자유)·raw-algo(템플릿)·DSL 프리셋(codegen).
+        if custom_src:
+            lean_code = render_custom(custom_src, market=market_type)
+        elif is_raw:
+            lean_code = render_raw_algo(req.strategy_id, req.symbols, req.start_date,
+                                        req.end_date, req.initial_capital,
+                                        market=market_type, params=req.param_overrides or {})
+        else:
+            from kis_backtest.core.converters import from_definition
+            schema = from_definition(definition)
+            gen_config = CodeGenConfig(
+                market=market_type,
+                commission_rate=req.commission_rate,
+                tax_rate=req.tax_rate,
+                slippage=req.slippage,
+                initial_capital=req.initial_capital,
+            )
+            generator = LeanCodeGenerator(schema, gen_config)
+            lean_code = generator.generate(req.symbols, req.start_date, req.end_date)
         (project.project_dir / "main.py").write_text(lean_code, encoding="utf-8")
         logger.info(f"[Lean] main.py written ({len(lean_code)} bytes)")
         _emit("phase", f"Lean 알고리즘 코드 생성 ({len(lean_code)} bytes)")
@@ -210,7 +233,7 @@ def run_lean_backtest(req: LeanBacktestRequest, progress_cb=None) -> LeanBacktes
             strategy_type=req.strategy_id,
             strategy_params=req.param_overrides or {},
             currency=currency,
-            strategy_name=definition.name,
+            strategy_name=strat_name,
         )
         result_obj = api_resp.get("result", {})
         stats = result_obj.get("statistics", {})
@@ -248,8 +271,9 @@ def run_lean_backtest(req: LeanBacktestRequest, progress_cb=None) -> LeanBacktes
 
 
 def list_available_strategies() -> List[Dict[str, Any]]:
-    """등록된 preset 전략 목록 + 파라미터 정의."""
+    """등록된 DSL preset 전략 + raw-algo(무한매수법 등) 목록 + 파라미터 정의."""
     import app.lean  # noqa: F401  — sys.path 주입
     import kis_backtest.strategies.preset  # noqa: F401
     from kis_backtest.strategies.registry import StrategyRegistry
-    return StrategyRegistry.list_all_with_params()
+    from kis_backtest.codegen.raw_algos import raw_algo_catalog
+    return StrategyRegistry.list_all_with_params() + raw_algo_catalog()
