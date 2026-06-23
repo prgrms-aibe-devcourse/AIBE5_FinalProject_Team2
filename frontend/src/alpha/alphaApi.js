@@ -13,6 +13,10 @@ export const updateGoalProfile   = (id, patch) => api.patch(`/alpha/workspaces/$
 export const linkWorkspaceBroker = (id, brokerAccountId) =>
   api.patch(`/alpha/workspaces/${id}/broker-account`, { brokerAccountId }).then(r => r.data);
 
+/** 워크스페이스 자동주문 ON/OFF 토글. enabled: boolean */
+export const toggleWorkspaceAutoOrder = (id, enabled) =>
+  api.patch(`/alpha/workspaces/${id}/auto-order`, { enabled }).then(r => r.data);
+
 // Chat
 export const fetchChat           = (id) => api.get(`/alpha/workspaces/${id}/chat`).then(r => r.data);
 export const sendChat            = (id, text) => api.post(`/alpha/workspaces/${id}/chat`, { text }).then(r => r.data);
@@ -41,8 +45,8 @@ export const runBriefing         = (id) => api.post(`/alpha/workspaces/${id}/bri
 export const runAutoPipeline     = (id) => api.post(`/alpha/workspaces/${id}/auto-run`).then(r => r.data);
 export const saveCode            = (id, codeJson) =>
   api.patch(`/alpha/workspaces/${id}/code`, { codeJson }).then(r => r.data);
-export const queueOrders         = (id) =>
-  api.post(`/alpha/workspaces/${id}/queue-orders`).then(r => r.data);
+export const queueOrders         = (id, strategy) =>
+  api.post(`/alpha/workspaces/${id}/queue-orders`, strategy ? { strategy } : {}).then(r => r.data);
 
 // Quant Developer IDE 데이터셋 — 실제 수집 현황(polygon/binance/...) + OHLCV 미리보기
 export const getDataStatus  = () => api.get("/analytics/data-status").then(r => r.data);
@@ -60,6 +64,9 @@ export const leanBacktest       = (body) => api.post("/lean/backtest", body, { t
 export const leanListStrategies = () => api.get("/lean/strategies").then(r => r.data); // { strategies:[{id,name,params}] }
 // 비동기 잡: start → { job_id } 즉시, status 를 since 커서로 폴링(진행 로그 + 완료 결과)
 export const leanBacktestStart  = (body) => api.post("/lean/backtest/start", body).then(r => r.data);
+// 실제 실행될 Lean main.py 코드만 생성해 반환(데이터/Docker 실행 없음) — IDE 가 '진짜 돌아가는 코드'를 에디터에 표시(WYSIWYG).
+// body: { strategyId, symbols:[..], startDate, endDate, market, paramOverrides } → { success, code, strategy_id, bytes }
+export const leanCodegen        = (body) => api.post("/lean/codegen", body).then(r => r.data);
 export const leanBacktestStatus = (jobId, since = 0) =>
   api.get(`/lean/backtest/status/${jobId}`, { params: { since } }).then(r => r.data);
 export const getLeanHealth      = () => api.get("/lean/health").then(r => r.data); // { enabled, docker, lean_cli, image, ready }
