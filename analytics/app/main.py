@@ -27,6 +27,7 @@ from app.data.collector import (
     US_SYMBOLS, CRYPTO_SYMBOLS, FRED_SERIES,
 )
 from app.backtest.vbt_engine import BacktestParams, run_backtest, latest_signal
+from app.backtest.preset_plan import latest_preset_plan, ALLOWED_PRESETS
 from app.backtest.infinite_buying import (
     InfiniteBuyingParams,
     run_infinite_buying,
@@ -55,7 +56,12 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """스케줄러들 시작."""
+    """스케줄러들 + Lean 노드 풀 시작."""
+    try:
+        from app.lean.jobs import init_cluster
+        init_cluster()              # Lean 노드 풀(큐 + 디스패처) 기동
+    except Exception as e:          # noqa: BLE001
+        log.warning("Lean 클러스터 기동 실패: %s", e)
     if os.getenv("DISABLE_RETRAIN_SCHEDULER", "0") != "1":
         start_scheduler()           # XGBoost 재학습
         start_data_scheduler()      # 시장 데이터 수집
@@ -366,8 +372,8 @@ def trust_endpoint(req: TrustReq):
 
 
 # ---------- Infinite Buying Method (무한매수법) ----------
-# variant="yeona"(연아무한매수법) 선택 시, 명시하지 않은 필드는 아래 프리셋으로 채움.
-YEONA_DEFAULTS = {
+# variant="yeonri"(연리무한매수법) 선택 시, 명시하지 않은 필드는 아래 프리셋으로 채움.
+YEONRI_DEFAULTS = {
     "split": 40,
     "take_profit_pct": 13.0,   # 평단×1.13 정규장 익절
     "loc_offset_pct": 10.0,    # 평단×1.10 이내 보통가 매수
@@ -380,23 +386,23 @@ YEONA_DEFAULTS = {
 class InfiniteBuyingReq(BaseModel):
     tickers: list[str] = Field(default_factory=lambda: ["TQQQ", "SOXL"])
     period: str = "5y"
-    variant: str = "laoer"     # "laoer"(기본) | "yeona"(연아무한매수법)
+    variant: str = "laoer"     # "laoer"(기본) | "yeonri"(연리무한매수법)
     split: int = 40
     take_profit_pct: float = 10.0
     loc_offset_pct: float = 15.0
     initial_capital: float = 300_000_000.0
     fees: float = 0.0025      # 0.25% — CLAUDE.md 명세(InfiniteBuyingParams 기본값과 정합)
     slippage: float = 0.001   # 0.1%
-    leave_shares: float = 0.0          # 익절 시 남길 수량 (연아: 1)
-    compound: bool = True              # 익절 후 복리 재계산 여부 (연아: False)
-    ticker_weights: dict | None = None # 종목 자본 가중치 (연아: TQQQ 多)
-    restart_buy_fraction: float = 0.0  # 익절 직후 보통가 재매수 분할 (연아: 0.5)
+    leave_shares: float = 0.0          # 익절 시 남길 수량 (연리: 1)
+    compound: bool = True              # 익절 후 복리 재계산 여부 (연리: False)
+    ticker_weights: dict | None = None # 종목 자본 가중치 (연리: TQQQ 多)
+    restart_buy_fraction: float = 0.0  # 익절 직후 보통가 재매수 분할 (연리: 0.5)
     start: str | None = None           # 직접 지정 시작일(ISO). 주면 [start,end] 구간만 백테스트
     end: str | None = None             # 직접 지정 종료일(ISO)
 
 
 def _build_ib_params(req: "InfiniteBuyingReq") -> InfiniteBuyingParams:
-    """요청 → InfiniteBuyingParams. variant='yeona'면 미지정 필드를 연아 프리셋으로 보정."""
+    """요청 → InfiniteBuyingParams. variant='yeonri'면 미지정 필드를 연리 프리셋으로 보정."""
     set_fields = req.model_fields_set
     kwargs = dict(
         split=req.split,
@@ -411,8 +417,8 @@ def _build_ib_params(req: "InfiniteBuyingReq") -> InfiniteBuyingParams:
         variant=req.variant,
         restart_buy_fraction=req.restart_buy_fraction,
     )
-    if req.variant == "yeona":
-        for k, v in YEONA_DEFAULTS.items():
+    if req.variant == "yeonri":
+        for k, v in YEONRI_DEFAULTS.items():
             if k not in set_fields:
                 kwargs[k] = v
         # 종목 가중치 미지정 시: 실제 5월 매수 데이터 검증값 TQQQ:SOXL ≈ 73:27
@@ -561,6 +567,63 @@ def value_rebalancing_plan(req: ValueRebalancingReq):
         raise HTTPException(500, str(e))
 
 
+# ---------- 프리셋(vbt 6전략) 엔진-매칭 주문 plan — sma/momentum/rsi/macd/vix/buy_and_hold ----------
+class PresetPlanReq(BaseModel):
+    tickers: list[str] = Field(default_factory=lambda: ["SPY"])
+    strategy: str = "sma_cross"
+    period: str = "5y"
+    # 전략 파라미터(BacktestParams 동형 — 기본값 일치)
+    sma_fast: int = 20
+    sma_slow: int = 60
+    rsi_period: int = 14
+    rsi_low: int = 30
+    rsi_high: int = 70
+    macd_fast: int = 12
+    macd_slow: int = 26
+    macd_signal: int = 9
+    momentum_long_days: int = 252
+    momentum_short_days: int = 21
+    vix_threshold: float = 25.0
+    initial_capital: float = 100_000_000.0
+    fees: float = 0.0025
+    slippage: float = 0.001
+
+
+def _build_preset_params(req: "PresetPlanReq") -> BacktestParams:
+    return BacktestParams(
+        strategy=req.strategy,
+        sma_fast=req.sma_fast, sma_slow=req.sma_slow,
+        rsi_period=req.rsi_period, rsi_low=req.rsi_low, rsi_high=req.rsi_high,
+        macd_fast=req.macd_fast, macd_slow=req.macd_slow, macd_signal=req.macd_signal,
+        momentum_long_days=req.momentum_long_days, momentum_short_days=req.momentum_short_days,
+        vix_threshold=req.vix_threshold,
+        initial_capital=req.initial_capital, fees=req.fees, slippage=req.slippage,
+    )
+
+
+@app.post("/orders/preset/plan", dependencies=[Depends(require_internal_token)])
+def preset_plan(req: PresetPlanReq):
+    if req.strategy not in ALLOWED_PRESETS:
+        raise HTTPException(422, f"unsupported preset strategy: {req.strategy} (지원: {sorted(ALLOWED_PRESETS)})")
+    try:
+        closes: dict = {}
+        for t in req.tickers:
+            df = get_history(t, period=req.period)
+            closes[t.upper()] = df["Close"]
+        vix = None
+        if req.strategy == "vix_risk_off":
+            try:
+                vix = get_history("^VIX", period=req.period)["Close"]
+            except Exception:
+                log.warning("VIX fetch failed for preset plan", exc_info=True)
+        return latest_preset_plan(closes, _build_preset_params(req), vix=vix)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("preset plan failed")
+        raise HTTPException(500, str(e))
+
+
 # ---------- 모멘텀 로테이션 (멀티자산 상대강도 랭킹) ----------
 class MomentumRotationReq(BaseModel):
     tickers: list[str] = Field(default_factory=lambda: ["QQQ","XLK","XLF","XLE","XLV","XLY","TLT","GLD","SCHD","BIL"])
@@ -619,11 +682,24 @@ REFERENCE_SEED_USD = 100_000.0  # 측정용 참조 시드(결과 비율엔 영�
 
 
 class InfiniteBuyingSizingReq(InfiniteBuyingReq):
+    strategy_type: str = "infinite_buying"  # infinite_buying | value_rebalancing | momentum_rotation
     target_monthly_usd: float | None = None
     target_monthly_krw: float | None = None
     fx: float = 1380.0  # KRW per USD
     start: str | None = None  # 직접 지정 시작일(ISO). 주면 워밍업 포함 측정창 [start,end]
     end: str | None = None    # 직접 지정 종료일(ISO). 미지정 시 오늘
+    # 밸류 리밸런싱(VR) 파라미터 — strategy_type=value_rebalancing 일 때
+    rebalance_days: int | None = None
+    expected_return: float | None = None
+    band_pct: float | None = None
+    pool_target_pct: float | None = None
+    initial_pool_pct: float | None = None
+    biweekly_contrib: float | None = None
+    # 모멘텀 로테이션 파라미터 — strategy_type=momentum_rotation 일 때
+    lookback_days: int | None = None
+    skip_recent_days: int | None = None
+    top_n: int | None = None
+    cash_asset: str | None = None
 
 
 @app.post("/backtest/infinite-buying/sizing", dependencies=[Depends(require_internal_token)])
@@ -667,10 +743,41 @@ def infinite_buying_sizing(req: InfiniteBuyingSizingReq):
                 if "High" in df.columns: highs[tk] = df["High"]
                 if "Open" in df.columns: opens[tk] = df["Open"]
 
-        # 참조 시드로 측정 (사용자 initial_capital 무시 — 시드를 '구하는' 게 목적)
-        params = _build_ib_params(req)
-        params.initial_capital = REFERENCE_SEED_USD
-        result = run_infinite_buying(closes, params, highs=highs or None, opens=opens or None)
+        # 참조 시드로 '선택한 전략'을 그대로 적용해 월 현금흐름 측정 (시드를 '구하는' 게 목적이라 사용자 capital 무시)
+        stype = (req.strategy_type or "infinite_buying").strip()
+        split = None          # 무한매수법만 '하루 분할 매수' 개념 있음
+        weights = None        # 무한매수법 종목 가중치
+        variant_label = None
+        if stype == "value_rebalancing":
+            vr = ValueRebalancingParams(
+                rebalance_days=req.rebalance_days if req.rebalance_days is not None else 10,
+                expected_return=req.expected_return if req.expected_return is not None else 0.02,
+                band_pct=req.band_pct if req.band_pct is not None else 0.20,
+                pool_target_pct=req.pool_target_pct if req.pool_target_pct is not None else 0.50,
+                initial_pool_pct=req.initial_pool_pct if req.initial_pool_pct is not None else 0.50,
+                biweekly_contrib=req.biweekly_contrib if req.biweekly_contrib is not None else 0.0,
+                initial_capital=REFERENCE_SEED_USD, fees=req.fees, slippage=req.slippage,
+            )
+            result = run_value_rebalancing(closes, vr)
+        elif stype == "momentum_rotation":
+            mr = MomentumRotationParams(
+                lookback_days=req.lookback_days if req.lookback_days is not None else 252,
+                skip_recent_days=req.skip_recent_days if req.skip_recent_days is not None else 21,
+                top_n=req.top_n if req.top_n is not None else 3,
+                rebalance_days=req.rebalance_days if req.rebalance_days is not None else 21,
+                abs_momentum_gate=True,
+                cash_asset=req.cash_asset or "BIL",
+                initial_capital=REFERENCE_SEED_USD, fees=req.fees, slippage=req.slippage,
+            )
+            result = run_momentum_rotation(closes, mr)
+        else:
+            stype = "infinite_buying"
+            params = _build_ib_params(req)
+            params.initial_capital = REFERENCE_SEED_USD
+            result = run_infinite_buying(closes, params, highs=highs or None, opens=opens or None)
+            split = params.split
+            weights = params.ticker_weights
+            variant_label = params.variant
         result.pop("_strategy_returns", None)
         stats = result["stats"]
 
@@ -680,7 +787,8 @@ def infinite_buying_sizing(req: InfiniteBuyingSizingReq):
             sells = [tr for tr in result.get("recent_trades", [])
                      if tr.get("side") == "SELL" and eff_start <= str(tr.get("date", "")) <= win_end]
             window_realized = sum(float(tr.get("realized", 0) or 0) for tr in sells)
-            monthly = window_realized / months
+            # 측정창에 실현 매도가 있으면 그걸로, 없으면 엔진 산출 월현금흐름으로 폴백(VR/모멘텀 호환)
+            monthly = (window_realized / months) if sells else float(stats.get("estimated_monthly_cashflow") or 0.0)
             stats = {**stats, "estimated_monthly_cashflow": round(monthly, 4),
                      "window_sells": len(sells), "window_months": round(months, 2)}
         else:
@@ -691,7 +799,8 @@ def infinite_buying_sizing(req: InfiniteBuyingSizingReq):
         if monthly <= 0:
             return {
                 "feasible": False,
-                "reason": "해당 기간에 익절(실현수익)이 없어 시드 역산 불가 — 기간을 늘리거나 다른 구간을 선택하세요.",
+                "strategy_type": stype,
+                "reason": "해당 기간에 실현 현금흐름이 없어 시드 역산 불가 — 기간을 늘리거나 다른 구간을 선택하세요.",
                 "period": period_label,
                 "reference_seed_usd": REFERENCE_SEED_USD,
                 "measured_monthly_usd": round(monthly, 2),
@@ -702,29 +811,27 @@ def infinite_buying_sizing(req: InfiniteBuyingSizingReq):
         required_usd = REFERENCE_SEED_USD * scale
 
         up = [t.upper() for t in req.tickers]
-        weights = params.ticker_weights
         if weights:
             wsum = sum(max(0.0, weights.get(t, 0.0)) for t in up) or 1.0
             alloc = {t: required_usd * (max(0.0, weights.get(t, 0.0)) / wsum) for t in up}
         else:
             alloc = {t: required_usd / len(up) for t in up}
 
-        per_ticker = {
-            t: {
-                "seed_usd": round(alloc[t], 2),
-                "seed_krw": round(alloc[t] * req.fx),
-                "daily_buy_usd": round(alloc[t] / params.split, 2),
-                "daily_buy_krw": round(alloc[t] / params.split * req.fx),
-            }
-            for t in up
-        }
+        per_ticker = {}
+        for t in up:
+            entry = {"seed_usd": round(alloc[t], 2), "seed_krw": round(alloc[t] * req.fx)}
+            if split:  # 무한매수법만 '하루 분할 매수액'(시드/분할수) 표시
+                entry["daily_buy_usd"] = round(alloc[t] / split, 2)
+                entry["daily_buy_krw"] = round(alloc[t] / split * req.fx)
+            per_ticker[t] = entry
 
         return {
             "feasible": True,
-            "variant": params.variant,
+            "strategy_type": stype,
+            "variant": variant_label,
             "period": period_label,
             "fx": req.fx,
-            "split": params.split,
+            "split": split,
             "target_monthly_usd": round(target_usd, 2),
             "target_monthly_krw": round(target_usd * req.fx),
             "reference_seed_usd": REFERENCE_SEED_USD,
@@ -1191,6 +1298,31 @@ class LeanBacktestReq(BaseModel):
     slippage: float = Field(default=0.0)
 
 
+class LeanNodeReq(BaseModel):
+    """런타임 노드 추가 요청(단계 2 — 동적 스케일/다중 노드)."""
+    id: str
+    name: Optional[str] = None
+    tier: str = "local"
+    slots: int = 1
+    kind: str = "local"
+
+
+class LeanOptimizeReq(BaseModel):
+    """파라미터 최적화(단계 4) — base 백테스트 설정 + param_grid 스윕."""
+    strategy_id: str
+    symbols: list[str]
+    start_date: str
+    end_date: str
+    market: Literal["us", "krx"] = "us"
+    initial_capital: float = 100_000_000.0
+    base_params: Optional[dict] = None      # 모든 조합에 고정 적용할 파라미터
+    param_grid: dict                         # {key: [v1, v2, ...]} 스윕 그리드
+    metric: str = "sharpe"                   # 최대화 대상(통계 키 부분일치)
+    commission_rate: float = 0.00015
+    tax_rate: float = 0.0
+    slippage: float = 0.0
+
+
 @app.get("/lean/strategies", dependencies=[Depends(require_internal_token)])
 def lean_list_strategies():
     """등록된 Lean preset 전략 목록 + 파라미터 정의."""
@@ -1199,6 +1331,33 @@ def lean_list_strategies():
         return {"strategies": list_available_strategies()}
     except Exception as e:
         log.exception("lean/strategies failed")
+        raise HTTPException(500, str(e))
+
+
+@app.post("/lean/codegen", dependencies=[Depends(require_internal_token)])
+def lean_codegen(req: LeanBacktestReq):
+    """실제 실행될 Lean main.py 코드를 '생성만' 해서 반환(데이터 fetch·Docker 실행 없음).
+
+    IDE 가 전략 선택/파라미터 변경 시 호출 → 에디터에 '진짜 돌아가는 코드'를 표시.
+    custom(param_overrides.main_py)·raw-algo·preset 모두 run_lean_backtest 와 동일 codegen 경로라
+    여기서 보여주는 코드 == 백테스트가 실제 돌리는 코드.
+    """
+    try:
+        from app.lean.runner import generate_lean_code
+        code = generate_lean_code(
+            strategy_id=req.strategy_id, symbols=req.symbols,
+            start_date=req.start_date, end_date=req.end_date,
+            market=req.market, param_overrides=req.param_overrides,
+            initial_capital=req.initial_capital, commission_rate=req.commission_rate,
+            tax_rate=req.tax_rate, slippage=req.slippage,
+        )
+        return {"success": True, "code": code, "strategy_id": req.strategy_id, "bytes": len(code)}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"strategy not found: {req.strategy_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("lean/codegen failed")
         raise HTTPException(500, str(e))
 
 
@@ -1246,26 +1405,22 @@ def lean_backtest(req: LeanBacktestReq):
 
 @app.post("/lean/backtest/start", dependencies=[Depends(require_internal_token)])
 def lean_backtest_start(req: LeanBacktestReq):
-    """Lean 백테스트를 백그라운드 잡으로 시작 → job_id 즉시 반환.
+    """Lean 백테스트를 노드 풀 큐에 제출 → job_id 즉시 반환.
 
-    /lean/backtest/status/{job_id} 로 진행 로그(단계 + lean stdout)를 폴링한다.
-    동기 /lean/backtest 와 동일 엔진을 쓰되, progress_cb 로 진행을 잡에 누적한다.
+    빈 슬롯이 있으면 워커가 즉시 실행, 없으면 큐 대기(QC 노드 부족 시 큐와 동일 동작 — 컨테이너 폭주 방지).
+    /lean/backtest/status/{job_id} 로 진행 로그(단계 + lean stdout)와 queue_position 을 폴링한다.
     """
-    import threading
-    from app.lean.jobs import create_job
+    from app.lean.jobs import cluster
     from app.lean.runner import run_lean_backtest, LeanBacktestRequest
 
-    job = create_job()
-
-    def _cb(level: str, msg: str):
-        if level == "phase":
-            job.set_phase(msg)
-        elif level == "lean":
-            job.log("info", f"[lean] {msg}")
-        else:
-            job.log(level, msg)
-
-    def _run():
+    def _run_with_job(job):
+        def _cb(level: str, msg: str):
+            if level == "phase":
+                job.set_phase(msg)
+            elif level == "lean":
+                job.log("info", f"[lean] {msg}")
+            else:
+                job.log(level, msg)
         try:
             request = LeanBacktestRequest(
                 strategy_id=req.strategy_id,
@@ -1298,18 +1453,99 @@ def lean_backtest_start(req: LeanBacktestReq):
             job.log("error", str(e))
             job.finish_err(str(e))
 
-    threading.Thread(target=_run, name=f"lean-job-{job.job_id}", daemon=True).start()
-    return {"job_id": job.job_id, "status": "running"}
+    meta = {
+        "strategy_id": req.strategy_id, "symbols": req.symbols, "market": req.market,
+        "start_date": req.start_date, "end_date": req.end_date,
+    }
+    job = cluster.submit(meta, _run_with_job)
+    return {"job_id": job.job_id, "status": job.status,
+            "queue_position": cluster.queue_position(job.job_id)}
 
 
 @app.get("/lean/backtest/status/{job_id}", dependencies=[Depends(require_internal_token)])
 def lean_backtest_status(job_id: str, since: int = 0):
-    """잡 진행 상태 + since 커서 이후 증분 로그 + 완료 시 결과."""
+    """잡 진행 상태 + since 커서 이후 증분 로그 + 완료 시 결과 + queue_position."""
     from app.lean.jobs import get_job
     job = get_job(job_id)
     if job is None:
         raise HTTPException(404, f"job not found: {job_id}")
     return job.snapshot(since=since)
+
+
+@app.get("/lean/nodes", dependencies=[Depends(require_internal_token)])
+def lean_nodes():
+    """Lean 노드 풀 상태(QC 노드 패널용) — 노드별 slots/active/idle."""
+    from app.lean.jobs import cluster
+    return {"nodes": cluster.snapshot_nodes()}
+
+
+@app.get("/lean/queue", dependencies=[Depends(require_internal_token)])
+def lean_queue(limit: int = 50):
+    """Lean 잡 큐/이력(QC 백테스트 목록용) — running/queued 수 + 총 슬롯 + 최근 잡 목록."""
+    from app.lean.jobs import cluster
+    return cluster.snapshot_queue(limit=limit)
+
+
+@app.post("/lean/nodes", dependencies=[Depends(require_internal_token)])
+def lean_add_node(req: LeanNodeReq):
+    """런타임 노드 추가(동적 스케일/다중 노드). 같은 id 존재 시 409."""
+    from app.lean.jobs import cluster, LeanNode
+    try:
+        cluster.add_node(LeanNode(id=req.id, name=req.name or req.id, tier=req.tier,
+                                  slots=max(1, req.slots), kind=req.kind))
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return {"nodes": cluster.snapshot_nodes()}
+
+
+@app.post("/lean/optimize/start", dependencies=[Depends(require_internal_token)])
+def lean_optimize_start(req: LeanOptimizeReq):
+    """파라미터 그리드를 노드 풀에 분산 백테스트 → opt_id 즉시 반환(QC optimizer).
+    /lean/optimize/status/{opt_id} 로 진행 + 조합별 상태 + best(metric 최대)를 폴링한다.
+    """
+    from app.lean.optimize import submit_optimization
+    from app.lean.runner import run_lean_backtest, LeanBacktestRequest
+
+    def run_combo(job, combo):
+        def _cb(level, msg):
+            if level == "phase":
+                job.set_phase(msg)
+            elif level == "lean":
+                job.log("info", f"[lean] {msg}")
+            else:
+                job.log(level, msg)
+        params = {**(req.base_params or {}), **combo}
+        request = LeanBacktestRequest(
+            strategy_id=req.strategy_id, symbols=req.symbols,
+            start_date=req.start_date, end_date=req.end_date,
+            initial_capital=req.initial_capital, market=req.market,
+            param_overrides=params,
+            commission_rate=req.commission_rate, tax_rate=req.tax_rate, slippage=req.slippage,
+        )
+        result = run_lean_backtest(request, progress_cb=_cb)
+        if not result.success:
+            job.finish_err(result.error or "lean backtest failed")
+            return
+        job.finish_ok({
+            "success": True, "run_id": result.run_id, "statistics": result.statistics,
+            "equity_curve": result.equity_curve, "trades_count": result.trades_count,
+            "elapsed_seconds": result.elapsed_seconds,
+        })
+
+    meta = {"strategy_id": req.strategy_id, "symbols": req.symbols, "market": req.market,
+            "start_date": req.start_date, "end_date": req.end_date}
+    opt = submit_optimization(meta, req.param_grid, req.metric, run_combo)
+    return {"opt_id": opt.opt_id, "combos": len(opt.child_ids), "child_job_ids": opt.child_ids}
+
+
+@app.get("/lean/optimize/status/{opt_id}", dependencies=[Depends(require_internal_token)])
+def lean_optimize_status(opt_id: str):
+    """최적화 진행 + 조합별 상태 + best(metric 최대)."""
+    from app.lean.optimize import get_optimization
+    opt = get_optimization(opt_id)
+    if opt is None:
+        raise HTTPException(404, f"optimization not found: {opt_id}")
+    return opt.status()
 
 
 @app.get("/lean/health", dependencies=[Depends(require_internal_token)])
