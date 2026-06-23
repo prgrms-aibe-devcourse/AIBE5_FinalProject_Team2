@@ -317,7 +317,24 @@ export default function BrokerRegisterModal({ open, brokerType, env, accounts = 
 /* ── KIS 폼 ──────────────────────────────────────────────────────────────── */
 function KisForm({ form, setForm, env, showSecret, setShowSecret, inputStyle, labelStyle }) {
   const isMock = env === "MOCK";
+  const [useKrw, setUseKrw] = useState(true);
+  const KRW_RATE = 1400;
   const f = (key, val) => setForm(p => ({ ...p, [key]: val }));
+
+  const curr = useKrw ? "₩" : "$";
+  const maxOrdDisp    = useKrw ? form.maxOrderUsd * KRW_RATE    : form.maxOrderUsd;
+  const dailyOrdDisp  = useKrw ? form.dailyOrderUsd * KRW_RATE  : form.dailyOrderUsd;
+  const dailyBuyDisp  = useKrw ? form.dailyBuyKrw               : Math.round(form.dailyBuyKrw / KRW_RATE);
+  const dailySellDisp = useKrw ? form.dailySellKrw              : Math.round(form.dailySellKrw / KRW_RATE);
+
+  const setMaxOrd    = v => f("maxOrderUsd",  useKrw ? Math.round(v / KRW_RATE) : v);
+  const setDailyOrd  = v => f("dailyOrderUsd",useKrw ? Math.round(v / KRW_RATE) : v);
+  const setDailyBuy  = v => f("dailyBuyKrw",  useKrw ? v : Math.round(v * KRW_RATE));
+  const setDailySell = v => f("dailySellKrw", useKrw ? v : Math.round(v * KRW_RATE));
+
+  const stepSingle = useKrw ? 10000   : 1;
+  const stepDaily  = useKrw ? 1000000 : 100;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <input type="text" name="username" autoComplete="username" style={{ display: "none" }} />
@@ -365,27 +382,49 @@ function KisForm({ form, setForm, env, showSecret, setShowSecret, inputStyle, la
       </div>
 
       <div style={{ borderTop: "1px dashed #E2E8F0", paddingTop: 14 }}>
-        <p style={{ fontSize: 11.5, color: "#64748B", marginBottom: 12, fontWeight: 600 }}>주문 한도 설정</p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <p style={{ fontSize: 11.5, color: "#64748B", margin: 0, fontWeight: 600 }}>주문 한도 설정</p>
+          <div onClick={() => setUseKrw(b => !b)} style={{
+            display: "inline-flex", alignItems: "center",
+            background: "#F1F5F9", borderRadius: 99, padding: 3,
+            cursor: "pointer", border: "1px solid #E2E8F0", userSelect: "none",
+          }}>
+            <span style={{
+              padding: "4px 11px", borderRadius: 99, fontSize: 11, fontWeight: 700,
+              transition: "background 0.18s, color 0.18s, box-shadow 0.18s",
+              background: useKrw ? "white" : "transparent",
+              color: useKrw ? "#4338CA" : "#94A3B8",
+              boxShadow: useKrw ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+            }}>₩ 원화</span>
+            <span style={{
+              padding: "4px 11px", borderRadius: 99, fontSize: 11, fontWeight: 700,
+              transition: "background 0.18s, color 0.18s, box-shadow 0.18s",
+              background: !useKrw ? "white" : "transparent",
+              color: !useKrw ? "#B45309" : "#94A3B8",
+              boxShadow: !useKrw ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+            }}>$ USD</span>
+          </div>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
-            <label style={labelStyle}>1회 최대 주문 (USD)</label>
-            <input className="brk-input" type="number" min="0" style={inputStyle}
-              value={form.maxOrderUsd} onChange={e => f("maxOrderUsd", Number(e.target.value))} />
+            <label style={labelStyle}>1회 최대 주문 ({curr})</label>
+            <input className="brk-input" type="number" min="0" step={stepSingle} style={inputStyle}
+              value={maxOrdDisp} onChange={e => setMaxOrd(Number(e.target.value))} />
           </div>
           <div>
-            <label style={labelStyle}>일일 누적 한도 (USD)</label>
-            <input className="brk-input" type="number" min="0" style={inputStyle}
-              value={form.dailyOrderUsd} onChange={e => f("dailyOrderUsd", Number(e.target.value))} />
+            <label style={labelStyle}>일일 누적 한도 ({curr})</label>
+            <input className="brk-input" type="number" min="0" step={stepSingle} style={inputStyle}
+              value={dailyOrdDisp} onChange={e => setDailyOrd(Number(e.target.value))} />
           </div>
           <div>
-            <label style={labelStyle}>매수 일일 한도 (원화)</label>
-            <input className="brk-input" type="number" min="0" step="1000000" style={inputStyle}
-              value={form.dailyBuyKrw} onChange={e => f("dailyBuyKrw", Number(e.target.value))} />
+            <label style={labelStyle}>매수 일일 한도 ({curr})</label>
+            <input className="brk-input" type="number" min="0" step={stepDaily} style={inputStyle}
+              value={dailyBuyDisp} onChange={e => setDailyBuy(Number(e.target.value))} />
           </div>
           <div>
-            <label style={labelStyle}>매도 일일 한도 (원화)</label>
-            <input className="brk-input" type="number" min="0" step="1000000" style={inputStyle}
-              value={form.dailySellKrw} onChange={e => f("dailySellKrw", Number(e.target.value))} />
+            <label style={labelStyle}>매도 일일 한도 ({curr})</label>
+            <input className="brk-input" type="number" min="0" step={stepDaily} style={inputStyle}
+              value={dailySellDisp} onChange={e => setDailySell(Number(e.target.value))} />
           </div>
         </div>
       </div>
@@ -395,7 +434,17 @@ function KisForm({ form, setForm, env, showSecret, setShowSecret, inputStyle, la
 
 /* ── Binance 폼 ───────────────────────────────────────────────────────────── */
 function BinanceForm({ form, setForm, showSecret, setShowSecret, inputStyle, labelStyle }) {
+  const [useKrw, setUseKrw] = useState(true);
+  const KRW_RATE = 1400;
   const f = (key, val) => setForm(p => ({ ...p, [key]: val }));
+
+  const curr = useKrw ? "₩" : "$";
+  const maxOrdDisp   = useKrw ? form.maxOrderUsd * KRW_RATE   : form.maxOrderUsd;
+  const dailyOrdDisp = useKrw ? form.dailyOrderUsd * KRW_RATE : form.dailyOrderUsd;
+  const setMaxOrd   = v => f("maxOrderUsd",  useKrw ? Math.round(v / KRW_RATE) : v);
+  const setDailyOrd = v => f("dailyOrderUsd",useKrw ? Math.round(v / KRW_RATE) : v);
+  const step = useKrw ? 10000 : 1;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       <input type="text" name="username" autoComplete="username" style={{ display: "none" }} />
@@ -439,17 +488,39 @@ function BinanceForm({ form, setForm, showSecret, setShowSecret, inputStyle, lab
       </div>
 
       <div style={{ borderTop: "1px dashed #E2E8F0", paddingTop: 14 }}>
-        <p style={{ fontSize: 11.5, color: "#64748B", marginBottom: 12, fontWeight: 600 }}>주문 한도 설정</p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <p style={{ fontSize: 11.5, color: "#64748B", margin: 0, fontWeight: 600 }}>주문 한도 설정</p>
+          <div onClick={() => setUseKrw(b => !b)} style={{
+            display: "inline-flex", alignItems: "center",
+            background: "#F1F5F9", borderRadius: 99, padding: 3,
+            cursor: "pointer", border: "1px solid #E2E8F0", userSelect: "none",
+          }}>
+            <span style={{
+              padding: "4px 11px", borderRadius: 99, fontSize: 11, fontWeight: 700,
+              transition: "background 0.18s, color 0.18s, box-shadow 0.18s",
+              background: useKrw ? "white" : "transparent",
+              color: useKrw ? "#4338CA" : "#94A3B8",
+              boxShadow: useKrw ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+            }}>₩ 원화</span>
+            <span style={{
+              padding: "4px 11px", borderRadius: 99, fontSize: 11, fontWeight: 700,
+              transition: "background 0.18s, color 0.18s, box-shadow 0.18s",
+              background: !useKrw ? "white" : "transparent",
+              color: !useKrw ? "#B45309" : "#94A3B8",
+              boxShadow: !useKrw ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+            }}>$ USD</span>
+          </div>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
-            <label style={labelStyle}>1회 최대 주문 (USD)</label>
-            <input className="brk-input" type="number" min="0" style={inputStyle}
-              value={form.maxOrderUsd} onChange={e => f("maxOrderUsd", Number(e.target.value))} />
+            <label style={labelStyle}>1회 최대 주문 ({curr})</label>
+            <input className="brk-input" type="number" min="0" step={step} style={inputStyle}
+              value={maxOrdDisp} onChange={e => setMaxOrd(Number(e.target.value))} />
           </div>
           <div>
-            <label style={labelStyle}>일일 누적 한도 (USD)</label>
-            <input className="brk-input" type="number" min="0" style={inputStyle}
-              value={form.dailyOrderUsd} onChange={e => f("dailyOrderUsd", Number(e.target.value))} />
+            <label style={labelStyle}>일일 누적 한도 ({curr})</label>
+            <input className="brk-input" type="number" min="0" step={step} style={inputStyle}
+              value={dailyOrdDisp} onChange={e => setDailyOrd(Number(e.target.value))} />
           </div>
         </div>
       </div>

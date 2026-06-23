@@ -12,7 +12,7 @@ import { useTheme } from "./ThemeContext";
 import claudeBotImg from "../assets/claudecode-color.svg";
 import {
   getWorkspace, listWorkspaces, createWorkspace, selectStrategyCandidate, runBacktest, runRegime, runTrust, saveCode, queueOrders,
-  getDataStatus, getDataPreview, getDatasetsCatalog, getDatasetPreview, leanBacktestStart, leanBacktestStatus, leanListStrategies, getLeanHealth, getLeanNodes, getLeanQueue,
+  getDataStatus, getDataPreview, getDatasetsCatalog, getDatasetPreview, leanBacktestStart, leanBacktestStatus, leanCodegen, leanListStrategies, getLeanHealth, getLeanNodes, getLeanQueue, leanV2Submit, leanV2Job,
   runClaudeAgentStart, runClaudeAgentStatus, resetClaudeSession, runImproveProposal, runCompareBacktest,
   getWorkspaceGitStatus, getWorkspaceFileTree, pullWorkspaceFile, deleteWorkspaceFile,
   listBrokerAccounts, getBinanceBalance, getWorkspaceCommit,
@@ -417,6 +417,19 @@ function parseParamsFromCode(code) {
   extract(/^\s*TOP_N\s*=\s*([\d.]+)/m,             "top_n");
   extract(/^\s*TICKER\s*=\s*"([^"]+)"/m,     "ticker", false);
   return result;
+}
+
+// Lean codegen 코드에서 실제 baked 심볼 추출(raw: TICKERS=['TQQQ'] / DSL: "SPY".split(",") / 폴백: AddData).
+// handleRunLean 이 '실행 코드가 참조하는 바로 그 심볼'로 데이터를 받게 해 fetch↔코드 불일치(빈 백테스트) 방지.
+function parseLeanSymbols(code) {
+  if (!code) return [];
+  let m = code.match(/TICKERS\s*=\s*\[([^\]]+)\]/);
+  if (m) return m[1].split(",").map(s => s.replace(/['"\s]/g, "")).filter(Boolean);
+  m = code.match(/for\s+symbol_str\s+in\s+"([^"]+)"\s*\.split/);
+  if (m) return m[1].split(",").map(s => s.trim()).filter(Boolean);
+  m = code.match(/AddData\(\s*\w+\s*,\s*["']([^"']+)["']/);
+  if (m) return [m[1]];
+  return [];
 }
 
 // parseParamsFromCode 의 역함수 — 선택한 파라미터 값을 코드의 상수에 그대로 반영(P3 적용).
@@ -1160,9 +1173,36 @@ function OptimizeResultView({ results, busy, progress, onApply, onOpenCombo, com
   const [pq, setPq] = useState("");               // 필터: 파라미터 검색
   const [applyHover, setApplyHover] = useState(false); // '이 파라미터 적용' 버튼 호버(노란빛+설명 툴팁)
   if (!results) {
-    return <div style={{padding:"40px 32px",color:"#94A3B8",fontSize:13,fontFamily:"'Inter',sans-serif"}}>
-      {busy ? `최적화 실행 중…  ${progress.done}/${progress.total} 백테스트` : "최적화 위저드(🎯)에서 'Launch Optimization' 을 누르세요."}
-    </div>;
+    if (!busy) {
+      return <div style={{padding:"40px 32px",color:"#94A3B8",fontSize:13,fontFamily:"'Inter',sans-serif"}}>
+        최적화 위저드(🎯)에서 'Launch Optimization' 을 누르세요.
+      </div>;
+    }
+    const pct = progress.total ? Math.round(progress.done / progress.total * 100) : 0;
+    return (
+      <div style={{flex:1, display:"flex", alignItems:"center", justifyContent:"center", background:DASH.bg, fontFamily:"'Inter',sans-serif", padding:"24px"}}>
+        <div style={{width:440, maxWidth:"92%", background:DASH.panel, border:`1px solid ${DASH.border}`, borderRadius:14, padding:"24px 26px", boxShadow:"0 16px 48px rgba(0,0,0,0.5)"}}>
+          <div style={{display:"flex", alignItems:"center", gap:9, marginBottom:5}}>
+            <Loader size={17} color="#F59E0B" style={{animation:"spin 1s linear infinite"}}/>
+            <span style={{fontSize:15, fontWeight:800, color:"#e5e7eb"}}>최적화 실행 중…</span>
+          </div>
+          <div style={{fontSize:11.5, color:DASH.muted, marginBottom:18, lineHeight:1.55}}>
+            파라미터 조합마다 백테스트를 돌려 최적값을 찾는 중입니다 · 우리 분석 서버에서 실행
+          </div>
+          <div style={{display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom:7}}>
+            <span style={{fontSize:13, fontWeight:700, color:"#e5e7eb"}}>{progress.done} / {progress.total} 백테스트</span>
+            <span style={{fontSize:15, fontWeight:800, color:"#F59E0B"}}>{pct}%</span>
+          </div>
+          <div style={{height:9, borderRadius:999, background:"rgba(255,255,255,0.08)", overflow:"hidden"}}>
+            <div style={{height:"100%", width:`${pct}%`, background:"linear-gradient(90deg,#F59E0B,#D97706)", borderRadius:999, transition:"width .3s ease"}}/>
+          </div>
+          <div style={{display:"flex", alignItems:"center", gap:7, marginTop:16, paddingTop:13, borderTop:`1px solid ${DASH.border}`, fontSize:11, color:DASH.muted, lineHeight:1.5}}>
+            <Loader size={11} style={{animation:"spin 1s linear infinite", flexShrink:0}}/>
+            완료되면 히트맵·조합별 에쿼티·최적 파라미터가 자동으로 표시됩니다.
+          </div>
+        </div>
+      </div>
+    );
   }
   const { metric, metricLabel, p1, p2, a1, a2, combos, best, flat, bestFull, runtime } = results;
   const lowerBetter = metric === "max_drawdown_pct";
@@ -1490,7 +1530,7 @@ function DeployWizardView({ wsId, strategyName }) {
   const sel = accts.find(a => String(a.id) === String(selId));
   const isReal = sel?.env === "REAL";
   const assetClass = sel?.brokerType === "BINANCE" ? "암호화폐(현물)" : "해외주식·ETF";
-  const acctName = (a) => `${a.env === "MOCK" ? "Paper Trading · 모의" : `${a.brokerType} · 실거래`} (${a.accountAlias || a.accountNumber || "#" + a.id})`;
+  const acctName = (a) => `${a.brokerType === "BINANCE" ? "바이낸스" : "한국투자증권"} ${a.env === "REAL" ? "실전" : "모의"}계좌`;
 
   // Show 토글 시 잔고 lazy fetch
   useEffect(() => {
@@ -2874,6 +2914,7 @@ export default function DeveloperLab() {
   const [leanGateOpen, setLeanGateOpen] = useState(false); // 클라우드 Lean PREMIUM 게이트 모달
   useEffect(() => { getDeveloperAccess().then(a => setUserTier(a?.userType || null)).catch(() => {}); }, []);
   const cloudAllowed = userTier === "PREMIUM" || userTier === "EXPERT";  // 클라우드 관리형 컴퓨트 = PREMIUM 이상(EXPERT 포함)
+  const leanAllowed = userTier === "EXPERT";  // Lean 실행(로컬 CLI·클라우드 EKS 모두) = EXPERT 전용
   // Claude Code 에이전트 입력
   const [claudeOpen, setClaudeOpen] = useState(false);
   const [claudeReq, setClaudeReq] = useState("");
@@ -3203,13 +3244,15 @@ export default function DeveloperLab() {
       .then(data => {
         // 복원할 값(열린 탭/활성 탭/마지막 백테스트 결과)을 setWsId 이전에 먼저 읽는다.
         // setWsId 가 저장 effect 를 트리거해 localStorage 를 덮어쓰기 전에 캡처해야 새로고침 복원이 안전하다.
-        let savedTabs = null, savedBt = null;
+        let savedTabs = null, savedBt = null, savedOpt = null;
         try { savedTabs = JSON.parse(localStorage.getItem(`ah.workbench.tabs.${id}`) || "null"); } catch (_) {}
         try { savedBt = JSON.parse(localStorage.getItem(`ah.workbench.btResult.${id}`) || "null"); } catch (_) {}
+        try { savedOpt = JSON.parse(localStorage.getItem(`ah.workbench.optResults.${id}`) || "null"); } catch (_) {}
         setWsId(id);
         localStorage.setItem("alpha.lastWsId", id);
         setStrategyName(data.name || "AlphaHelix Strategy");
         setBtResult(savedBt || null);
+        setOptResults(savedOpt || null);
         // 새로고침/워크스페이스 전환 시 이 워크스페이스에 마지막으로 열려있던 탭 복원(없으면 main.py 만).
         if (savedTabs && Array.isArray(savedTabs.openTabs) && savedTabs.openTabs.length) {
           setOpenTabs(savedTabs.openTabs);
@@ -3232,7 +3275,26 @@ export default function DeveloperLab() {
           setWsSelectedId(cfg0?.selectedId ?? cfg0?.selected_id ?? (cands[0]?.id ?? null));
         } catch { setWsCandidates([]); setWsSelectedId(null); }
         if (data.codeJson) {
-          try { setFileContents(JSON.parse(data.codeJson)); } catch { /* ignore */ }
+          let handled = false;
+          try {
+            const parsed = JSON.parse(data.codeJson);
+            // 구버전 스텁(엔진 로직이 pass · "(엔진 내부 구현)" 마커)을 새 codegen(실엔진 로직)으로 교체.
+            // 이 마커는 스텁 전용이라 사용자 편집본/실코드는 안 건드림. 기존(적용된) 파라미터 값은 보존.
+            if (parsed?.main && /\(엔진 내부 구현\)/.test(parsed.main) && data.strategyConfig) {
+              const env = typeof data.strategyConfig === "string" ? JSON.parse(data.strategyConfig) : data.strategyConfig;
+              const cands = Array.isArray(env?.candidates) ? env.candidates : [];
+              const selId = env?.selectedId ?? env?.selected_id ?? cands[0]?.id;
+              const selected = cands.find(c => c.id === selId) || cands[0] || env;
+              let code = generateCodeFromConfig(selected);
+              if (code && !/\(엔진 내부 구현\)/.test(code)) {
+                code = applyParamsToCode(code, parseParamsFromCode(parsed.main)); // 기존 파라미터 값 보존
+                setFileContents({ main: code });
+                saveCode(id, JSON.stringify({ main: code })).catch(() => {});
+                handled = true;
+              }
+            }
+            if (!handled) setFileContents(parsed);
+          } catch { /* ignore */ }
         } else if (data.strategyConfig) {
           const env = typeof data.strategyConfig === "string"
             ? JSON.parse(data.strategyConfig) : data.strategyConfig;
@@ -3271,6 +3333,20 @@ export default function DeveloperLab() {
     } catch (_) {}
   }, [wsId, btResult]);
 
+  // 마지막 최적화 결과를 워크스페이스별로 영속화 → '최적화 결과' 탭 복원용.
+  // 조합별 equity 곡선(최대 64개)은 용량이 커서 제외 — 히트맵·표·최적값(stats/params)·bestFull 은 복원됨(에쿼티 오버레이만 비워짐).
+  useEffect(() => {
+    if (!wsId) return;
+    try {
+      if (optResults) {
+        const slim = { ...optResults, combos: (optResults.combos || []).map(({ equity, ...rest }) => rest) };
+        localStorage.setItem(`ah.workbench.optResults.${wsId}`, JSON.stringify(slim));
+      } else {
+        localStorage.removeItem(`ah.workbench.optResults.${wsId}`);
+      }
+    } catch (_) {}
+  }, [wsId, optResults]);
+
   // ── 워크스페이스 패널 액션: 전환 / 추가 / 전략후보 선택 ──
   const handleSwitchWorkspace = useCallback((id) => {
     if (!id || String(id) === String(wsId)) return;
@@ -3306,8 +3382,8 @@ export default function DeveloperLab() {
         const code = generateCodeFromConfig(cand);
         if (code) { setFileContents({ main: code }); await saveCode(wsId, JSON.stringify({ main: code })).catch(() => {}); }
       }
-      // 새 후보 = 새 코드 → 이전 후보의 백테스트 결과는 무효. 저장된 결과를 지워 stale 복원 방지.
-      try { localStorage.removeItem(`ah.workbench.btResult.${wsId}`); } catch (_) {}
+      // 새 후보 = 새 코드 → 이전 후보의 백테스트·최적화 결과는 무효. 저장된 결과를 지워 stale 복원 방지.
+      try { localStorage.removeItem(`ah.workbench.btResult.${wsId}`); localStorage.removeItem(`ah.workbench.optResults.${wsId}`); } catch (_) {}
       loadWorkspace(wsId);
     } catch (e) {
       alert("전략 선택 실패: " + (e?.response?.data?.error || e.message));
@@ -3347,6 +3423,42 @@ export default function DeveloperLab() {
       })
       .catch(() => { /* 503/오프라인 — 기본 전략값 유지 */ });
   }, [engine, leanStrategies.length, leanStrategyId]);
+
+  // Lean 전략 선택 → 그 전략의 '실제 실행될' main.py(codegen)를 에디터에 로드(WYSIWYG).
+  // 보이는 코드 == 백테스트가 그대로 돌리는 코드. 편집하면 편집본이 그대로 실행됨(handleRunLean 이 main_py 로 전송).
+  const pickLeanStrategy = useCallback(async (id) => {
+    setLeanStrategyId(id);
+    if (engine !== "lean") return;
+    try {
+      // 전략별 기본 티커(VR=QLD·IB=TQQQ — 우리 3제품 TQQQ-IB/SOXL-IB/QLD-VR) 우선,
+      // 없으면 현재 코드의 심볼 유지, 그것도 없으면 SPY
+      const DEFAULT_TICKER = { value_rebalancing: "QLD", infinite_buying: "TQQQ" };
+      const ticker = DEFAULT_TICKER[id]
+        || parseLeanSymbols(fileContents.main || "")[0]
+        || parseParamsFromCode(fileContents.main || "").ticker || "SPY";
+      const endD = new Date(); const startD = new Date(); startD.setFullYear(startD.getFullYear() - 2);
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      const r = await leanCodegen({ strategyId: id, symbols: [ticker],
+        startDate: fmt(startD), endDate: fmt(endD), market: "us", paramOverrides: {} });
+      if (r?.code) {
+        // 다른 파일들 보존하며 main 만 교체 + 영속화(merge-save — codeJson 에서 타 파일 유실 방지)
+        const next = { ...fileContents, main: r.code };
+        setFileContents(next);
+        if (wsId) saveCode(wsId, JSON.stringify(next)).catch(() => {});
+      }
+    } catch (e) { /* 503/오프라인 — 기존 에디터 유지 */ }
+  }, [engine, fileContents, wsId]);
+
+  // Lean 전환 + 전략목록 준비됐는데 에디터에 실행코드(QCAlgorithm)가 없으면 → 현재 전략 코드 자동 로드.
+  // (없으면 첫 Run 이 PLACEHOLDER 주석을 main_py 로 보내 render_custom 이 무조건 실패함)
+  const leanAutoLoadedRef = useRef(false);
+  useEffect(() => {
+    if (engine !== "lean" || !leanStrategyId || leanStrategies.length === 0) return;
+    if (leanAutoLoadedRef.current) return;
+    if ((fileContents.main || "").includes("QCAlgorithm")) { leanAutoLoadedRef.current = true; return; }
+    leanAutoLoadedRef.current = true;
+    pickLeanStrategy(leanStrategyId);
+  }, [engine, leanStrategyId, leanStrategies.length, fileContents.main, pickLeanStrategy]);
 
   // 엔진 셀렉터 바깥 클릭 시 닫기
   useEffect(() => {
@@ -3495,8 +3607,8 @@ export default function DeveloperLab() {
   // ── Lean (QuantConnect) 백테스트 실행 — 비동기 잡 시작 + 진행 폴링 ──
   const handleRunLean = useCallback(async () => {
     if (runStatus === "running") return;
-    // 클라우드 관리형 Lean = PREMIUM 게이팅. 로컬(자가호스팅)은 본인 Docker 로 실행.
-    if (execLoc === "cloud" && !cloudAllowed) {
+    // Lean 실행(로컬 CLI·클라우드 EKS 모두) = EXPERT 전용 게이트.
+    if (!leanAllowed) {
       setLeanGateOpen(true);
       return;
     }
@@ -3512,7 +3624,10 @@ export default function DeveloperLab() {
     const activeContent = openTabs.find(t=>t.id===activeTabId);
     const currentCode = (activeContent?.fileKey && fileContents[activeContent.fileKey]) || fileContents.main || "";
     const customParams = parseParamsFromCode(currentCode);
-    const ticker = customParams.ticker || "SPY";
+    // 실행될 Lean 코드에 baked 된 실제 심볼로 데이터 fetch(코드↔데이터 일치 = WYSIWYG, 빈 백테스트 방지).
+    const leanSyms = parseLeanSymbols(currentCode);
+    const ticker = leanSyms[0] || customParams.ticker || "SPY";
+    const symbols = leanSyms.length ? leanSyms : [ticker];
     // Lean 은 명시적 YYYY-MM-DD 필요 → 최근 2년 범위
     const endD = new Date();
     const startD = new Date(); startD.setFullYear(startD.getFullYear() - 2);
@@ -3526,12 +3641,98 @@ export default function DeveloperLab() {
       { type:"info", msg:`[Lean] symbols=[${ticker}]  market=us  range ${startDate} ~ ${endDate}`, ts: nowTs() },
     ]);
 
-    // 1) 잡 시작
+    // ── 클라우드(관리형) = v2 K8s 멀티테넌트 큐(EKS). Run Backtest 가 v1(로컬 호스트 Docker) 대신 EKS 로 라우팅. ──
+    // (로컬 자가호스팅은 아래 v1 leanBacktestStart 로 분기 — analytics 호스트의 Docker+lean CLI 사용)
+    if (execLoc === "cloud") {
+      let v2JobId;
+      try {
+        const r = await leanV2Submit({
+          strategyId: leanStrategyId, symbols, startDate, endDate, market: "us",
+          // 에디터의 현재 코드를 main_py 로 전송 → 워커가 그 코드를 그대로 실행(WYSIWYG, codegen 우회).
+          paramOverrides: { ...customParams, main_py: currentCode },
+        });
+        v2JobId = r.jobId;
+        leanJobRef.current = v2JobId;
+      } catch (e) {
+        setRunStatus("idle");
+        const ts = nowTs();
+        const msg = e?.response?.data?.error || e?.message || "알 수 없는 오류";
+        setLogLines(prev => [...prev,
+          { type:"error", msg:`클라우드 잡 제출 실패: ${msg}`, ts },
+          { type:"warn",  msg:`[hint] 클라우드 Lean(v2·EKS)이 꺼져 있을 수 있어요 — 데모 전 프리웜 필요. vectorbt 엔진은 즉시 실행됩니다.`, ts },
+        ]);
+        return;
+      }
+      setLogLines(prev => [...prev, { type:"info", msg:`[Lean·클라우드] 잡 제출됨 job=${v2JobId} · K8s 멀티테넌트 큐 → EKS 실행 (QUEUED→DISPATCHED→RUNNING→DONE)`, ts: nowTs() }]);
+
+      const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+      let lastStatus = "";
+      const MAX_V2 = 360; // ~15분 (노드별 첫 이미지 풀 포함)
+      for (let i = 0; i < MAX_V2; i++) {
+        if (leanJobRef.current !== v2JobId) return; // 새 실행이 시작돼 취소
+        await sleep(2500);
+        let j;
+        try { j = await leanV2Job(v2JobId); } catch { continue; }
+        if (leanJobRef.current !== v2JobId) return;
+        if (j.status && j.status !== lastStatus) {
+          lastStatus = j.status;
+          setLogLines(prev => [...prev, { type:"info", msg:`[Lean·클라우드] ▸ ${j.status}`, ts: nowTs() }]);
+        }
+        if (j.status === "DONE") {
+          leanJobRef.current = null;
+          const ls = (j.result && j.result.statistics) || {};
+          // v2 결과 = Lean 원시 통계(문자열, 이미 %·$ 포함). 퍼센트는 그대로(스케일 X), 기호만 제거.
+          const pPct = (k) => { const v = ls[k]; if (v == null) return null; const n = parseFloat(String(v).replace(/[%$,]/g,"")); return Number.isFinite(n) ? n : null; };
+          const pNum = (k) => { const v = ls[k]; if (v == null) return null; const n = parseFloat(String(v).replace(/[,$]/g,"")); return Number.isFinite(n) ? n : null; };
+          const stats = {
+            total_return_pct:      pPct("Net Profit"),
+            annualized_return_pct: pPct("Compounding Annual Return"),
+            sharpe:                pNum("Sharpe Ratio"),
+            sortino:               pNum("Sortino Ratio"),
+            max_drawdown_pct:      pPct("Drawdown"),
+            win_rate_pct:          pPct("Win Rate"),
+            trades:                pNum("Total Orders"),
+            start: startDate, end: endDate, engine: "lean", run_id: `job-${v2JobId}`,
+          };
+          setBtResult({ stats, equity_curve: [] });
+          setRunStatus("done");
+          const ts = nowTs();
+          const f1 = (v) => (v == null ? "N/A" : v.toFixed(1));
+          const f2 = (v) => (v == null ? "N/A" : v.toFixed(2));
+          setLogLines(prev => [...prev,
+            { type:"success", msg:`[done] Lean 클라우드 백테스트 완료 (job=${v2JobId} · EKS)`, ts },
+            { type:"trade",   msg:`총수익 ${f1(stats.total_return_pct)}%  ·  CAGR ${f1(stats.annualized_return_pct)}%  ·  Sharpe ${f2(stats.sharpe)}`, ts },
+            { type:"trade",   msg:`거래 ${stats.trades ?? "?"}회  ·  MDD ${f1(stats.max_drawdown_pct)}%`, ts },
+            { type:"info",    msg:`▶ '📊 백테스트 결과' 탭에서 메트릭 확인`, ts },
+          ]);
+          const reportId = `tab_report_${Date.now()}`;
+          setOpenTabs(prev => { const filtered = prev.filter(t => t.type !== "report"); return [...filtered, { id: reportId, name: "📊 백테스트 결과", type: "report" }]; });
+          setActiveTabId(reportId);
+          return;
+        }
+        if (j.status === "ERROR") {
+          leanJobRef.current = null;
+          setRunStatus("idle");
+          setLogLines(prev => [...prev, { type:"error", msg:`Lean 클라우드 실패: ${j.error || "알 수 없는 오류"}`, ts: nowTs() }]);
+          return;
+        }
+      }
+      if (leanJobRef.current === v2JobId) {
+        leanJobRef.current = null;
+        setRunStatus("idle");
+        setLogLines(prev => [...prev, { type:"warn", msg:`[Lean·클라우드] 폴링 시간 초과 — 아래 '클라우드 큐' 섹션에서 job=${v2JobId} 상태 확인(백그라운드 계속).`, ts: nowTs() }]);
+      }
+      return;
+    }
+
+    // 1) 잡 시작 (로컬 자가호스팅 = v1 analytics 호스트 Docker)
     let jobId;
     try {
       const startResp = await leanBacktestStart({
-        strategyId: leanStrategyId, symbols: [ticker], startDate, endDate,
-        market: "us", paramOverrides: customParams,
+        strategyId: leanStrategyId, symbols, startDate, endDate,
+        // 에디터의 현재 코드를 main_py 로 전송 → 워커가 그 코드를 그대로 실행(WYSIWYG).
+        // (custom main_py 가 있으면 워커가 codegen 우회하고 이 코드를 실행 — 보이는 코드=돌아가는 코드)
+        market: "us", paramOverrides: { ...customParams, main_py: currentCode },
       });
       jobId = startResp.job_id;
       leanJobRef.current = jobId;
@@ -3626,7 +3827,7 @@ export default function DeveloperLab() {
       setRunStatus("idle");
       setLogLines(prev => [...prev, { type:"warn", msg:`[Lean] 폴링 시간 초과 — 백그라운드 실행은 계속될 수 있음 (job=${jobId})`, ts: nowTs() }]);
     }
-  }, [runStatus, wsId, fileContents, activeTabId, openTabs, leanStrategyId, leanStrategies, execLoc, cloudAllowed]);
+  }, [runStatus, wsId, fileContents, activeTabId, openTabs, leanStrategyId, leanStrategies, execLoc, leanAllowed]);
 
   // ── P3: 전략 개선 제안서 (진단 + 선택지 + 전후 백테스트 비교) ──
   const handleImproveProposal = useCallback(async () => {
@@ -3768,18 +3969,26 @@ export default function DeveloperLab() {
   }, [claudeBusy, claudeReq, wsId]);
 
   // ── 주문 큐 ──
+  // IDE 가 백테스트한 '바로 그 전략'으로 주문이 생성되도록, 현재 전략을 백엔드에 전달.
+  // lean 모드: leanStrategyId → vbt key 매핑(엔진-매칭 가능한 sma/momentum만). vbt 전용 전략 없는 건 __unsupported__.
+  // vbt 모드: null → 백엔드가 cfg.strategy_type 로 라우팅(IB/VR/sma). IB/VR 워크스페이스는 백엔드가 strategy_type 우선이라 hint 무시.
+  const LEAN_TO_VBT = { sma_crossover: "sma_cross", momentum: "momentum_12_1" };
   const handleQueueOrders = useCallback(async () => {
     if (!wsId) { alert("워크스페이스가 없습니다."); return; }
     if (!btResult) { alert("먼저 백테스트를 실행하세요."); return; }
+    let strategyHint = null;
+    if (engine === "lean" && leanStrategyId) {
+      strategyHint = LEAN_TO_VBT[leanStrategyId] || `__unsupported__:${leanStrategyId}`;
+    }
     try {
-      const result = await queueOrders(wsId);
-      const count = result?.count ?? result?.orders?.length ?? "?";
+      const result = await queueOrders(wsId, strategyHint);
+      const count = result?.created ?? result?.count ?? result?.orders?.length ?? "?";
       setQueueMsg(`✓ ${count}건의 주문이 큐에 추가되었습니다`);
       setTimeout(() => setQueueMsg(null), 4000);
     } catch (e) {
       alert(`큐 추가 실패: ${e?.response?.data?.error || e?.message}`);
     }
-  }, [wsId, btResult]);
+  }, [wsId, btResult, engine, leanStrategyId]);
 
   const handleDeploy = useCallback(() => {
     if (!wsId) { alert("워크스페이스를 먼저 선택하세요."); return; }
@@ -3972,6 +4181,52 @@ export default function DeveloperLab() {
 
   const logColor = {info:"#9CA3AF",trade:"#60a5fa",warn:"#F59E0B",success:"#10B981",error:"#EF4444"};
 
+  // PREMIUM 미만 유저는 IDE 전체 접근 불가 (vectorbt는 PREMIUM+, Lean은 EXPERT 전용)
+  const ideAllowed = userTier === "PREMIUM" || userTier === "EXPERT";
+  if (userTier !== null && !ideAllowed) {
+    return (
+      <div style={{
+        height:"calc(100vh / var(--app-zoom,1.1) - var(--alpha-top-h,44px))",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        background:"#0f1117", fontFamily:"'Inter',-apple-system,sans-serif",
+      }}>
+        <div style={{
+          background:"#161b22", border:"1px solid rgba(255,255,255,0.1)",
+          borderRadius:20, padding:"40px 48px", maxWidth:480, textAlign:"center",
+          boxShadow:"0 24px 64px rgba(0,0,0,0.4)",
+        }}>
+          <div style={{
+            width:56,height:56,borderRadius:16,margin:"0 auto 20px",
+            background:"linear-gradient(135deg,#a78bfa,#6366f1)",
+            display:"flex",alignItems:"center",justifyContent:"center",
+          }}>
+            <Lock size={26} color="white"/>
+          </div>
+          <h2 style={{margin:"0 0 8px",fontSize:20,fontWeight:800,color:"white"}}>
+            Premium 이상 구독이 필요해요
+          </h2>
+          <p style={{margin:"0 0 6px",fontSize:13,color:"#94A3B8",lineHeight:1.7}}>
+            개발자 전용 퀀트 코딩 탭(vectorbt)은 <strong style={{color:"#a78bfa"}}>Premium</strong> 이상,<br/>
+            Lean IDE는 <strong style={{color:"#7c3aed"}}>Expert</strong> 이상부터 사용 가능합니다.
+          </p>
+          <p style={{margin:"0 0 24px",fontSize:12,color:"#64748B"}}>
+            현재 플랜: <span style={{color:"#60a5fa",fontWeight:700}}>{userTier || "Free"}</span>
+          </p>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent("alpha:open-subscription"))}
+            style={{
+              padding:"12px 32px",borderRadius:12,border:"none",cursor:"pointer",
+              background:"linear-gradient(135deg,#a78bfa 0%,#6366f1 100%)",
+              color:"white",fontSize:14,fontWeight:700,
+              boxShadow:"0 4px 14px rgba(99,102,241,0.4)",
+            }}>
+            플랜 업그레이드
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{
       height: "calc(100vh / var(--app-zoom, 1.1) - var(--alpha-top-h, 44px))", display:"flex", flexDirection:"column",
@@ -4037,7 +4292,7 @@ export default function DeveloperLab() {
         </div>
         <span style={{fontSize:9,padding:"1px 7px",borderRadius:999,
           background:"rgba(99,102,241,0.2)",color:"#a5b4fc",fontWeight:700,flexShrink:0}}>
-          Expert Mode
+          {userTier ? userTier.charAt(0) + userTier.slice(1).toLowerCase() + " Mode" : "Developer Mode"}
         </span>
         {runStatus==="done"&&(
           <span style={{fontSize:9,fontWeight:700,padding:"1px 7px",borderRadius:999,
@@ -4124,7 +4379,7 @@ export default function DeveloperLab() {
                   <div style={{fontSize:9,color:"#6B7280",fontWeight:700,padding:"2px 8px 4px"}}>Lean 전략</div>
                   <div style={{maxHeight:172,overflow:"auto"}}>
                     {leanStrategies.map(s => (
-                      <button key={s.id} onClick={()=>{setLeanStrategyId(s.id);setEngineMenuOpen(false);}}
+                      <button key={s.id} onClick={()=>{pickLeanStrategy(s.id);setEngineMenuOpen(false);}}
                         style={{display:"flex",alignItems:"baseline",gap:6,width:"100%",textAlign:"left",
                           padding:"5px 8px",borderRadius:5,border:"none",cursor:"pointer",
                           background:s.id===leanStrategyId?"rgba(167,139,250,0.15)":"transparent"}}>
@@ -4132,6 +4387,12 @@ export default function DeveloperLab() {
                         <span style={{fontSize:9,color:"#4B5563",fontFamily:"monospace"}}>{s.id}</span>
                       </button>
                     ))}
+                  </div>
+                  <div style={{margin:"7px 2px 2px",padding:"7px 9px",borderRadius:6,background:"rgba(167,139,250,0.08)",border:"1px solid rgba(167,139,250,0.18)"}}>
+                    <div style={{fontSize:9.5,color:"#a78bfa",fontWeight:700,marginBottom:3}}>⚡ 실제 엔진 코드 편집 (WYSIWYG)</div>
+                    <div style={{fontSize:9.5,color:"#94A3B8",lineHeight:1.6}}>
+                      전략을 고르면 <b style={{color:"#c4b5fd"}}>실제 실행되는 main.py</b>가 에디터에 로드됩니다. 코드를 직접 고치면 <b style={{color:"#c4b5fd"}}>보이는 그대로</b> 클라우드(Lean CLI)에서 백테스트돼요. IB·VR 제공 전략을 불러와 편집하거나 Claude로 직접 작성하세요.
+                    </div>
                   </div>
                 </>
               )}
@@ -4164,14 +4425,17 @@ export default function DeveloperLab() {
           Claude
         </button>
         <button onClick={engine==="lean" ? handleRunLean : handleRunBacktest} disabled={runStatus==="running"}
+          title={engine==="lean" && !leanAllowed
+            ? "🔒 Expert 등급 전용 — 업그레이드해야 Lean 실행이 가능합니다 (로컬 CLI·클라우드 EKS 모두). 코드 보기·편집과 vectorbt 백테스트는 지금도 사용 가능."
+            : (engine==="lean" ? "Lean(QuantConnect) 백테스트 실행" : "vectorbt 백테스트 실행")}
           style={{display:"flex",alignItems:"center",gap:4,padding:"5px 13px",borderRadius:6,
-            background:runStatus==="running"?"rgba(96,165,250,0.12)":(engine==="lean"?"linear-gradient(135deg,#7c3aed,#6d28d9)":"linear-gradient(135deg,#1d4ed8,#2563eb)"),
+            background:runStatus==="running"?"rgba(96,165,250,0.12)":(engine==="lean"?(leanAllowed?"linear-gradient(135deg,#7c3aed,#6d28d9)":"linear-gradient(135deg,#a16207,#854d0e)"):"linear-gradient(135deg,#1d4ed8,#2563eb)"),
             border:"none",color:"white",fontSize:12,fontWeight:700,
             cursor:runStatus==="running"?"wait":"pointer",
-            boxShadow:runStatus==="running"?"none":(engine==="lean"?"0 2px 8px rgba(124,58,237,0.35)":"0 2px 8px rgba(37,99,235,0.35)")}}>
+            boxShadow:runStatus==="running"?"none":(engine==="lean"?(leanAllowed?"0 2px 8px rgba(124,58,237,0.35)":"0 2px 8px rgba(161,98,7,0.4)"):"0 2px 8px rgba(37,99,235,0.35)")}}>
           {runStatus==="running"
             ?<><Loader size={11} style={{animation:"spin 1s linear infinite"}}/>실행 중…</>
-            :<><Play size={11}/>{engine==="lean" ? "Run Lean" : "Run Backtest"}</>}
+            :<>{engine==="lean" && !leanAllowed ? <Lock size={11}/> : <Play size={11}/>}{engine==="lean" ? "Run Lean" : "Run Backtest"}</>}
         </button>
         <button onClick={handleOpenOptimize} disabled={optBusy}
           title="파라미터 그리드 백테스트로 견고성·민감도 최적화"
@@ -4404,13 +4668,13 @@ export default function DeveloperLab() {
                   {/* ── 실행 위치 (로컬 자가호스팅 / 클라우드 관리형) ── */}
                   <div style={{padding:"10px 12px 4px", fontSize:10, color:"#94A3B8", fontWeight:700}}>실행 위치 (Execution)</div>
                   {[
-                    ["cloud","☁️ 클라우드 (관리형)","우리 서버가 실행 — 노트북 성능 무관 · Lean·대규모 최적화·자동 백테스트","PREMIUM","#a78bfa"],
-                    ["local","💻 로컬 (자가호스팅)","내 환경의 analytics/Docker 에서 실행 · 개발자·셀프호스트","STANDARD","#60a5fa"],
-                  ].map(([val,label,desc,plan,accent])=>{
+                    ["cloud","☁️ 클라우드 (관리형)","우리 서버가 실행 — 노트북 성능 무관 · Lean·대규모 최적화·자동 백테스트","#a78bfa"],
+                    ["local","💻 로컬 (자가호스팅)","내 환경의 analytics/Docker 에서 실행 · 개발자·셀프호스트","#60a5fa"],
+                  ].map(([val,label,desc,accent])=>{
                     const on = execLoc===val;
-                    const locked = val==="cloud" && !cloudAllowed;
+                    const locked = !leanAllowed;   // Lean 실행 위치(클라우드 EKS·로컬 CLI) 모두 EXPERT 전용
                     return (
-                      <div key={val} onClick={()=>{ if(locked){ alert("클라우드 관리형 컴퓨트는 PREMIUM 구독에서 사용할 수 있습니다.\n노트북 성능과 무관하게 우리 서버가 Lean·대규모 최적화·자동 백테스트를 실행합니다. (로컬 엔진은 STANDARD 에서 본인 환경으로 실행)"); return; } setExecLoc(val); }}
+                      <div key={val} onClick={()=>{ if(locked){ setLeanGateOpen(true); return; } setExecLoc(val); }}
                         style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 12px",cursor:locked?"not-allowed":"pointer",opacity:locked?0.6:1,
                           background:on?"rgba(167,139,250,0.10)":"transparent"}}
                         onMouseEnter={e=>{ if(!on&&!locked) e.currentTarget.style.background="rgba(255,255,255,0.04)"; }}
@@ -4421,7 +4685,7 @@ export default function DeveloperLab() {
                         <div style={{minWidth:0,flex:1}}>
                           <div style={{display:"flex",alignItems:"center",gap:6}}>
                             <span style={{fontSize:12,fontWeight:on?700:500,color:on?"#e2e8f0":"#CBD5E1"}}>{label}</span>
-                            <span style={{fontSize:8.5,fontWeight:700,padding:"1px 6px",borderRadius:999,background:plan==="PREMIUM"?"rgba(167,139,250,0.18)":"rgba(96,165,250,0.15)",color:plan==="PREMIUM"?"#c4b5fd":"#93c5fd"}}>{plan}{plan==="PREMIUM"?"":"+"}</span>
+                            <span style={{fontSize:8.5,fontWeight:700,padding:"1px 6px",borderRadius:999,background:"rgba(251,191,36,0.16)",color:"#fbbf24"}}>EXPERT</span>
                             {locked && <span style={{fontSize:9,color:"#fbbf24"}}>🔒 업그레이드</span>}
                           </div>
                           <div style={{fontSize:10,color:"#64748B",marginTop:2,lineHeight:1.4}}>{desc}</div>
@@ -4439,6 +4703,26 @@ export default function DeveloperLab() {
                       <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:8}}>
                         <span style={{fontSize:10,color:"#a78bfa",fontWeight:800,letterSpacing:"0.08em"}}>⇌ LEAN ENGINE</span>
                       </div>
+                      {/* EXPERT 등급 전용 배너 — Lean 실행(로컬 CLI·클라우드 EKS) 게이트 */}
+                      {!leanAllowed && (
+                        <div style={{marginBottom:9,padding:"10px 12px",borderRadius:9,
+                          background:"linear-gradient(135deg,rgba(251,191,36,0.13),rgba(167,139,250,0.13))",
+                          border:"1px solid rgba(251,191,36,0.4)"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+                            <Lock size={12} color="#fbbf24"/>
+                            <span style={{fontSize:10.5,fontWeight:800,color:"#fbbf24",letterSpacing:"0.04em"}}>EXPERT 등급 전용</span>
+                          </div>
+                          <div style={{fontSize:10,color:"#fde68a",lineHeight:1.6,marginBottom:8}}>
+                            Lean 실행은 <b>로컬 CLI·클라우드 EKS 모두</b> Expert 등급에서 가능합니다. <b style={{color:"#fcd34d"}}>코드 보기·편집</b>과 <b style={{color:"#93c5fd"}}>vectorbt 백테스트</b>는 지금도 그대로 사용할 수 있어요.
+                          </div>
+                          <button onClick={()=>setLeanGateOpen(true)} style={{
+                            display:"flex",alignItems:"center",gap:5,padding:"5px 11px",borderRadius:7,
+                            background:"linear-gradient(135deg,#f59e0b,#d97706)",border:"none",color:"#1c1917",
+                            fontSize:10.5,fontWeight:800,cursor:"pointer"}}>
+                            <Rocket size={11}/> Expert 로 업그레이드
+                          </button>
+                        </div>
+                      )}
                       {/* 채널 드롭다운 (QC의 master v17731 드롭다운) */}
                       <select value={leanChannel} onChange={e=>setLeanChannel(e.target.value)}
                         style={{width:"100%",background:"#0d1117",border:"1px solid rgba(167,139,250,0.35)",
@@ -4467,7 +4751,15 @@ export default function DeveloperLab() {
                             background:ok?"rgba(34,197,94,0.15)":"rgba(239,68,68,0.12)",color:ok?"#4ade80":"#f87171"}}>{ok?"✓":"✕"} {l}</span>
                         ))}
                       </div>
-                      {!leanHealth?.ready && <div style={{fontSize:10,color:"#fbbf24",marginTop:7,lineHeight:1.6}}>Lean 미준비 — Docker + analytics venv 의 lean CLI 설치가 필요합니다.</div>}
+                      {execLoc==="cloud" ? (
+                        <div style={{fontSize:10,color:"#a5b4fc",marginTop:7,lineHeight:1.6}}>
+                          ☁ 클라우드(관리형) Lean 은 <b style={{color:"#c4b5fd"}}>K8s 멀티테넌트(EKS)</b>에서 실행됩니다. 위 칩(Docker/CLI/이미지)은 <b>로컬 자가호스팅(v1) 진단용</b>이라 클라우드 실행과 무관해요 — <b style={{color:"#c4b5fd"}}>▶ Run Lean</b> 을 누르면 클라우드 큐(v2)로 제출돼 EKS 에서 실행됩니다(<b style={{color:"#fbbf24"}}>Expert 등급</b> 필요).
+                        </div>
+                      ) : (
+                        <div style={{fontSize:10,color:"#94a3b8",marginTop:7,lineHeight:1.6}}>
+                          💻 로컬(자가호스팅) Lean 은 내 환경의 Docker + lean CLI 에서 실행됩니다(<b style={{color:"#fbbf24"}}>Expert 등급</b> 필요). 위 칩은 로컬 실행환경 진단용이에요.
+                        </div>
+                      )}
                       {/* QC식 노드 풀 + 큐 관리 (준비됐을 때) */}
                       {leanHealth?.ready && (
                         <div style={{marginTop:9, borderTop:"1px solid rgba(255,255,255,0.06)", paddingTop:8}}>
@@ -4514,7 +4806,7 @@ export default function DeveloperLab() {
                     <>
                       <div style={{padding:"4px 12px", fontSize:10, color:"#94A3B8", fontWeight:700}}>Lean 전략 프리셋</div>
                       {leanStrategies.map(s=>(
-                        <div key={s.id} onClick={()=>setLeanStrategyId(s.id)}
+                        <div key={s.id} onClick={()=>pickLeanStrategy(s.id)}
                           style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px 5px 16px",cursor:"pointer",
                             background:s.id===leanStrategyId?"rgba(167,139,250,0.12)":"transparent",
                             color:s.id===leanStrategyId?"#c4b5fd":"#94A3B8",fontSize:11.5,fontWeight:s.id===leanStrategyId?700:500}}
@@ -4535,70 +4827,86 @@ export default function DeveloperLab() {
               {/* ── Explorer ── */}
               {sidePanel==="explorer" && (
                 <div>
-                  {repoTree ? (
-                    <RepoExplorer
-                      repoFiles={repoFiles}
-                      modifiedFiles={modifiedFiles}
-                      deletedFiles={deletedFiles}
-                      localFolders={localFolders}
-                      onOpenFile={openRepoFile}
-                      activeFilePath={activeTab?.filePath}
-                      fetchingFile={fetchingFile}
-                      onCreate={handleRepoCreate}
-                      onDelete={handleRepoDelete}
-                      onRename={handleRepoRename}
-                      triggerNew={newFileTrigger}
-                      onTriggerNewDone={() => setNewFileTrigger(null)}
-                      selectedPath={selectedPath}
-                      onSelect={setSelectedPath}
-                    />
-                  ) : (
-                    /* 워크스페이스 기본 — 선택 전략의 실행/백테스트/최적화 */
+                  {/* 워크스페이스 실행/분석 파일 — git 연결 여부와 무관하게 '항상' 표시.
+                      (이전엔 repoTree 있으면 워크스페이스 섹션이 통째로 숨겨져 main.py·노트북이 안 보였음) */}
+                  <div onClick={()=>setFolderOpen(v=>!v)}
+                    style={{display:"flex",alignItems:"center",gap:4,
+                      padding:"5px 8px",cursor:"pointer",userSelect:"none",
+                      color:"#F1F5F9",fontSize:11,fontWeight:700}}>
+                    {folderOpen?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
+                    <FolderOpen size={12} color="#60a5fa" style={{flexShrink:0}}/>
+                    <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{strategyName || "MY_STRATEGY"}</span>
+                  </div>
+                  {folderOpen && (
                     <>
-                      <div onClick={()=>setFolderOpen(v=>!v)}
-                        style={{display:"flex",alignItems:"center",gap:4,
-                          padding:"5px 8px",cursor:"pointer",userSelect:"none",
-                          color:"#F1F5F9",fontSize:11,fontWeight:700}}>
-                        {folderOpen?<ChevronDown size={11}/>:<ChevronRight size={11}/>}
-                        <FolderOpen size={12} color="#60a5fa" style={{flexShrink:0}}/>
-                        <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{strategyName || "MY_STRATEGY"}</span>
-                      </div>
-                      {folderOpen && (
-                        <>
-                          <div style={{padding:"4px 8px 2px 26px", fontSize:9, color:"#64748B", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em"}}>실행</div>
-                          {Object.entries(FILE_META).map(([key,meta])=>(
-                            <div key={key} onClick={()=>openFile(key)}
-                              style={{display:"flex", alignItems:"center", gap:6, padding:"4px 8px 4px 30px", cursor:"pointer",
-                                background:activeTab?.fileKey===key&&activeTab?.type==="code"?"rgba(96,165,250,0.1)":"transparent",
-                                color:activeTab?.fileKey===key&&activeTab?.type==="code"?"#e2e8f0":"#CBD5E1", fontSize:11.5}}
-                              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
-                              onMouseLeave={e=>e.currentTarget.style.background=activeTab?.fileKey===key&&activeTab?.type==="code"?"rgba(96,165,250,0.1)":"transparent"}>
-                              <FileCode size={12} color="#60a5fa" style={{flexShrink:0}}/>
-                              {meta.name}
-                            </div>
-                          ))}
-                          <div style={{padding:"6px 8px 2px 26px", fontSize:9, color:"#64748B", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em"}}>분석 · 배포</div>
-                          {[
-                            { icon:<BarChart3 size={12} color="#F59E0B"/>, label:"백테스트 결과", active: activeTab?.type==="report",
-                              fn:()=>{ const t=openTabs.find(tt=>tt.type==="report"); if(t) setActiveTabId(t.id); else handleRunBacktest(); } },
-                            { icon:<BookOpen size={12} color="#a78bfa"/>,  label:"코드 해설", active: activeTab?.type==="notebook", fn:handleOpenNotebook },
-                            { icon:<Lightbulb size={12} color="#F59E0B"/>, label:"최적화 개선", active:false, fn:handleImproveProposal },
-                            { icon:<Rocket size={12} color="#a78bfa"/>,    label:"Deploy to Live", active: activeTab?.type==="deploy", fn:handleDeploy },
-                          ].map((n,i)=>(
-                            <div key={i} onClick={n.fn}
-                              style={{display:"flex", alignItems:"center", gap:6, padding:"4px 8px 4px 30px", cursor:"pointer",
-                                background:n.active?"rgba(96,165,250,0.1)":"transparent", color:n.active?"#e2e8f0":"#CBD5E1", fontSize:11.5}}
-                              onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
-                              onMouseLeave={e=>e.currentTarget.style.background=n.active?"rgba(96,165,250,0.1)":"transparent"}>
-                              {n.icon}{n.label}
-                            </div>
-                          ))}
-                        </>
-                      )}
-                      <div style={{padding:"10px 12px 4px", fontSize:10, color:"#94A3B8"}}>
-                        Git 패널에서 레포지토리를 연결하면<br/>실제 파일 트리가 표시됩니다.
-                      </div>
+                      <div style={{padding:"4px 8px 2px 26px", fontSize:9, color:"#64748B", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em"}}>실행</div>
+                      {Object.entries(FILE_META).map(([key,meta])=>(
+                        <div key={key} onClick={()=>openFile(key)}
+                          style={{display:"flex", alignItems:"center", gap:6, padding:"4px 8px 4px 30px", cursor:"pointer",
+                            background:activeTab?.fileKey===key&&activeTab?.type==="code"?"rgba(96,165,250,0.1)":"transparent",
+                            color:activeTab?.fileKey===key&&activeTab?.type==="code"?"#e2e8f0":"#CBD5E1", fontSize:11.5}}
+                          onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
+                          onMouseLeave={e=>e.currentTarget.style.background=activeTab?.fileKey===key&&activeTab?.type==="code"?"rgba(96,165,250,0.1)":"transparent"}>
+                          <FileCode size={12} color="#60a5fa" style={{flexShrink:0}}/>
+                          {meta.name}
+                        </div>
+                      ))}
+                      <div style={{padding:"6px 8px 2px 26px", fontSize:9, color:"#64748B", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em"}}>분석 · 배포</div>
+                      {[
+                        { icon:<BarChart3 size={12} color="#F59E0B"/>, label:"백테스트 결과", active: activeTab?.type==="report",
+                          fn:()=>{ const t=openTabs.find(tt=>tt.type==="report"); if(t) setActiveTabId(t.id); else handleRunBacktest(); } },
+                        { icon:<BookOpen size={12} color="#a78bfa"/>,  label:"코드 해설", active: activeTab?.type==="notebook", fn:handleOpenNotebook },
+                        { icon:<Lightbulb size={12} color="#F59E0B"/>, label:"최적화 개선", active:false, fn:handleImproveProposal },
+                        { icon:<Rocket size={12} color="#a78bfa"/>,    label:"Deploy to Live", active: activeTab?.type==="deploy", fn:handleDeploy },
+                      ].map((n,i)=>(
+                        <div key={i} onClick={n.fn}
+                          style={{display:"flex", alignItems:"center", gap:6, padding:"4px 8px 4px 30px", cursor:"pointer",
+                            background:n.active?"rgba(96,165,250,0.1)":"transparent", color:n.active?"#e2e8f0":"#CBD5E1", fontSize:11.5}}
+                          onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.04)"}
+                          onMouseLeave={e=>e.currentTarget.style.background=n.active?"rgba(96,165,250,0.1)":"transparent"}>
+                          {n.icon}{n.label}
+                        </div>
+                      ))}
                     </>
+                  )}
+
+                  {/* Git 레포 — 연결되면 그 아래 별도 섹션으로 트리 표시, 아니면 '연결' 버튼 */}
+                  {repoTree ? (
+                    <div style={{marginTop:10, borderTop:"1px solid rgba(255,255,255,0.07)", paddingTop:8}}>
+                      <div style={{padding:"0 8px 6px 12px", fontSize:9, color:"#64748B", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em", display:"flex", alignItems:"center", gap:5}}>
+                        <GitBranch size={11} color="#a78bfa"/>Git 레포
+                      </div>
+                      <RepoExplorer
+                        repoFiles={repoFiles}
+                        modifiedFiles={modifiedFiles}
+                        deletedFiles={deletedFiles}
+                        localFolders={localFolders}
+                        onOpenFile={openRepoFile}
+                        activeFilePath={activeTab?.filePath}
+                        fetchingFile={fetchingFile}
+                        onCreate={handleRepoCreate}
+                        onDelete={handleRepoDelete}
+                        onRename={handleRepoRename}
+                        triggerNew={newFileTrigger}
+                        onTriggerNewDone={() => setNewFileTrigger(null)}
+                        selectedPath={selectedPath}
+                        onSelect={setSelectedPath}
+                      />
+                    </div>
+                  ) : (
+                    <div style={{padding:"12px 12px 4px", marginTop:8, borderTop:"1px solid rgba(255,255,255,0.06)"}}>
+                      <button onClick={()=>setSidePanel("git")} style={{
+                        display:"flex", alignItems:"center", justifyContent:"center", gap:7, width:"100%",
+                        padding:"9px 0", borderRadius:8, border:"1px solid rgba(167,139,250,0.45)",
+                        background:"rgba(167,139,250,0.14)", color:"#c4b5fd", fontSize:12, fontWeight:700, cursor:"pointer"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="rgba(167,139,250,0.24)"}
+                        onMouseLeave={e=>e.currentTarget.style.background="rgba(167,139,250,0.14)"}>
+                        <GitBranch size={14}/> GitHub 레포 연결
+                      </button>
+                      <div style={{fontSize:10, color:"#64748B", lineHeight:1.55, marginTop:8, textAlign:"center"}}>
+                        연결하면 버전관리·공유가 가능해요.<br/>main.py·노트북은 위에 항상 표시됩니다.
+                      </div>
+                    </div>
                   )}
                 </div>
               )}
@@ -4759,15 +5067,28 @@ export default function DeveloperLab() {
 
             {/* 워크스페이스 코드 파일 */}
             {activeTab?.type==="code" && (
-              <Editor
-                key={activeTab.fileKey}
-                height="100%"
-                defaultLanguage="python"
-                value={fileContents[activeTab.fileKey]||""}
-                onChange={v=>setFileContents(prev=>({...prev,[activeTab.fileKey]:v??""}))}
-                theme="vs-dark"
-                options={editorOpts}
-              />
+              <div style={{flex:1, minHeight:0, display:"flex", flexDirection:"column"}}>
+                {/* 엔진 시맨틱 안내 — analytics 엔진(def run) 전략은 vectorbt 에서 파라미터만 반영, 코드 직접 실행은 Lean */}
+                {engine==="vectorbt" && /def\s+run\s*\(\s*prices\s*\)/.test(fileContents[activeTab.fileKey]||"") && (
+                  <div style={{flexShrink:0, display:"flex", alignItems:"flex-start", gap:8, padding:"8px 16px",
+                    background:"rgba(96,165,250,0.08)", borderBottom:"1px solid rgba(96,165,250,0.18)",
+                    fontSize:11.5, color:"#9fb0c3", lineHeight:1.6}}>
+                    <span style={{flexShrink:0}}>ℹ️</span>
+                    <span>이 전략은 <b style={{color:"#cbd5e1"}}>analytics 엔진</b>에서 실행돼요. 위 코드는 <b style={{color:"#cbd5e1"}}>엔진 로직(이해용)</b>이라, <b style={{color:"#cbd5e1"}}>vectorbt 백테스트엔 SPLIT·TAKE_PROFIT 등 파라미터 값만 반영</b>됩니다(로직을 직접 고쳐도 결과엔 안 들어감). 코드를 <b style={{color:"#cbd5e1"}}>직접 수정해 그대로 실행</b>하려면 엔진을 <b style={{color:"#c4b5fd"}}>Lean(QuantConnect)</b>으로 전환하고 <b style={{color:"#c4b5fd"}}>'자유 코드(main.py) 직접 실행'</b>을 켜세요.</span>
+                  </div>
+                )}
+                <div style={{flex:1, minHeight:0}}>
+                  <Editor
+                    key={activeTab.fileKey}
+                    height="100%"
+                    defaultLanguage="python"
+                    value={fileContents[activeTab.fileKey]||""}
+                    onChange={v=>setFileContents(prev=>({...prev,[activeTab.fileKey]:v??""}))}
+                    theme="vs-dark"
+                    options={editorOpts}
+                  />
+                </div>
+              </div>
             )}
             {/* GitHub 레포 파일 */}
             {activeTab?.type==="repoFile" && (
@@ -4811,8 +5132,8 @@ export default function DeveloperLab() {
                       <Lock size={22} color="white" />
                     </div>
                     <div>
-                      <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1e3a8a" }}>PREMIUM 구독이 필요해요</h2>
-                      <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>클라우드 관리형 Lean 백테스트</p>
+                      <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1e3a8a" }}>EXPERT 등급이 필요해요</h2>
+                      <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>Lean 백테스트 실행 (로컬 CLI · 클라우드 EKS)</p>
                     </div>
                   </div>
                   <div style={{ padding: "24px 28px" }}>
@@ -4823,13 +5144,13 @@ export default function DeveloperLab() {
                     }}>
                       <Rocket size={18} color="#7c3aed" style={{ flexShrink: 0 }} />
                       <span style={{ fontSize: 14, color: "#4c1d95", fontWeight: 600 }}>
-                        클라우드 관리형 Lean 백테스트는 <span style={{ fontWeight: 800, color: "#6d28d9" }}>PREMIUM</span> 구독에서 사용할 수 있습니다
+                        Lean 백테스트 실행(로컬 CLI · 클라우드 EKS)은 <span style={{ fontWeight: 800, color: "#6d28d9" }}>EXPERT</span> 등급에서 사용할 수 있습니다
                       </span>
                     </div>
                     <p style={{ margin: "14px 0 0", fontSize: 13, color: "#64748B", lineHeight: 1.7 }}>
-                      • 우리 서버가 실행하므로 노트북 성능과 무관합니다.<br />
-                      • STANDARD 는 '로컬(자가호스팅)' 엔진으로 본인 Docker 에서 Lean 을 실행하거나, 클라우드 vectorbt 백테스트를 사용하세요.<br />
-                      엔진 패널에서 실행 위치를 '로컬' 로 바꾸면 본인 환경에서 실행합니다.
+                      • 코드 보기·편집(WYSIWYG)은 지금 등급에서도 그대로 됩니다 — 실행만 EXPERT 전용입니다.<br />
+                      • 지금 바로 백테스트하려면 <b>vectorbt 엔진</b>(클라우드 분석 서버)을 사용하세요.<br />
+                      엔진 셀렉터에서 vectorbt 로 전환하면 즉시 실행됩니다.
                     </p>
                   </div>
                   <div style={{ padding: "0 28px 24px", display: "flex", justifyContent: "flex-end" }}>

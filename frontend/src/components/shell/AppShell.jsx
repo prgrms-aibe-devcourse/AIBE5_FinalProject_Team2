@@ -127,7 +127,7 @@ export default function AppShell({ children, hideChat = false }) {
           onCollapse={() => setTopCollapsed(true)}
         />
       )}
-      <main style={{
+      <main id="main-scroll" style={{
         "--alpha-top-h": topCollapsed ? "0px" : "44px",
         boxSizing: "border-box",
         ...(isWorkspace || isDeveloper ? {

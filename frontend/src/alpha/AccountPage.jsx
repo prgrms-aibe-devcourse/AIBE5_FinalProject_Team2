@@ -7,7 +7,7 @@ import { useLanguage } from "../i18n/useLanguage";
 import {
   listBrokerAccounts, upsertBrokerAccount, deleteBrokerAccount,
   testBrokerAccount, setBrokerTrading, ackRealRisk, setBrokerAutoExecute, getPromotionGate,
-  getBrokerBalance, getBrokerOrdersToday,
+  getBrokerBalance,
   previewBrokerOrder, placeBrokerOrder, getBrokerQuote,
   testBinanceAccount, getBinanceBalance,
 } from "./alphaApi";
@@ -353,7 +353,7 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
   const { t } = useLanguage();
   // 캐시 hit 시 즉시 표시 (null 초기화 없음)
   const [balance, setBalance] = useState(() => brokerCache.getBalance(env, "KIS"));
-  const [orders, setOrders] = useState(() => brokerCache.getOrders(env));
+  const [limitInKrw, setLimitInKrw] = useState(true);
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -363,22 +363,15 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
   const refresh = async ({ silent = false } = {}) => {
     if (!silent) setRefreshing(true);
     try {
-      const [b, o] = await Promise.all([
-        getBrokerBalance(env).catch(() => null),
-        getBrokerOrdersToday(env).catch(() => null),
-      ]);
+      const b = await getBrokerBalance(env).catch(() => null);
       if (b) { brokerCache.setBalance(env, "KIS", b); setBalance(b); }
-      if (o) { brokerCache.setOrders(env, o); setOrders(o); }
     } catch {}
     finally { setRefreshing(false); }
   };
 
   useEffect(() => {
-    // 환경/계좌 전환 시 해당 캐시로 즉시 업데이트
     const cachedBal = brokerCache.getBalance(env, "KIS");
-    const cachedOrd = brokerCache.getOrders(env);
     setBalance(cachedBal ?? null);
-    setOrders(cachedOrd ?? null);
     if (acct.lastVerifiedAt) refresh({ silent: !!cachedBal });
   }, [env, acct.id, acct.lastVerifiedAt]);
 
@@ -489,6 +482,9 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
       {/* 상태 카드 */}
       <Card theme={theme}>
         <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <CurrencyToggle krw={limitInKrw} onChange={setLimitInKrw} />
+        </div>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 16 }}>
           <tbody>
             {[
@@ -498,9 +494,15 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
               { label: t("account.stat.verified"),     value: acct.lastVerifiedAt ? new Date(acct.lastVerifiedAt).toLocaleString() : t("account.statUnverified"), tone: acct.lastVerifiedAt ? "ok" : "warn" },
               { label: t("account.stat.tradingSwitch"),value: acct.tradingEnabled ? "ON" : "OFF", tone: acct.tradingEnabled ? "ok" : "warn" },
               { label: t("account.stat.autoExecute"),  value: acct.autoExecute ? "ON" : "OFF", tone: acct.autoExecute ? (env === "REAL" ? "warn" : "ok") : "info" },
-              { label: t("account.stat.singleLimit"),  value: `$${Number(acct.maxOrderUsd || 0).toLocaleString()}` },
-              { label: t("account.stat.dailyBuyLimit"),value: acct.dailyBuyKrw != null ? `₩${Number(acct.dailyBuyKrw).toLocaleString()}` : t("account.statUnlimited") },
-              { label: t("account.stat.dailySellLimit"),value: acct.dailySellKrw != null ? `₩${Number(acct.dailySellKrw).toLocaleString()}` : t("account.statUnlimited") },
+              { label: t("account.stat.singleLimit"),  value: limitInKrw
+                  ? `₩${Number((acct.maxOrderUsd || 0) * 1400).toLocaleString()}`
+                  : `$${Number(acct.maxOrderUsd || 0).toLocaleString()}` },
+              { label: t("account.stat.dailyBuyLimit"), value: acct.dailyBuyKrw != null
+                  ? (limitInKrw ? `₩${Number(acct.dailyBuyKrw).toLocaleString()}` : `$${Math.round(Number(acct.dailyBuyKrw) / 1400).toLocaleString()}`)
+                  : t("account.statUnlimited") },
+              { label: t("account.stat.dailySellLimit"), value: acct.dailySellKrw != null
+                  ? (limitInKrw ? `₩${Number(acct.dailySellKrw).toLocaleString()}` : `$${Math.round(Number(acct.dailySellKrw) / 1400).toLocaleString()}`)
+                  : t("account.statUnlimited") },
             ].map(({ label, value, tone }, i) => {
               const vc = tone === "ok" ? "#16a34a" : tone === "warn" ? "#d97706" : tone === "info" ? "#3b82f6" : theme.text;
               const bg = i % 2 === 0 ? "transparent" : (theme.isDark ? "rgba(255,255,255,0.03)" : "#F8FAFC");
@@ -640,18 +642,6 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
         )}
       </Card>
 
-      {/* 자동 주문 내역 (무한매수법 TQQQ / SOXL) */}
-      <AutoOrderPanel theme={theme} env={env} orders={orders} />
-
-      {/* 주문 */}
-      <OrderForm theme={theme} env={env} acct={acct} setMsg={setMsg} onPlaced={refresh} />
-
-      {/* 당일 주문 */}
-      <Card theme={theme}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>{t("account.ordersSectionTitle")}</h3>
-        <OrdersTable theme={theme} orders={orders} />
-      </Card>
-
       <DeleteAccountModal
         open={deleteConfirm}
         brokerName="KIS"
@@ -660,194 +650,6 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
         onClose={() => setDeleteConfirm(false)}
       />
     </div>
-  );
-}
-
-/* ───────────────────────────────────────────── 주문 폼 */
-function OrderForm({ theme, env, acct, setMsg, onPlaced }) {
-  const { t } = useLanguage();
-  const [form, setForm] = useState({ ticker: "QQQ", side: "BUY", quantity: 1, limitPrice: "" });
-  const [quote, setQuote] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [busy, setBusy] = useState(false);
-
-  const fetchQuote = async (ticker) => {
-    if (!ticker || !acct.lastVerifiedAt) { setQuote(null); return; }
-    try { setQuote(await getBrokerQuote(env, ticker)); } catch { setQuote(null); }
-  };
-  const doPreview = async () => {
-    setBusy(true); setMsg(null);
-    try {
-      const p = await previewBrokerOrder(env, {
-        ...form, ticker: form.ticker.toUpperCase(),
-        limitPrice: form.limitPrice ? Number(form.limitPrice) : null,
-      });
-      setPreview(p);
-    } catch (e) {
-      setMsg({ type: "err", text: t("account.previewFailed", { err: e?.response?.data?.error || e.message }) });
-    } finally { setBusy(false); }
-  };
-  const doPlace = async () => {
-    if (!preview?.ok) return;
-    setBusy(true); setMsg(null);
-    try {
-      const r = await placeBrokerOrder(env, {
-        ...form, ticker: form.ticker.toUpperCase(),
-        limitPrice: form.limitPrice ? Number(form.limitPrice) : null,
-      });
-      setMsg({ type: "ok", text: t("account.orderSent", { no: r.kis_order_no || "(응답확인)" }) });
-      setPreview(null);
-      onPlaced?.();
-    } catch (e) {
-      setMsg({ type: "err", text: t("account.orderFailed", { err: e?.response?.data?.error || e.message }) });
-    } finally { setBusy(false); }
-  };
-
-  const overLimit = preview?.over_single_limit;
-
-  return (
-    <Card theme={theme}>
-      <h3 style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>{t("account.orderFormTitle", { env: env === "REAL" ? t("account.statEnvLive") : t("account.statEnvMock") })}</h3>
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1.2fr auto", gap: 8, alignItems: "end" }}>
-        <Field label={t("account.fieldTicker")}>
-          <input style={inp(theme)} value={form.ticker}
-            onChange={e => setForm(f => ({ ...f, ticker: e.target.value }))}
-            onBlur={e => fetchQuote(e.target.value.trim().toUpperCase())} />
-        </Field>
-        <Field label={t("account.fieldSide")}>
-          <select style={inp(theme)} value={form.side}
-            onChange={e => setForm(f => ({ ...f, side: e.target.value }))}>
-            <option value="BUY">{t("account.optionBuy")}</option><option value="SELL">{t("account.optionSell")}</option>
-          </select>
-        </Field>
-        <Field label={t("account.fieldQty")}>
-          <input type="number" min="1" style={inp(theme)} value={form.quantity}
-            onChange={e => setForm(f => ({ ...f, quantity: Number(e.target.value) }))} />
-        </Field>
-        <Field label={t("account.fieldLimitUsd")}>
-          <input type="number" step="0.01" style={inp(theme)} value={form.limitPrice}
-            onChange={e => setForm(f => ({ ...f, limitPrice: e.target.value }))} />
-        </Field>
-        <button onClick={doPreview} disabled={busy} style={btnSecondary}>{t("account.previewBtn")}</button>
-      </div>
-
-      {quote && quote.last_price > 0 && (
-        <div style={{ marginTop: 10, fontSize: 12, color: theme.subtle }}>
-          📊 <b>{quote.ticker}</b> ({quote.exchange}):{" "}
-          <b style={{ color: theme.text }}>${Number(quote.last_price).toFixed(2)}</b>{" "}
-          <span style={{ color: quote.change_rate_pct >= 0 ? "#22c55e" : "#ef4444" }}>
-            ({quote.change_rate_pct >= 0 ? "+" : ""}{Number(quote.change_rate_pct).toFixed(2)}%)
-          </span>
-          {" · "}
-          <button type="button"
-            onClick={() => setForm(f => ({ ...f, limitPrice: quote.last_price.toFixed(2) }))}
-            style={{ background: "none", border: "none", color: "#3b82f6", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>
-            {t("account.useThisPrice")}
-          </button>
-        </div>
-      )}
-
-      {preview && (
-        <div style={{
-          marginTop: 14, padding: 12, borderRadius: 8,
-          background: overLimit ? "#FEE2E2" : (form.side === "BUY" ? "#DCFCE7" : "#FEE2E2"),
-          color: overLimit ? "#991B1B" : (form.side === "BUY" ? "#166534" : "#991B1B"),
-          fontSize: 13,
-        }}>
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>
-            {overLimit ? t("account.previewOverLimit") : `✅ ${preview.side} ${preview.quantity} @ $${preview.limit_price}`}
-          </div>
-          <div>{t("account.previewEstTotal", { total: Number(preview.est_total_usd).toFixed(2), limit: preview.max_order_usd })}</div>
-          <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
-            <button onClick={doPlace} disabled={busy || !preview.ok || !acct.tradingEnabled}
-              style={form.side === "BUY" ? btnPrimary : btnDanger}>
-              {acct.tradingEnabled ? `${form.side === "BUY" ? t("account.executeBuy") : t("account.executeSell")}` : t("account.tradingSwitchOff")}
-            </button>
-            <button onClick={() => setPreview(null)} style={btnDefault}>{t("account.cancelBtn")}</button>
-          </div>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-/* ───────────────────────────────────────────── 자동 주문 패널 (무한매수법) */
-function AutoOrderPanel({ theme, env, orders }) {
-  const { t } = useLanguage();
-  const LS_KEY = `autoStrategy:${env}`;
-  const [strategies, setStrategies] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(LS_KEY) || "null");
-      if (saved && typeof saved === "object") return saved;
-    } catch {}
-    return { TQQQ: false, SOXL: false };
-  });
-  useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(strategies)); } catch {}
-  }, [strategies, LS_KEY]);
-
-  const toggle = (ticker) => setStrategies(s => ({ ...s, [ticker]: !s[ticker] }));
-
-  const RULE = t("account.autoOrderRule");
-
-  // 자동 주문으로 표시할 후보: 오늘 주문 중 strategy_tag === 'INFINITE_BUY' 또는 메모에 [AUTO] 포함
-  const autoOrders = useMemo(() => {
-    const list = Array.isArray(orders) ? orders : [];
-    return list.filter(o =>
-      o?.strategy_tag === "INFINITE_BUY" ||
-      o?.tag === "AUTO" ||
-      (typeof o?.memo === "string" && o.memo.includes("[AUTO]"))
-    );
-  }, [orders]);
-
-  return (
-    <Card theme={theme}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{t("account.autoOrderTitle")}</h3>
-        <div style={{ fontSize: 11, color: theme.subtle }}><b style={{ color: theme.text }}>{t("account.autoOrderStrategyLabel")}</b></div>
-      </div>
-      <div style={{
-        padding: 10, borderRadius: 8, marginBottom: 12,
-        background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e3a8a",
-        fontSize: 12, lineHeight: 1.6,
-      }}>
-        ℹ️ {RULE}
-      </div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
-        {["TQQQ", "SOXL"].map(sym => {
-          const on = !!strategies[sym];
-          return (
-            <button key={sym} onClick={() => toggle(sym)} style={{
-              padding: "10px 16px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: 13,
-              minWidth: 180, display: "inline-flex", alignItems: "center", justifyContent: "space-between", gap: 10,
-              background: on ? "linear-gradient(135deg,#60a5fa 0%,#3b82f6 50%,#6366f1 100%)" : theme.card,
-              color: on ? "white" : theme.text,
-              border: `1px solid ${on ? "transparent" : theme.border}`,
-            }}>
-              <span>{sym} {t("account.infiniteBuyLabel")}</span>
-              <span style={{
-                fontSize: 11, padding: "2px 8px", borderRadius: 999,
-                background: on ? "rgba(255,255,255,0.25)" : "#f3f4f6",
-                color: on ? "white" : "#6b7280", fontWeight: 800,
-              }}>{on ? "ON" : "OFF"}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {autoOrders.length === 0 ? (
-        <div style={{
-          padding: 14, borderRadius: 8, textAlign: "center",
-          background: theme.card, border: `1px dashed ${theme.border}`, color: theme.subtle, fontSize: 13,
-        }}>
-          {Object.values(strategies).some(Boolean)
-            ? t("account.autoOrderNoOrders")
-            : t("account.autoOrderNoStrategy")}
-        </div>
-      ) : (
-        <OrdersTable theme={theme} orders={autoOrders} />
-      )}
-    </Card>
   );
 }
 
@@ -864,86 +666,36 @@ function Field({ label, children, col }) {
     {children}
   </label>;
 }
+function CurrencyToggle({ krw, onChange }) {
+  return (
+    <div onClick={() => onChange(!krw)} style={{
+      display: "inline-flex", alignItems: "center",
+      background: "#F1F5F9", borderRadius: 99, padding: 3,
+      cursor: "pointer", border: "1px solid #E2E8F0", userSelect: "none",
+    }}>
+      <span style={{
+        padding: "4px 11px", borderRadius: 99, fontSize: 11, fontWeight: 700,
+        transition: "background 0.18s, color 0.18s, box-shadow 0.18s",
+        background: krw ? "white" : "transparent",
+        color: krw ? "#4338CA" : "#94A3B8",
+        boxShadow: krw ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+      }}>₩ 원화</span>
+      <span style={{
+        padding: "4px 11px", borderRadius: 99, fontSize: 11, fontWeight: 700,
+        transition: "background 0.18s, color 0.18s, box-shadow 0.18s",
+        background: !krw ? "white" : "transparent",
+        color: !krw ? "#B45309" : "#94A3B8",
+        boxShadow: !krw ? "0 1px 4px rgba(0,0,0,0.10)" : "none",
+      }}>$ USD</span>
+    </div>
+  );
+}
 function Stat({ label, value, tone, theme }) {
   const c = tone === "ok" ? "#16a34a" : tone === "warn" ? "#d97706" : tone === "info" ? "#3b82f6" : theme.text;
   return <div>
     <div style={{ fontSize: 10, color: theme.subtle, marginBottom: 2 }}>{label}</div>
     <div style={{ fontSize: 13, fontWeight: 700, color: c }}>{value}</div>
   </div>;
-}
-
-/* 당일 주문 내역 — KIS inquire-ccnl 응답(output 배열) 정상화 */
-function OrdersTable({ theme, orders }) {
-  const { t } = useLanguage();
-  // 백엔드가 KIS raw JsonNode를 그대로 반환 → output / output1 / output2 어디든 배열을 찾는다
-  const rows = (() => {
-    if (!orders || typeof orders !== "object") return null;
-    const cand = orders.output ?? orders.output1 ?? orders.output2;
-    if (Array.isArray(cand)) return cand;
-    if (Array.isArray(orders)) return orders;
-    return null;
-  })();
-  if (!orders) return <div style={{ color: theme.subtle, fontSize: 13 }}>—</div>;
-  if (!rows || rows.length === 0) {
-    return <div style={{ color: theme.subtle, fontSize: 13 }}>{t("account.noOrdersToday")}</div>;
-  }
-  return (
-    <div style={{ overflowX: "auto" }}>
-    <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
-      <thead><tr style={{ color: theme.subtle, textAlign: "left" }}>
-        <th style={th}>{t("account.colTime")}</th><th style={th}>{t("account.colTicker")}</th><th style={th}>{t("account.colSide")}</th>
-        <th style={th}>{t("account.colQtyFilled")}</th><th style={th}>{t("account.colOrderPrice")}</th><th style={th}>{t("account.colFillPrice")}</th><th style={th}>{t("account.colStatus")}</th>
-      </tr></thead>
-      <tbody>
-        {rows.map((r, i) => {
-          // HH:MM:SS 포맷으로 변환 (HHMMSS → HH:MM:SS)
-          const rawTime = r.ord_tmd || r.ord_time || r.dmst_ord_dt || "-";
-          const time = rawTime.length === 6
-            ? `${rawTime.slice(0,2)}:${rawTime.slice(2,4)}:${rawTime.slice(4,6)}`
-            : rawTime;
-
-          // 종목명(종목코드) — KIS prdt_name 필드 우선
-          const ticker = r.pdno || r.ovrs_pdno || r.symb || "-";
-          const name = r.prdt_name || r.prdt_name_kor || "";
-          const tickerDisplay = name ? `${name}(${ticker})` : ticker;
-
-          const side = (r.sll_buy_dvsn_cd === "01" || r.buy_sll_dvsn_cd === "01") ? t("account.sideSell")
-                     : (r.sll_buy_dvsn_cd === "02" || r.buy_sll_dvsn_cd === "02") ? t("account.sideBuy")
-                     : (r.sll_buy_dvsn_cd || r.buy_sll_dvsn_cd || "-");
-
-          const ordQty    = r.ord_qty    || r.tot_ord_qty  || "-";
-          const fillQty   = r.ft_ord_qty || r.tot_ccld_qty || r.ccld_qty || "0";
-          const qtyDisplay = fillQty !== "0" && fillQty !== 0
-            ? `${ordQty} / ${fillQty} ${t("account.filledSuffix")}`
-            : `${ordQty}`;
-
-          // 주문단가: "0" 또는 빈값이면 시장가
-          const ordUnpr = r.ord_unpr || r.ord_unpr3 || "";
-          const isMarket = !ordUnpr || ordUnpr === "0";
-          const ordPriceDisplay = isMarket ? t("account.marketPrice") : ordUnpr;
-
-          // 체결단가: ft_ccld_unpr(평균체결단가) 우선
-          const fillPrice = r.ft_ccld_unpr || r.avg_unpr || r.avg_prvs || "";
-          const fillPriceDisplay = fillPrice && fillPrice !== "0" ? fillPrice : "-";
-
-          const status = r.ord_stat_name || (r.ccld_yn === "Y" ? t("account.statusFilled") : r.ccld_yn === "N" ? t("account.statusUnfilled") : null)
-                       || (Number(r.rmn_qty || r.nccs_qty) > 0 ? t("account.statusUnfilled") : t("account.statusFilled"));
-          return (
-            <tr key={i} style={{ borderTop: `1px solid ${theme.border}` }}>
-              <td style={td}>{time}</td>
-              <td style={{ ...td, maxWidth: 180, wordBreak: "break-all" }}>{tickerDisplay}</td>
-              <td style={{ ...td, color: side === t("account.sideBuy") ? "#16a34a" : side === t("account.sideSell") ? "#dc2626" : undefined, fontWeight: 600 }}>{side}</td>
-              <td style={td}>{qtyDisplay}</td>
-              <td style={td}>{ordPriceDisplay}</td>
-              <td style={{ ...td, fontWeight: fillPriceDisplay !== "-" ? 600 : undefined }}>{fillPriceDisplay}</td>
-              <td style={td}>{status}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-    </div>
-  );
 }
 
 const inp = (theme) => ({
@@ -1137,6 +889,7 @@ function RegisterEmptyState({ brokerType, env, onOpen }) {
 function BinanceActive({ theme, env, acct, reload, setMsg }) {
   const { t } = useLanguage();
   const [balance, setBalance] = useState(null);
+  const [limitInKrw, setLimitInKrw] = useState(true);
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [mode, setMode] = useState(acct.binanceMode || "SPOT");
@@ -1198,15 +951,22 @@ function BinanceActive({ theme, env, acct, reload, setMsg }) {
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <Card theme={theme}>
-        <h2 style={{ fontSize: 15, fontWeight: 800, marginBottom: 12 }}>
-          {t("account.binanceTitle", { env: env === "MOCK" ? t("account.testnet") : t("account.mainnet") })}
-        </h2>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 800, margin: 0 }}>
+            {t("account.binanceTitle", { env: env === "MOCK" ? t("account.testnet") : t("account.mainnet") })}
+          </h2>
+          <CurrencyToggle krw={limitInKrw} onChange={setLimitInKrw} />
+        </div>
         {infoRow("API Key", acct.binanceApiKeyMasked || "—")}
         {infoRow(t("account.binanceTradingMode"), acct.binanceMode || "SPOT")}
         {infoRow(t("account.binanceTradingEnabled"), acct.tradingEnabled ? "✅ ON" : "❌ OFF")}
         {infoRow(t("account.binanceLastVerified"), acct.lastVerifiedAt ? new Date(acct.lastVerifiedAt).toLocaleString() : t("account.statUnverified"))}
-        {infoRow(t("account.binanceSingleLimit"), `$${(acct.maxOrderUsd || 0).toLocaleString()}`)}
-        {infoRow(t("account.binanceDailyLimit"), `$${(acct.dailyOrderUsd || 0).toLocaleString()}`)}
+        {infoRow(t("account.binanceSingleLimit"), limitInKrw
+          ? `₩${Number((acct.maxOrderUsd || 0) * 1400).toLocaleString()}`
+          : `$${Number(acct.maxOrderUsd || 0).toLocaleString()}`)}
+        {infoRow(t("account.binanceDailyLimit"), limitInKrw
+          ? `₩${Number((acct.dailyOrderUsd || 0) * 1400).toLocaleString()}`
+          : `$${Number(acct.dailyOrderUsd || 0).toLocaleString()}`)}
 
         {/* 모드 선택 */}
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>

@@ -608,6 +608,7 @@ function Mypage() {
                   <div style={{ ...READONLY_STYLE, display:"flex", alignItems:"center", justifyContent:"space-between", background:"#F8FAFC", color:"#64748B" }}>
                     <span>{(() => {
                       const ut = (user?.userType || storedUserType || "").toUpperCase();
+                      if (ut === "EXPERT") return "EXPERT";
                       if (ut === "PREMIUM") return "PREMIUM";
                       if (ut === "STANDARD" || ut === "PRO") return "STANDARD";
                       return "FREE";

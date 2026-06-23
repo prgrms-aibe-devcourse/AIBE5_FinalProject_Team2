@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, Trash2, ArrowRight, Star, BookOpen, ChevronRight, Zap, TrendingUp, Bitcoin, Layers, X } from "lucide-react";
+import { Plus, Trash2, ArrowRight, BookOpen, ChevronRight, Zap, TrendingUp, Bitcoin, Layers, X } from "lucide-react";
 import CreateWorkspaceModal from "./CreateWorkspaceModal";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import { useLanguage } from "../i18n/useLanguage";
 import Toast from "../components/common/Toast";
-import { listWorkspaces, createWorkspace, deleteWorkspace, updateWorkspaceStatus } from "./alphaApi";
+import { listWorkspaces, createWorkspace, deleteWorkspace, updateWorkspaceStatus, toggleWorkspaceAutoOrder } from "./alphaApi";
 
 const PRIMARY_KEY = "alpha.primaryWsId";
 const MAX_LIVE = 3;
@@ -17,6 +17,54 @@ const STATUS_COLOR = {
   TESTED:     { bar: "#10B981", bg: "#ECFDF5", text: "#047857" },
   LIVE:       { bar: "#22C55E", bg: "#F0FDF4", text: "#16A34A" },
 };
+
+function HoverTooltip({ text, children }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div
+      style={{ position: "relative", display: "inline-flex" }}
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      {children}
+      {visible && (
+        <div style={{
+          position: "absolute",
+          bottom: "calc(100% + 8px)",
+          left: "50%",
+          transform: "translateX(-50%)",
+          background: "white",
+          border: "1px solid #E2E8F0",
+          borderRadius: 8,
+          boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+          padding: "8px 12px",
+          fontSize: 12,
+          lineHeight: 1.55,
+          color: "#334155",
+          whiteSpace: "pre-line",
+          width: 230,
+          zIndex: 9999,
+          pointerEvents: "none",
+          textAlign: "left",
+          fontWeight: 400,
+        }}>
+          {text}
+          <div style={{
+            position: "absolute",
+            bottom: -5,
+            left: "50%",
+            transform: "translateX(-50%) rotate(45deg)",
+            width: 8,
+            height: 8,
+            background: "white",
+            borderRight: "1px solid #E2E8F0",
+            borderBottom: "1px solid #E2E8F0",
+          }} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function WorkspaceList() {
   const { theme } = useTheme();
@@ -132,6 +180,17 @@ export default function WorkspaceList() {
       await updateWorkspaceStatus(w.id, next);
     } catch (e) {
       alert(t("workspace.statusChangeFailed", { err: e?.response?.data?.error || e.message }));
+      load();
+    }
+  };
+
+  const onToggleAutoOrder = async (w) => {
+    const next = !w.autoOrderEnabled;
+    setItems(prev => (prev || []).map(it => it.id === w.id ? { ...it, autoOrderEnabled: next } : it));
+    try {
+      await toggleWorkspaceAutoOrder(w.id, next);
+    } catch (e) {
+      alert("자동주문 설정 변경 실패: " + (e?.response?.data?.error || e.message));
       load();
     }
   };
@@ -291,7 +350,7 @@ export default function WorkspaceList() {
               boxShadow: isPrimary
                 ? "0 0 15px rgba(251,191,36,0.35), 0 0 40px rgba(251,191,36,0.2), 0 0 80px rgba(251,191,36,0.1)"
                 : "0 2px 8px rgba(0,0,0,0.06)",
-              overflow: "hidden",
+              overflow: "visible",
               transition: "box-shadow 0.15s, transform 0.15s",
               animation: isNewlyPrimary ? "primaryPulse 0.9s ease forwards" : undefined,
             }}
@@ -329,9 +388,28 @@ export default function WorkspaceList() {
 
               {/* 액션 버튼 */}
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                {/* 자동주문 ON/OFF */}
+                <button
+                  onClick={() => onToggleAutoOrder(w)}
+                  title={w.autoOrderEnabled ? "자동주문 끄기 — AI가 더 이상 주문 제안을 큐에 넣지 않습니다" : "자동주문 켜기 — AI가 이 워크스페이스 전략에 맞는 주문을 제안합니다"}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 5,
+                    padding: "7px 11px", borderRadius: 8,
+                    background: w.autoOrderEnabled
+                      ? "linear-gradient(135deg,#fde68a 0%,#f59e0b 100%)"
+                      : "white",
+                    color: w.autoOrderEnabled ? "white" : "#94A3B8",
+                    border: w.autoOrderEnabled ? "none" : "1px solid #E2E8F0",
+                    fontSize: 11, fontWeight: 700, cursor: "pointer",
+                    boxShadow: w.autoOrderEnabled ? "0 2px 8px rgba(245,158,11,0.30)" : "none",
+                    transition: "all 0.18s",
+                  }}>
+                  <Zap size={12} fill={w.autoOrderEnabled ? "white" : "none"} />
+                  자동주문
+                </button>
+                <HoverTooltip text={"매일 22:30 XGBoost 시그널이 이 워크스페이스에 적용됩니다.\nBUY 시그널 발생 시 연결된 브로커 계좌로 주문 제안이 생성됩니다.\n구독 플랜에 따라 이 워크스페이스의 일일 브리핑을 받을 수 있습니다."}>
                 <button
                   onClick={() => onToggleLive(w)}
-                  title={w.status === "LIVE" ? t("workspace.liveDeactivate") : t("workspace.liveActivate")}
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 6,
                     padding: "7px 12px", borderRadius: 8,
@@ -354,6 +432,8 @@ export default function WorkspaceList() {
                   }} />
                   LIVE
                 </button>
+                </HoverTooltip>
+                <HoverTooltip text={"홈 브리핑·알림·시그널 요약의 기준 워크스페이스입니다.\n한 번에 하나만 설정 가능합니다."}>
                 <button
                   onClick={() => { if (!isPrimary) setPrimaryTarget({ id: w.id, name: w.name }); }}
                   title={isPrimary ? t("workspace.primaryLabel") : t("workspace.setPrimary")}
@@ -381,6 +461,7 @@ export default function WorkspaceList() {
                   </svg>
                   {isPrimary ? t("workspace.primaryLabel") : t("workspace.setPrimary")}
                 </button>
+                </HoverTooltip>
                 <button onClick={e => {
                   const btn = e.currentTarget;
                   btn.style.transform = "scale(0.94)";
@@ -646,7 +727,7 @@ function SetPrimaryModal({ target, onConfirm, onClose }) {
             background: "#FEF3C7",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            <Star size={20} color="#B45309" />
+            <span style={{ fontSize: 24, lineHeight: 1 }}>⭐</span>
           </div>
           <div>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0F172A" }}>{t("workspace.primaryModal.title")}</h2>

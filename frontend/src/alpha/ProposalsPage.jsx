@@ -38,6 +38,10 @@ const STATUS_ICONS = {
   ALL:         { color: "#6B7280", bg: "#F3F4F6", Icon: Clock },
 };
 
+const acctName = (a) => a
+  ? `${a.brokerType === "BINANCE" ? "바이낸스" : "한국투자증권"} ${a.env === "REAL" ? "실전" : "모의"}계좌`
+  : null;
+
 const EMPTY_FORM = { brokerAccountId: "", ticker: "", side: "BUY", qty: "", limitPrice: "", rationale: "", orderType: "LIMIT", kisSubType: "정규장" };
 
 export default function ProposalsPage() {
@@ -616,7 +620,7 @@ export default function ProposalsPage() {
                 <div style={{ fontSize: 11, color: theme.textMuted, opacity: 0.8 }}>
                   {p.source === "MANUAL" ? t("proposals.source.manual") : p.source === "SIGNAL" ? t("proposals.source.signal") : p.source}
                   {p.sourceSignalId && ` · signal#${p.sourceSignalId}`}
-                  {" · "}broker#{p.brokerAccountId}
+                  {" · "}{acctName(brokerAccounts.find(x => String(x.id) === String(p.brokerAccountId))) || `broker#${p.brokerAccountId}`}
                   {" · "}{new Date(p.createdAt).toLocaleString("ko-KR")}
                   {p.kisOrderNo && ` · ${p.qtyDecimal != null ? "Binance" : "KIS"}#${p.kisOrderNo}`}
                   {p.execError && (
@@ -787,8 +791,7 @@ export default function ProposalsPage() {
                       <option value="" style={{ color: "#0F172A" }}>{t("proposals.form.selectAccount")}</option>
                       {brokerAccounts.map(a => (
                         <option key={a.id} value={a.id} style={{ color: "#0F172A" }}>
-                          [{a.env}] {a.brokerType} {a.accountAlias || a.accountNumber || `#${a.id}`}
-                          {a.tradingEnabled ? "" : ` ${t("proposals.form.tradingDisabled")}`}
+                          {acctName(a)}{a.tradingEnabled ? "" : ` ${t("proposals.form.tradingDisabled")}`}
                         </option>
                       ))}
                     </select>

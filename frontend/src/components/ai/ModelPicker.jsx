@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Lock, Crown, Check } from "lucide-react";
 import { fetchAiModels } from "../../lib/aiClient";
 
@@ -14,7 +15,7 @@ export default function ModelPicker({ value, onChange, compact = false, glass = 
   const [open, setOpen] = useState(false);
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState({ top: 0, right: 8, maxH: 420 });
   const ref = useRef(null);
   const btnRef = useRef(null);
   const popRef = useRef(null);
@@ -39,12 +40,16 @@ export default function ModelPicker({ value, onChange, compact = false, glass = 
     if (!open || !btnRef.current) return;
     const recompute = () => {
       const r = btnRef.current.getBoundingClientRect();
-      const W = 320; // 드롭다운 너비
-      const margin = 8;
-      let left = r.right - W;            // 기본: 우측 정렬
-      if (left < margin) left = r.left;  // 좁아서 왼쪽으로 빠지면 좌측 정렬
-      if (left + W > window.innerWidth - margin) left = window.innerWidth - W - margin;
-      setPos({ top: r.bottom + 6, left });
+      const H = 420;
+      const vH = window.innerHeight;
+      // right: 뷰포트 오른쪽 끝 ~ 버튼 오른쪽 끝 거리 → 드롭다운 오른쪽 끝이 버튼 오른쪽 끝에 정렬
+      const right = Math.max(window.innerWidth - r.right, 8);
+      const spaceBelow = vH - r.bottom - 8;
+      const spaceAbove = r.top - 8;
+      const openDown = spaceBelow >= H || spaceBelow >= spaceAbove;
+      const maxH = Math.min(H, openDown ? spaceBelow : spaceAbove);
+      const top = openDown ? r.bottom + 6 : r.top - maxH - 6;
+      setPos({ top, right, maxH });
     };
     recompute();
     window.addEventListener("scroll", recompute, true);
@@ -84,12 +89,12 @@ export default function ModelPicker({ value, onChange, compact = false, glass = 
         <ChevronDown size={12} />
       </button>
 
-      {open && (
+      {open && createPortal(
         <div ref={popRef} style={{
-          position: "fixed", top: pos.top, left: pos.left,
+          position: "fixed", top: pos.top, right: pos.right,
           background: "white", border: "1px solid #E2E8F0", borderRadius: 10,
           boxShadow: "0 10px 30px rgba(0,0,0,0.12)", width: 320, zIndex: 100000,
-          maxHeight: 420, overflowY: "auto",
+          maxHeight: pos.maxH, overflowY: "auto",
         }}>
           <div style={{ padding: "10px 14px", borderBottom: "1px solid #F1F5F9", fontSize: 11, color: "#64748B" }}>
             모델 선택 (각 모델의 강점에 맞게 사용)
@@ -117,21 +122,30 @@ export default function ModelPicker({ value, onChange, compact = false, glass = 
                 }}
                 disabled={!m.usable && m.lockReason !== "Pro 전용" && m.lockReason !== "Free 한도 초과"}
                 style={{
-                  width: "100%", textAlign: "left", border: "none", background: isSelected ? "#F0F9FF" : "white",
-                  padding: "10px 14px", cursor: m.usable ? "pointer" : (m.lockReason === "Pro 전용" || m.lockReason === "Free 한도 초과" ? "pointer" : "not-allowed"),
+                  width: "100%", textAlign: "left",
+                  border: isSelected ? "1px solid #BFDBFE" : "none",
+                  background: isSelected ? "#EFF6FF" : "white",
+                  padding: isSelected ? "9px 13px" : "10px 14px",
+                  cursor: m.usable ? "pointer" : (m.lockReason === "Pro 전용" || m.lockReason === "Free 한도 초과" ? "pointer" : "not-allowed"),
                   display: "flex", flexDirection: "column", gap: 2,
-                  borderBottom: "1px solid #F8FAFC", opacity: m.usable ? 1 : 0.7,
+                  borderBottom: isSelected ? "1px solid #BFDBFE" : "1px solid #F8FAFC",
+                  opacity: (m.usable || isSelected) ? 1 : 0.6,
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, color: "#0F172A" }}>
-                  {isSelected && <Check size={12} color="#3B82F6" />}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: isSelected ? 700 : 600, color: isSelected ? "#1D4ED8" : "#0F172A" }}>
+                  {isSelected && <Check size={12} color="#2563EB" strokeWidth={2.5} />}
                   {m.displayName}
-                  {!m.usable && m.lockReason === "Pro 전용" && (
+                  {m.provider === "OPENAI" && (
+                    <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, color: "#6B7280", background: "#F3F4F6", padding: "1px 6px", borderRadius: 999 }}>
+                      준비중
+                    </span>
+                  )}
+                  {m.provider !== "OPENAI" && !m.usable && m.lockReason === "Pro 전용" && (
                     <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, color: "#A16207", background: "#FEF3C7", padding: "1px 6px", borderRadius: 999 }}>
                       <Crown size={10} /> Pro
                     </span>
                   )}
-                  {!m.usable && m.lockReason === "API 키 미설정" && (
+                  {m.provider !== "OPENAI" && !m.usable && m.lockReason === "API 키 미설정" && (
                     <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, color: "#94A3B8" }}>
                       <Lock size={10} /> 비활성
                     </span>
@@ -150,10 +164,10 @@ export default function ModelPicker({ value, onChange, compact = false, glass = 
               fontSize: 11, fontWeight: 700, background: "linear-gradient(135deg, #60a5fa, #6366f1)",
               color: "white", border: "none", padding: "5px 10px", borderRadius: 6, cursor: "pointer",
               display: "inline-flex", alignItems: "center", gap: 4,
-            }}><Crown size={11} /> Pro 보기</button>
+            }}><Crown size={11} /> 구독 플랜 살펴보기</button>
           </div>
         </div>
-      )}
+      , document.body)}
     </div>
   );
 }

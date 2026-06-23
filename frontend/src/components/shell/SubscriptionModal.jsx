@@ -3,7 +3,7 @@ import {
   X, Crown, Check, Zap, TrendingUp, Code2, Infinity,
   Bot, Wallet, ShieldCheck, Star, Calendar,
 } from "lucide-react";
-import { fetchSubscription } from "../../lib/aiClient";
+import { fetchSubscription, cancelSubscription } from "../../lib/aiClient";
 
 const FONT = "'Pretendard','Inter',-apple-system,sans-serif";
 
@@ -38,12 +38,12 @@ const PLANS = [
     grad: "linear-gradient(135deg,#DBEAFE,#EFF6FF)",
     border: "#93C5FD",
     features: [
-      { icon: <Wallet size={14}/>, text: "증권 계좌 연동 (1개)", highlight: true },
-      { icon: <Zap size={14}/>,    text: "자동 매수 / 매도 활성화", highlight: true },
-      { icon: <TrendingUp size={14}/>, text: "전략 백테스트 무제한" },
-      { icon: <Bot size={14}/>,    text: "AI 모델 기본 4종 (Flash, mini 등)" },
+      { icon: <Wallet size={14}/>,      text: "증권 계좌 연동 (1개)", highlight: true },
+      { icon: <Zap size={14}/>,         text: "자동 매수 / 매도 활성화", highlight: true },
+      { icon: <TrendingUp size={14}/>,  text: "전략 백테스트 무제한" },
+      { icon: <Bot size={14}/>,         text: "AI 모델 4종" },
       { icon: <ShieldCheck size={14}/>, text: "AI 토큰 500,000 tok / 월" },
-      { icon: <Star size={14}/>,   text: "Regime · Trust · Briefing 분석" },
+      { icon: <Star size={14}/>,        text: "Regime · Trust · Briefing 분석" },
     ],
     limit: "토큰 500k / 월",
   },
@@ -57,13 +57,13 @@ const PLANS = [
     grad: "linear-gradient(135deg,#EDE9FE,#F0F9FF)",
     border: "#A5B4FC",
     features: [
-      { icon: <Wallet size={14}/>, text: "증권 계좌 연동 (3개)", highlight: true },
-      { icon: <Zap size={14}/>,    text: "자동 매수 / 매도 활성화", highlight: true },
-      { icon: <Infinity size={14}/>, text: "AI 토큰 무제한", highlight: true },
-      { icon: <Bot size={14}/>,    text: "GPT-4o · Claude Sonnet 4 · Gemini 2.5 Pro 포함" },
-      { icon: <TrendingUp size={14}/>, text: "전략 백테스트 무제한" },
-      { icon: <Star size={14}/>,   text: "Regime · Trust · Briefing 분석" },
-      { icon: <ShieldCheck size={14}/>, text: "우선 고객 지원" },
+      { icon: <Wallet size={14}/>,      text: "증권 계좌 연동 (3개)", highlight: true },
+      { icon: <Zap size={14}/>,         text: "자동 매수 / 매도 활성화", highlight: true },
+      { icon: <Code2 size={14}/>,       text: "퀀트 IDE (vectorbt 엔진)", highlight: true },
+      { icon: <TrendingUp size={14}/>,  text: "전략 백테스트 무제한" },
+      { icon: <Bot size={14}/>,         text: "AI 모델 4종" },
+      { icon: <Infinity size={14}/>,    text: "AI 토큰 무제한", highlight: true },
+      { icon: <Star size={14}/>,        text: "Regime · Trust · Briefing 분석" },
     ],
     limit: "토큰 무제한",
   },
@@ -77,13 +77,13 @@ const PLANS = [
     grad: "linear-gradient(135deg,#F5F3FF,#EDE9FE)",
     border: "#C4B5FD",
     features: [
-      { icon: <Code2 size={14}/>,  text: "개발자 전용 퀀트 코딩 탭 (Python)", highlight: true },
-      { icon: <Wallet size={14}/>, text: "증권 계좌 연동 무제한", highlight: true },
-      { icon: <Zap size={14}/>,    text: "자동 매수 / 매도 활성화", highlight: true },
-      { icon: <Infinity size={14}/>, text: "AI 토큰 무제한", highlight: true },
-      { icon: <Bot size={14}/>,    text: "Claude Opus 4 · GPT-4o · Gemini 2.5 Pro 포함" },
-      { icon: <TrendingUp size={14}/>, text: "전략 백테스트 + 커스텀 팩터 라이브러리" },
-      { icon: <ShieldCheck size={14}/>, text: "전담 기술 지원 + 베타 기능 우선 접근" },
+      { icon: <Wallet size={14}/>,      text: "증권 계좌 연동 무제한", highlight: true },
+      { icon: <Zap size={14}/>,         text: "자동 매수 / 매도 활성화", highlight: true },
+      { icon: <Code2 size={14}/>,       text: "퀀트 IDE (LEAN + vectorbt 엔진)", highlight: true },
+      { icon: <TrendingUp size={14}/>,  text: "전략 백테스트 무제한" },
+      { icon: <Bot size={14}/>,         text: "AI 모델 4종" },
+      { icon: <Infinity size={14}/>,    text: "AI 토큰 무제한", highlight: true },
+      { icon: <Star size={14}/>,        text: "Regime · Trust · Briefing 분석" },
     ],
     limit: "토큰 무제한",
   },
@@ -269,6 +269,8 @@ export default function SubscriptionModal({ open, onClose }) {
   const [busy, setBusy]       = useState(false);
   const [msg, setMsg]         = useState("");
   const [notifyPlan, setNotifyPlan] = useState(null); // Expert 알림 등록
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   /* 구독 현황 조회 */
   useEffect(() => {
@@ -347,6 +349,22 @@ export default function SubscriptionModal({ open, onClose }) {
       setBusy(false);
     }
   }, [tossReady]);
+
+  const doCancel = async () => {
+    setCancelling(true);
+    try {
+      await cancelSubscription();
+      setSub(prev => ({ ...prev, cancelled: true }));
+      setCancelConfirm(false);
+      const until = sub.expiresAt ? ` ${fmtDate(sub.expiresAt)}까지 계속 이용하실 수 있습니다.` : "";
+      setMsg(`구독 해지가 예약되었습니다.${until}`);
+    } catch (e) {
+      setMsg(e.message || "해지 요청에 실패했습니다.");
+      setCancelConfirm(false);
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   if (!open) return null;
 
@@ -427,6 +445,27 @@ export default function SubscriptionModal({ open, onClose }) {
                     유효기간 <b style={{ color: "#6366F1" }}>{fmtDate(sub.expiresAt)}</b>까지
                   </span>
                 )}
+                {sub.cancelled ? (
+                  <span style={{
+                    padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                    border: "1px solid #FED7AA", background: "#FFF7ED", color: "#C2410C",
+                    display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0,
+                  }}>
+                    해지 예정
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => setCancelConfirm(true)}
+                    style={{
+                      padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                      border: "1px solid #FECACA", background: "white", color: "#DC2626",
+                      cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <X size={11} /> 구독 해지
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -482,11 +521,84 @@ export default function SubscriptionModal({ open, onClose }) {
               Toss Payments 보안 결제로 카드 정보를 안전하게 처리합니다.
             </p>
           </div>
-          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
             <FeatureCompare />
           </div>
         </div>
       </div>
+
+      {/* 해지 확인 모달 */}
+      {cancelConfirm && (
+        <div
+          onClick={() => !cancelling && setCancelConfirm(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+            zIndex: 9100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: "white", borderRadius: 16, width: "100%", maxWidth: 400,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.25)", fontFamily: FONT, overflow: "hidden",
+            }}
+          >
+            <div style={{
+              padding: "20px 24px 16px",
+              background: "linear-gradient(135deg,#FEF2F2,#FEE2E2)",
+              borderBottom: "1px solid #FECACA",
+              display: "flex", alignItems: "center", gap: 12,
+            }}>
+              <div style={{
+                width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                background: "linear-gradient(135deg,#f87171,#ef4444)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <X size={18} color="white" />
+              </div>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#7F1D1D" }}>구독 해지</div>
+                <div style={{ fontSize: 12, color: "#991B1B", marginTop: 2 }}>유효기간까지 계속 이용 가능합니다</div>
+              </div>
+            </div>
+            <div style={{ padding: "20px 24px" }}>
+              <p style={{ margin: 0, fontSize: 13, color: "#374151", lineHeight: 1.7 }}>
+                <b style={{ color: "#111827" }}>{currentTier}</b> 플랜 구독을 지금 해지할까요?
+              </p>
+              <div style={{
+                marginTop: 12, padding: "10px 12px", borderRadius: 8,
+                background: "#FEF2F2", border: "1px solid #FECACA",
+                fontSize: 12, color: "#991B1B", lineHeight: 1.6,
+              }}>
+                ⚠️ 해지 후에도 유효기간까지는 현재 플랜을 계속 이용하실 수 있습니다. 유효기간 이후 무료 플랜으로 전환되며, 잔여 기간은 환불되지 않습니다.
+              </div>
+            </div>
+            <div style={{ padding: "0 24px 20px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setCancelConfirm(false)}
+                disabled={cancelling}
+                style={{
+                  padding: "9px 18px", borderRadius: 8, border: "1px solid #E2E8F0",
+                  background: "white", color: "#374151", fontSize: 13, fontWeight: 600, cursor: "pointer",
+                }}
+              >취소</button>
+              <button
+                onClick={doCancel}
+                disabled={cancelling}
+                style={{
+                  padding: "9px 18px", borderRadius: 8, border: "none",
+                  background: cancelling ? "#CBD5E1" : "linear-gradient(135deg,#f87171,#ef4444)",
+                  color: "white", fontSize: 13, fontWeight: 700,
+                  cursor: cancelling ? "not-allowed" : "pointer",
+                  display: "flex", alignItems: "center", gap: 6,
+                }}
+              >
+                {cancelling ? "처리 중…" : "지금 해지하기"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -500,9 +612,9 @@ function FeatureCompare() {
     { label: "AI 토큰",            free: "200k/월",  std: "500k/월", pre: "무제한", exp: "무제한" },
     { label: "고급 AI 모델",        free: "—",        std: "—",      pre: "✓",      exp: "✓" },
     { label: "Claude Opus 4",       free: "—",        std: "—",      pre: "—",      exp: "✓" },
-    { label: "퀀트 코딩 탭",        free: "—",        std: "—",      pre: "—",      exp: "✓" },
+    { label: "퀀트 코딩 탭",        free: "—",        std: "—",      pre: "✓ (vectorbt)", exp: "✓ (vectorbt, Lean)" },
     { label: "백테스트",            free: "✓",        std: "✓",      pre: "✓",      exp: "✓" },
-    { label: "우선 지원",           free: "—",        std: "—",      pre: "✓",      exp: "✓ (전담)" },
+    { label: "우선 지원",           free: "—",        std: "—",      pre: "✓",      exp: "✓" },
   ];
 
   const cellStyle = (v) => ({

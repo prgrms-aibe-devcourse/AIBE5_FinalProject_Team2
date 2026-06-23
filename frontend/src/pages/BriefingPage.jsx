@@ -470,7 +470,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
   useEffect(() => { if (isPrimary) setExpanded(true); }, [isPrimary]);
   const sections = briefingData?.sections;
   const health = sections?.health ? HEALTH_CONFIG[sections.health] : null;
-  const twHeadline = useTypewriter(sections?.headline || "");
+  const twHeadline = useTypewriter(stripRefs(sections?.headline) || "");
   const cleanScript = stripRefs(sections?.radioScript);
   const radio = useRadio(cleanScript);
 
@@ -675,7 +675,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
             </div>
           )}
           <div style={{ fontSize: 20, fontWeight: 800, color: "#0F172A", lineHeight: 1.3, marginBottom: 14, minHeight: 30 }}>
-            {twHeadline || sections.headline}
+            {twHeadline || stripRefs(sections.headline)}
           </div>
 
           {/* 상태 배지 */}
@@ -694,7 +694,7 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
                 color: "#1E40AF", background: "#EFF6FF", border: "1px solid #BFDBFE",
                 display: "inline-flex", alignItems: "center", gap: 5,
               }}>
-                <Activity size={11} /> {sections.regime}
+                <Activity size={11} /> {stripRefs(sections.regime)}
               </span>
             )}
           </div>
@@ -960,6 +960,10 @@ export default function BriefingPage() {
         setQuota({ usedToday: b.usedToday, dailyLimit: b.dailyLimit });
       }
       try { localStorage.setItem(cacheKey(wsId), JSON.stringify(rec)); } catch (_) {}
+      // Perplexity 일일 한도 소진 → Gemini 간략 브리핑으로 다운그레이드됨을 안내(수동 호출만).
+      if (b.degraded === "gemini" && !opts.auto) {
+        setCooldownModal({ gemini: true, dailyLimit: b.dailyLimit });
+      }
     } catch (e) {
       const errMsg = e?.response?.data?.error || e.message;
       const data = e?.response?.data || {};
@@ -1097,10 +1101,10 @@ export default function BriefingPage() {
               </div>
               <div>
                 <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1e3a8a" }}>
-                  {cooldownModal.quota ? t("briefing.cooldown.title") : t("briefing.cooldown.timerTitle")}
+                  {cooldownModal.gemini ? "실시간 브리핑 한도 소진" : cooldownModal.quota ? t("briefing.cooldown.title") : t("briefing.cooldown.timerTitle")}
                 </h2>
                 <p style={{ margin: "3px 0 0", fontSize: 12, color: "#475569" }}>
-                  {cooldownModal.quota ? t("briefing.cooldown.sub") : t("briefing.cooldown.timerSub")}
+                  {cooldownModal.gemini ? "추가 새로고침은 Gemini 간략 브리핑으로 제공돼요" : cooldownModal.quota ? t("briefing.cooldown.sub") : t("briefing.cooldown.timerSub")}
                 </p>
               </div>
             </div>
@@ -1113,7 +1117,7 @@ export default function BriefingPage() {
               }}>
                 <Clock size={18} color="#7c3aed" style={{ flexShrink: 0 }} />
                 <span style={{ fontSize: 14, color: "#4c1d95", fontWeight: 600 }}>
-                  {cooldownModal.quota ? (
+                  {cooldownModal.gemini ? "지금부터 Gemini 간략 브리핑으로 제공돼요" : cooldownModal.quota ? (
                     cooldownModal.message || t("briefing.cooldown.quotaBody").split("\n")[0]
                   ) : (
                     t("briefing.cooldown.timerLabel", { time: cooldownModal.time })
@@ -1121,7 +1125,9 @@ export default function BriefingPage() {
                 </span>
               </div>
               <p style={{ margin: "14px 0 0", fontSize: 13, color: "#64748B", lineHeight: 1.7, whiteSpace: "pre-line" }}>
-                {cooldownModal.quota ? t("briefing.cooldown.quotaBody") : t("briefing.cooldown.timerBody")}
+                {cooldownModal.gemini
+                  ? `오늘 실시간(Perplexity) 브리핑 ${cooldownModal.dailyLimit ?? ""}회를 모두 사용했어요. 추가 새로고침은 Gemini 간략 브리핑으로 제공되고, 내일 실시간 브리핑 횟수가 다시 채워집니다.`
+                  : cooldownModal.quota ? t("briefing.cooldown.quotaBody") : t("briefing.cooldown.timerBody")}
               </p>
             </div>
             {/* 푸터 */}

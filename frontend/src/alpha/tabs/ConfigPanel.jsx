@@ -8,6 +8,10 @@ import {
 import { Play, RefreshCw } from "lucide-react";
 import { PanelHeader, Card, Empty, primaryBtn, DonutChart } from "./helpers";
 
+const acctName = (a) => a
+  ? `${a.brokerType === "BINANCE" ? "바이낸스" : "한국투자증권"} ${a.env === "REAL" ? "실전" : "모의"}계좌`
+  : null;
+
 const RISK = { 보수적: "🛡️ 보수", 보수: "🛡️ 보수", 중립: "⚖️ 중립", 공격적: "🔥 공격", 공격: "🔥 공격", conservative: "🛡️ 보수", moderate: "⚖️ 중립", aggressive: "🔥 공격" };
 const TONE_STYLE = {
   "보수적":      { color: "#1E40AF", bg: "#DBEAFE", border: "#93C5FD" },
@@ -587,7 +591,7 @@ function BrokerLimitsCard({ theme }) {
               background: b.env === "REAL" ? "linear-gradient(135deg,#fecaca,#fca5a5)" : "linear-gradient(135deg,#bae6fd,#7dd3fc)",
               color: b.env === "REAL" ? "#7f1d1d" : "#075985",
               whiteSpace: "nowrap",
-            }}>{(b.brokerType === "BINANCE" ? "Binance " : "KIS ") + (b.env === "REAL" ? "실전" : "모의")}</span>
+            }}>{acctName(b)}</span>
             {/* 필드 2컬럼 */}
             <div className="cfg-broker-limits-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {["maxOrderUsd", "dailyOrderUsd"].map((key) => {
@@ -881,13 +885,13 @@ export default function ConfigPanel({ id, ws, onChange, setTab, topSummary }) {
             <option value="">— 연결 안 함 (자동주문 비활성) —</option>
             {accounts.map(a => (
               <option key={a.id} value={a.id}>
-                [{a.env}] {a.cano} {a.env === "MOCK" ? "· 모의" : (a.tradingEnabled ? "✓ 거래허용" : "✗ 거래잠김")}
+                {acctName(a)}{a.tradingEnabled ? "" : " (거래 잠김)"}
               </option>
             ))}
           </select>
           {ws.brokerAccount && (
             <div style={{ marginTop: 10, fontSize: 12, color: theme.textMuted, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              <span>현재 연결: <b>{ws.brokerAccount.env}</b> · {ws.brokerAccount.cano}
+              <span>현재 연결: <b>{acctName(ws.brokerAccount)}</b>
                 {ws.brokerAccount.tradingEnabled
                   ? <span style={{ color: "#059669", marginLeft: 6, fontWeight: 700 }}>· ✓ 거래 열림</span>
                   : <span style={{ color: "#B91C1C", marginLeft: 6 }}>· ⚠️ 거래 잠김 — <b>계좌 탭</b>에서 토글하세요</span>}
