@@ -6,10 +6,14 @@ import {
   BarChart3, Brain, Zap, Check, Sparkles, Code2,
 } from "lucide-react";
 import bannerVideo from "../assets/배너후보.mp4";
+import heliTqqqSoxl from "../assets/heli_tqqq_soxl.png";  // 무한매수법(IB) — TQQQ·SOXL
+import heliVrQld from "../assets/heli_vr_qld.png";        // 밸류 리밸런싱(VR) — QLD
+import heliSector from "../assets/heli_sector.png";       // 섹터 모멘텀 로테이션
 import { useLanguage } from "../i18n/useLanguage";
 import translations from "../i18n/translations";
 import LoginRequiredModal from "../components/shell/LoginRequiredModal";
 import CreateWorkspaceModal from "../alpha/CreateWorkspaceModal";
+import StrategyDetailModal from "./StrategyDetailModal";
 import { createWorkspace } from "../alpha/alphaApi";
 import useTutorialStore from "../store/useTutorialStore";
 
@@ -203,9 +207,17 @@ const TAB_META = [
 ];
 
 const PROJECTS_TAGS = [
-  ["#SMA Cross", "#백테스트", "#KIS"],
-  ["#RSI", "#TrustScore", "#Regime"],
-  ["#MACD", "#무한매수법", "#AI전략"],
+  ["#분할매수", "#KIS", "#실거래검증"],   // 무한매수법
+  ["#상대강도", "#로테이션", "#섹터"],    // 섹터 모멘텀
+  ["#밴드리밸런싱", "#Regime"],          // 밸류 리밸런싱
+];
+
+// 템플릿 카드 상단 이미지 배너(언어 무관). image 경로를 채우면 그 이미지를, 비어 있으면 그라데이션 + 티커/이모지 플레이스홀더를 보여준다.
+// 실제 이미지는 public/templates/ 에 넣고 아래 image 만 채우면 됨 (예: image: "/templates/tqqq.jpg").
+const PROJECT_VISUALS = [
+  { ticker: "IB",     emoji: "🚀", accent: "#6d28d9", gradient: "linear-gradient(135deg, #dbeafe 0%, #ede9fe 55%, #f5d0fe 100%)", image: heliTqqqSoxl },
+  { ticker: "SECTOR", emoji: "🔄", accent: "#b45309", gradient: "linear-gradient(135deg, #fef3c7 0%, #fae8ff 55%, #dbeafe 100%)", image: heliSector },
+  { ticker: "VR",     emoji: "⚖️", accent: "#0e7490", gradient: "linear-gradient(135deg, #cffafe 0%, #dbeafe 55%, #ede9fe 100%)", image: heliVrQld },
 ];
 
 export default function Home() {
@@ -218,6 +230,7 @@ export default function Home() {
   const [newWsOpen, setNewWsOpen]   = useState(false);
   const [newWsName, setNewWsName]   = useState("");
   const [newWsError, setNewWsError] = useState("");
+  const [detailIdx, setDetailIdx]   = useState(null);  // 대표 전략 상세 모달 (홈 카드 클릭)
 
   const isAuthed = !!localStorage.getItem("dbId");
   const startTutorial = useTutorialStore((s) => s.start);
@@ -623,35 +636,31 @@ export default function Home() {
       <section style={{ padding: "80px 0", background: "white" }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", width: "100%", padding: "0 20px", boxSizing: "border-box" }}>
           <Reveal>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 40 }}>
-            <div>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>Templates</p>
-              <h2 style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", margin: "0 0 8px", fontFamily: BASE_FONT }}>{t("home.projectSection.title")}</h2>
-              <p style={{ fontSize: 14, color: "#64748b", margin: 0 }}>{t("home.templatesSection.subtitle")}</p>
+          <div style={{ marginBottom: 40 }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#6366f1", letterSpacing: 2, textTransform: "uppercase", marginBottom: 10 }}>Templates</p>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
+              <h2 style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", margin: 0, fontFamily: BASE_FONT }}>{t("home.projectSection.title")}</h2>
+              <span style={{
+                fontSize: 12, fontWeight: 800, padding: "4px 13px", borderRadius: 999,
+                background: "linear-gradient(135deg, #bfdbfe 0%, #ddd6fe 55%, #f5d0fe 100%)",
+                color: "#4338ca", letterSpacing: 0.3, whiteSpace: "nowrap",
+                boxShadow: "0 2px 10px rgba(129,140,248,0.30)",
+              }}>{lang === "en" ? "Free" : lang === "zh" ? "免费提供" : "무료 제공"}</span>
             </div>
-            <button onClick={() => navigate("/alpha?lib=1")} style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "9px 18px", borderRadius: 8,
-              border: "1.5px solid #E2E8F0", background: "white",
-              color: "#374151", fontSize: 13, fontWeight: 600,
-              cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
-              transition: "border-color 0.15s, color 0.15s",
-            }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = "#6366f1"; e.currentTarget.style.color = "#4f46e5"; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = "#E2E8F0"; e.currentTarget.style.color = "#374151"; }}
-            >
-              {t("home.projectSection.viewAll")} <ArrowRight size={13} />
-            </button>
+            <p style={{ fontSize: 14, color: "#64748b", margin: 0 }}>{t("home.templatesSection.subtitle")}</p>
           </div>
           </Reveal>
 
           <div className="home-grid-3">
-            {projects.map((proj, i) => (
+            {projects.map((proj, i) => {
+              const vis = PROJECT_VISUALS[i] || {};
+              return (
               <Reveal key={i} delay={i * 100}>
-              <div onClick={() => navigate("/alpha?lib=1")} style={{
+              <div onClick={() => setDetailIdx(i)} style={{
                 borderRadius: 14, overflow: "hidden",
                 border: hoveredProject === i ? "1.5px solid #c7d2fe" : "1.5px solid #F1F5F9",
                 backgroundColor: "white", cursor: "pointer",
+                display: "flex", flexDirection: "column",
                 transform: hoveredProject === i ? "translateY(-4px)" : "translateY(0)",
                 boxShadow: hoveredProject === i ? "0 16px 40px rgba(99,102,241,0.12)" : "0 2px 8px rgba(0,0,0,0.05)",
                 transition: "all 0.2s",
@@ -659,10 +668,23 @@ export default function Home() {
                 onMouseEnter={() => setHoveredProject(i)}
                 onMouseLeave={() => setHoveredProject(null)}
               >
-                <div style={{ padding: "18px 20px 22px" }}>
-                  <h3 style={{ fontSize: 14, fontWeight: 700, color: "#111827", marginBottom: 8, fontFamily: BASE_FONT, lineHeight: 1.4 }}>{proj.title}</h3>
-                  <p style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.75, marginBottom: 14 }}>{proj.desc}</p>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {/* 이미지 배너 — public/templates/ 에 이미지를 넣고 PROJECT_VISUALS[i].image 경로만 채우면 교체됨. 비어 있으면 그라데이션 + 티커/이모지 플레이스홀더. */}
+                <div style={{
+                  height: 188, flexShrink: 0, position: "relative", overflow: "hidden",
+                  background: vis.image ? `#0f172a url(${vis.image}) center/cover no-repeat` : vis.gradient,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  {!vis.image && (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
+                      <span style={{ fontSize: 40, lineHeight: 1, filter: "drop-shadow(0 3px 8px rgba(0,0,0,0.12))" }}>{vis.emoji}</span>
+                      <span style={{ fontSize: 26, fontWeight: 900, letterSpacing: 1.5, color: vis.accent, fontFamily: BASE_FONT, opacity: 0.92 }}>{vis.ticker}</span>
+                    </div>
+                  )}
+                </div>
+                <div style={{ padding: "18px 20px 22px", display: "flex", flexDirection: "column", flex: 1 }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 8, fontFamily: BASE_FONT, lineHeight: 1.4 }}>{proj.title}</h3>
+                  <p style={{ fontSize: 13, color: "#6B7280", lineHeight: 1.75, marginBottom: 14, minHeight: 88 }}>{proj.desc}</p>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: "auto" }}>
                     {[...proj.badge.split(" "), ...PROJECTS_TAGS[i]].map(tag => (
                       <span key={tag} style={{
                         fontSize: 11, color: "#4f46e5", fontWeight: 600,
@@ -673,7 +695,7 @@ export default function Home() {
                 </div>
               </div>
               </Reveal>
-            ))}
+            );})}
           </div>
         </div>
       </section>
@@ -721,6 +743,19 @@ export default function Home() {
       onConfirm={confirmNewWs}
       onClose={() => { setNewWsOpen(false); setNewWsError(""); }}
       error={newWsError}
+    />
+
+    <StrategyDetailModal
+      open={detailIdx !== null}
+      ticker={detailIdx !== null ? (PROJECT_VISUALS[detailIdx]?.ticker) : null}
+      project={detailIdx !== null ? {
+        title: projects[detailIdx]?.title,
+        desc: projects[detailIdx]?.desc,
+        tags: [...(projects[detailIdx]?.badge?.split(" ") || []), ...(PROJECTS_TAGS[detailIdx] || [])],
+        image: PROJECT_VISUALS[detailIdx]?.image,
+      } : null}
+      onClose={() => setDetailIdx(null)}
+      onStart={() => { setDetailIdx(null); navigate("/alpha?lib=1"); }}
     />
     </>
   );
