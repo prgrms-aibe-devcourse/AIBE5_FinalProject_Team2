@@ -1,0 +1,23 @@
+# 슬림 워커 — CPU pandas/numpy 백테스트에 불필요한 GPU/DL/research 스택 제거.
+# ⚠️ 레이어 가산이라 이 Dockerfile 단독 빌드는 크기 안 줄어든다(rm 레이어만 추가).
+#    반드시 build-slim.sh 의 export/import flatten 으로 실제 공간 회수(42.5GB → 13.4GB 검증).
+FROM lean-worker:latest
+RUN set -e; P=/opt/miniconda3/lib/python3.11/site-packages; \
+  rm -rf \
+    $P/nvidia $P/nvidia_* $P/tensorrt_libs $P/tensorrt* \
+    $P/tensorflow $P/tensorflow_* $P/tensorboard $P/tensorboard_* $P/keras* \
+    $P/torch $P/torchgen $P/functorch $P/torchvision* $P/triton \
+    $P/jax $P/jaxlib $P/jaxtyping \
+    $P/cupy $P/cupyx $P/cupy_backends $P/cupy_cuda12x* \
+    $P/cuda $P/cuda_* \
+    $P/selective_scan_cuda*.so $P/causal_conv1d_cuda*.so $P/mamba_ssm* \
+    $P/catboost $P/h2o $P/ray $P/PyQt6 $P/PyQt6_* $P/httpstan $P/kaleido \
+    $P/spacy $P/spacy_* $P/en_core_web_* $P/thinc $P/transformers $P/gensim \
+    $P/cv2 $P/opencv_* $P/dwave* $P/dimod $P/minorminer $P/onnx $P/onnxruntime* \
+    $P/panel $P/plotly $P/bokeh $P/holoviews $P/datashader $P/hvplot \
+    $P/notebook $P/notebook_shim $P/nbconvert $P/nbclient $P/jupyter* $P/jupyterlab* \
+    $P/interpret $P/interpret_* $P/ortools $P/clang $P/mlflow $P/mlflow_* \
+    /opt/miniconda3/pkgs /root/.cache /tmp/* ; \
+  rm -f $P/*cuda*.pth $P/*torch*.pth $P/*tensorflow*.pth 2>/dev/null || true; \
+  find /opt/miniconda3 -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true; \
+  echo "남은 miniconda 크기:"; du -sh /opt/miniconda3

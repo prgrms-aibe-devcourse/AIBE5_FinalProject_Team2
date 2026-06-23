@@ -1,6 +1,5 @@
 package com.DevBridge.devbridge.domain.strategy.service;
 
-import com.DevBridge.devbridge.domain.user.entity.User;
 import com.DevBridge.devbridge.domain.strategy.entity.MarketOhlcDaily;
 import com.DevBridge.devbridge.domain.strategy.entity.Strategy;
 import com.DevBridge.devbridge.domain.strategy.repository.MarketOhlcDailyRepository;
@@ -13,24 +12,20 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.net.HttpURLConnection;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
  * 미국 주식 일봉 OHLC 수집 + DB 캐시.
  *
- * 1차 소스: Stooq CSV (https://stooq.com/q/d/l/?s=tqqq.us&i=d) — 무료, API 키 없음
- * (운영 등급 필요 시 Polygon/Alpha Vantage로 교체 — fetchFromSource()만 변경)
+ * 1차 소스: Yahoo Finance v8 chart API — 무료, API 키 없음
+ * (Stooq 는 2025년부터 JS PoW 봇탐지 도입으로 서버사이드 접근 불가)
  *
  * 매일 KST 07:00 (월~토)에 활성 전략들의 ticker 일봉을 갱신.
  * (미국장 마감은 KST 익일 새벽 5~6시. 안전 마진 1시간 후 페치)
@@ -39,8 +34,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class MarketDataService {
-
-    private static final DateTimeFormatter STOOQ_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private final MarketOhlcDailyRepository ohlcRepo;
     private final StrategyRepository strategyRepo;
@@ -84,7 +77,7 @@ public class MarketDataService {
         List<Row> rows;
         try {
             // 크립토(…USDT)는 Binance 일봉 klines, 그 외는 Stooq(미국주식).
-            rows = isCrypto(t) ? fetchFromBinance(t, startDate) : fetchFromStooq(t, startDate);
+            rows = isCrypto(t) ? fetchFromBinance(t, startDate) : fetchFromYahoo(t, startDate);
         } catch (Exception e) {
             log.warn("[MarketData] {} fetch failed: {}", t, e.getMessage());
             return 0;
@@ -135,39 +128,51 @@ public class MarketDataService {
         }
     }
 
-    // ─────────────────────────────────────── Stooq CSV 파서
+    // ─────────────────────────────────────── Yahoo Finance chart API (미국주식)
 
-    private List<Row> fetchFromStooq(String ticker, LocalDate startDate) throws Exception {
-        String d1 = startDate.format(STOOQ_DATE);
-        String d2 = LocalDate.now().format(STOOQ_DATE);
-        String url = "https://stooq.com/q/d/l/?s=" + ticker.toLowerCase() + ".us&d1=" + d1 + "&d2=" + d2 + "&i=d";
+    /**
+     * Stooq 는 2025년 이후 JavaScript PoW 봇탐지를 도입해 서버사이드 HttpURLConnection 으로
+     * 접근 불가. Yahoo Finance v8 chart API(인증 불필요)로 교체.
+     */
+    private List<Row> fetchFromYahoo(String ticker, LocalDate startDate) throws Exception {
+        long period1 = startDate.atStartOfDay(ZoneOffset.UTC).toInstant().getEpochSecond();
+        long period2 = LocalDate.now().plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().getEpochSecond();
+        String url = "https://query2.finance.yahoo.com/v8/finance/chart/" + ticker.toUpperCase()
+                + "?interval=1d&period1=" + period1 + "&period2=" + period2;
         HttpURLConnection con = (HttpURLConnection) URI.create(url).toURL().openConnection();
         con.setRequestMethod("GET");
         con.setConnectTimeout(10_000);
-        con.setReadTimeout(15_000);
-        con.setRequestProperty("User-Agent", "alpha-helix/1.0");
+        con.setReadTimeout(20_000);
+        con.setRequestProperty("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+        con.setRequestProperty("Accept", "application/json");
         int code = con.getResponseCode();
-        if (code != 200) throw new RuntimeException("HTTP " + code);
+        if (code != 200) throw new RuntimeException("Yahoo HTTP " + code);
+
+        JsonNode root;
+        try (var is = con.getInputStream()) { root = om.readTree(is); }
+        JsonNode result = root.path("chart").path("result");
+        if (!result.isArray() || result.isEmpty())
+            throw new RuntimeException("Yahoo: 빈 result");
+
+        JsonNode meta     = result.get(0).path("meta");
+        JsonNode tsArr    = result.get(0).path("timestamp");
+        JsonNode quote    = result.get(0).path("indicators").path("quote").get(0);
+        if (!tsArr.isArray() || quote == null)
+            throw new RuntimeException("Yahoo: 타임스탬프/quote 누락");
 
         List<Row> out = new ArrayList<>();
-        try (var br = new BufferedReader(new InputStreamReader(con.getInputStream(), StandardCharsets.UTF_8))) {
-            String line = br.readLine(); // header
-            if (line == null || !line.toLowerCase().startsWith("date")) {
-                throw new RuntimeException("invalid CSV header: " + line);
-            }
-            while ((line = br.readLine()) != null) {
-                String[] cols = line.split(",");
-                if (cols.length < 5) continue;
-                try {
-                    LocalDate date = LocalDate.parse(cols[0]);
-                    double open = Double.parseDouble(cols[1]);
-                    double high = Double.parseDouble(cols[2]);
-                    double low = Double.parseDouble(cols[3]);
-                    double close = Double.parseDouble(cols[4]);
-                    long vol = cols.length > 5 && !cols[5].isEmpty() ? (long) Double.parseDouble(cols[5]) : 0L;
-                    out.add(new Row(date, open, high, low, close, vol));
-                } catch (Exception ignore) { /* skip bad row */ }
-            }
+        for (int i = 0; i < tsArr.size(); i++) {
+            long ts = tsArr.get(i).asLong();
+            LocalDate date = Instant.ofEpochSecond(ts).atZone(ZoneOffset.UTC).toLocalDate();
+            JsonNode o = quote.path("open").get(i);
+            JsonNode h = quote.path("high").get(i);
+            JsonNode l = quote.path("low").get(i);
+            JsonNode c = quote.path("close").get(i);
+            JsonNode v = quote.path("volume").get(i);
+            if (o == null || o.isNull() || c == null || c.isNull()) continue; // 장중 미완성 캔들 스킵
+            out.add(new Row(date, o.asDouble(), h.asDouble(), l.asDouble(), c.asDouble(),
+                    v != null && !v.isNull() ? v.asLong() : 0L));
         }
         return out;
     }

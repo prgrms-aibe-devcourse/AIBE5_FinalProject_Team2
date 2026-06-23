@@ -1,0 +1,20 @@
+# 워커 빌드 컨텍스트 슬림 — analytics/app 복사본(app/)에서 불필요·대용량 제외.
+# (베이스 quantconnect/lean 자체가 큰 건 별도: IMAGE_SIZE.md 참고)
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+app/.venv/
+app/**/.venv/
+**/tests/
+**/test_*.py
+# 시장데이터/모델 캐시·산출물(런타임에 /Lean/Data 로 주입하므로 이미지에 불필요)
+app/**/data/*.csv
+app/**/data/*.parquet
+app/**/*.zip
+app/**/reports/
+app/.lean-workspace/
+**/.git/
+**/.DS_Store

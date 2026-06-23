@@ -18,6 +18,16 @@ RUN apt-get update \
  && apt-get purge -y gnupg && apt-get autoremove -y \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Lean v2 클라우드: BE 가 EKS 로 'kubectl apply' + kubeconfig exec(aws eks get-token) 하므로
+# kubectl + aws CLI 가 이미지에 있어야 한다. (LEAN_K8S_ENABLED=false 면 미사용 — 무해)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl unzip ca-certificates \
+ && curl -fsSL "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl \
+ && chmod +x /usr/local/bin/kubectl \
+ && curl -s "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+ && cd /tmp && unzip -q awscliv2.zip && ./aws/install && rm -rf /tmp/aws* \
+ && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # 비루트 사용자 + 쓰기 가능한 HOME(~/.claude 에 세션 transcript 저장 → --resume)
 RUN useradd -m -u 1001 -d /home/app app \
  && mkdir -p /home/app/.claude /var/devbridge/uploads \

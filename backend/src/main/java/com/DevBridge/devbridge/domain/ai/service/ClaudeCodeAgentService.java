@@ -271,9 +271,15 @@ public class ClaudeCodeAgentService {
         boolean resume = (prev != null && !prev.isBlank());
         String sid = resume ? prev : UUID.randomUUID().toString();
         String[] r = runCli(cwd, request, streaming, onLine, userKey, sid, resume);
+        // resume 실패 감지:
+        //  (a) 세션 유실 — CLI 가 stdout 에 result JSON(subtype=error_during_execution, "No conversation found
+        //      with session ID")으로 보고한다. 컨테이너 재생성/디렉터리 초기화로 CLI 세션 저장소가 비면 발생.
+        //      ⚠️ 이건 stderr 가 아니라 stdout 이라, 아래 (b)(stderr) 검사만으론 못 잡아 그대로 에러가 노출됐다.
+        //  (b) 그 외 실패 — narration 파싱 실패 + stderr 비어있지 않음.
+        boolean sessionLost = r[0] != null && r[0].contains("No conversation found with session ID");
         boolean failed = parseJsonNarration(r[0]) == null && !r[1].isBlank();
-        if (resume && failed) {
-            log.warn("[ClaudeAgent] 세션 resume 실패 ws={} → 새 세션으로 재시도", ws.getId());
+        if (resume && (sessionLost || failed)) {
+            log.warn("[ClaudeAgent] 세션 resume 실패 ws={} (sessionLost={}) → 새 세션으로 재시도", ws.getId(), sessionLost);
             sid = UUID.randomUUID().toString();
             r = runCli(cwd, request, streaming, onLine, userKey, sid, false);
         }

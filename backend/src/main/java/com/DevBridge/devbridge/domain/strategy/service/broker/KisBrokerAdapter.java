@@ -83,13 +83,16 @@ public class KisBrokerAdapter implements Broker {
 
     @Override
     public FillResult queryFill(BrokerAccount b, OrderProposal p) {
+        boolean domestic = KisApiClient.isDomesticTicker(p.getTicker());
         JsonNode resp;
         try {
-            resp = kis.getTodayOrders(b);
+            resp = domestic ? kis.getDomesticTodayOrders(b) : kis.getTodayOrders(b);
         } catch (Exception e) {
             return FillResult.error("KIS 미체결조회 실패: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         }
-        JsonNode output = resp == null ? null : resp.path("output");
+        // 국내: output1 배열 / 해외: output 배열
+        JsonNode output = resp == null ? null
+                : (domestic ? resp.path("output1") : resp.path("output"));
         JsonNode match = null;
         if (output != null && output.isArray()) {
             for (JsonNode o : output) {
@@ -104,21 +107,20 @@ public class KisBrokerAdapter implements Broker {
             int nccsQty  = firstInt(match, "nccs_qty", "rmn_qty", "ord_psbl_qty");
             filledQty = Math.max(0, orderQty - nccsQty);
             if (nccsQty == 0 && orderQty > 0) {
-                fillStatus = "FILLED";   // 미체결수량=0 → 전량 체결
+                fillStatus = "FILLED";
             } else if (filledQty > 0) {
-                fillStatus = "PARTIAL";  // 일부만 체결
+                fillStatus = "PARTIAL";
             } else {
-                fillStatus = "OPEN";     // 아직 미체결
+                fillStatus = "OPEN";
             }
-            // 평균 체결단가 (ft_ccld_unpr) — KIS 해외주식 주문체결내역에 포함됨
-            String unpr = firstStr(match, "ft_ccld_unpr", "avg_unpr");
+            // 해외: ft_ccld_unpr / avg_unpr  국내: avg_unpr3 (체결평균가)
+            String unpr = firstStr(match, "ft_ccld_unpr", "avg_unpr3", "avg_unpr");
             if (!unpr.isEmpty() && !"0".equals(unpr)) {
                 try { avgPrice = new BigDecimal(unpr); } catch (Exception ignore) { }
             }
         } else {
-            // 오늘 주문내역(inquire-ccnl)에 없음 → 접수 거부/취소 가능성.
-            // 섣불리 FILLED로 판정하면 잘못된 체결 알림이 발생하므로 OPEN 유지.
-            log.warn("[KIS] 주문번호 {} 가 오늘 주문내역에 없음 — 접수 거부 또는 취소 가능성. OPEN 유지 (계속 폴링).", p.getKisOrderNo());
+            log.warn("[KIS] 주문번호 {} ({}) 가 오늘 주문내역에 없음 — OPEN 유지.",
+                    p.getKisOrderNo(), domestic ? "국내" : "해외");
             fillStatus = "OPEN";
             filledQty  = 0;
         }
@@ -137,7 +139,9 @@ public class KisBrokerAdapter implements Broker {
 
     @Override
     public Map<String, Object> getQuote(BrokerAccount b, String symbol) {
-        return kis.getOverseasQuote(b, symbol);
+        return KisApiClient.isDomesticTicker(symbol)
+                ? kis.getDomesticQuote(b, symbol)
+                : kis.getOverseasQuote(b, symbol);
     }
 
     /** KIS 응답에서 여러 후보 키 중 첫 정수값 추출 (필드명 방어적 파싱). */

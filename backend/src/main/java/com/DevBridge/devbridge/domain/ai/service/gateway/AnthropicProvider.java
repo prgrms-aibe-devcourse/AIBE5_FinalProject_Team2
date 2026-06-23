@@ -9,6 +9,8 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import java.time.Duration;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,7 +36,12 @@ public class AnthropicProvider implements AiProvider {
                               @Value("${anthropic.api.url:https://api.anthropic.com}") String baseUrl) {
         this.apiKey = apiKey;
         this.baseUrl = baseUrl;
-        this.http = RestClient.create();
+        // DDIA 8장(부분 실패 격리): read 타임아웃이 없으면 LLM 이 응답을 안 끊을 때 톰캣 워커가
+        // 영구 점유 → 스레드풀 고갈(연쇄 장애). connect 10s / read 120s 명시.
+        SimpleClientHttpRequestFactory rf = new SimpleClientHttpRequestFactory();
+        rf.setConnectTimeout(Duration.ofSeconds(10));
+        rf.setReadTimeout(Duration.ofSeconds(120));
+        this.http = RestClient.builder().requestFactory(rf).build();
     }
 
     @Override public String providerKey() { return "ANTHROPIC"; }

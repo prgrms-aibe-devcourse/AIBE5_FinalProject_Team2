@@ -29,6 +29,9 @@ import java.time.LocalDateTime;
         // 멱등 가드용 — existsByUserIdAndSourceSignalIdAndStatusNotIn 의 source_signal_id 조회를 빠르게.
         // 로컬(ddl-auto=update)은 비유니크 인덱스로 두고, 운영은 V29 가 UNIQUE(uq_op_source_signal)로 강제한다.
         @Index(name = "idx_op_source_signal", columnList = "source_signal_id"),
+        // DDIA 3장: 일일 한도 합산(executed_at 범위)·전역 체결 폴링 (docker update 가 생성; 운영은 V33).
+        @Index(name = "idx_op_user_status_executed", columnList = "user_id, status, executed_at"),
+        @Index(name = "idx_op_status_executed", columnList = "status, executed_at"),
 })
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class OrderProposal {

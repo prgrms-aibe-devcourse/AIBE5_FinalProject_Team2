@@ -40,9 +40,21 @@ public class AiModelCatalog {
     @Column(name = "free_quota", nullable = false)
     private long freeQuota;
 
-    /** Pro 사용자 월간 토큰 한도. -1이면 무제한. */
+    /** Pro 사용자 월간 토큰 한도. -1이면 무제한. (레거시 — STANDARD 와 동일하게 취급) */
     @Column(name = "pro_quota", nullable = false)
     private long proQuota;
+
+    /** STANDARD 사용자 월간 토큰 한도. 0이면 차단, -1이면 무제한. */
+    @Column(name = "standard_quota", nullable = false)
+    private long standardQuota;
+
+    /** PREMIUM 사용자 월간 토큰 한도. 0이면 차단, -1이면 무제한. */
+    @Column(name = "premium_quota", nullable = false)
+    private long premiumQuota;
+
+    /** EXPERT 사용자 월간 토큰 한도. 0이면 차단, -1이면 무제한. */
+    @Column(name = "expert_quota", nullable = false)
+    private long expertQuota;
 
     /** UI 정렬 순서 (작을수록 위) */
     @Column(name = "sort_order", nullable = false)

@@ -78,8 +78,14 @@ public class AlphaStrategyController {
                         .body(Map.of("error", "후보 목록이 없습니다 (구버전 config)"));
             }
             boolean found = false;
+            String candidateName = candidateId;
             for (JsonNode c : root.get("candidates")) {
-                if (candidateId.equals(c.path("id").asText())) { found = true; break; }
+                if (candidateId.equals(c.path("id").asText())) {
+                    found = true;
+                    String nm = c.path("strategy_name").asText(null);
+                    if (nm != null && !nm.isBlank()) candidateName = nm;
+                    break;
+                }
             }
             if (!found) return ResponseEntity.badRequest()
                     .body(Map.of("error", "해당 candidateId 없음"));
@@ -90,7 +96,7 @@ public class AlphaStrategyController {
             ws.setStrategyConfigJson(json);
             svc.getWorkspaceRepo().save(ws);
             svc.recordLog(id, "USER", "STRATEGY_PROPOSED",
-                    "전략 후보 선택: " + candidateId, null);
+                    "전략 후보 선택: " + candidateName, null);
             return ResponseEntity.ok(Map.of("selectedId", candidateId, "strategyConfig", json));
         } catch (Exception e) {
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();

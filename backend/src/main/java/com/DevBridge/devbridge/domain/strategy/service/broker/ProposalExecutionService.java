@@ -18,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -77,6 +78,43 @@ public class ProposalExecutionService {
         Broker broker = brokerRouter.forAccount(ba);
         BigDecimal qtyEff = effectiveQty(p);
 
+        // SELL 안전 클램프: 실보유 수량을 초과하는 매도를 차단(min(제안qty, 실보유)). 백테스트 가상보유(프리셋
+        // plan 의 _final_shares 등) 나 stale qty 가 그대로 실계좌로 나가 과매도/공매도되는 것을 방지(R2).
+        // 보유조회 실패/포맷불명이면 클램프 스킵(정상 매도를 막지 않음 — KIS 서버 검증에 위임).
+        if ("SELL".equals(p.getSide())) {
+            BigDecimal held = null;
+            try {
+                Map<String, Object> bal = broker.getBalance(ba);
+                Object pos = (bal == null) ? null : bal.get("positions");
+                if (pos instanceof List<?> list) {
+                    held = BigDecimal.ZERO;  // positions 조회됨 → 해당 종목 없으면 보유 0
+                    for (Object o : list) {
+                        if (o instanceof Map<?, ?> m
+                                && p.getTicker().equalsIgnoreCase(String.valueOf(m.get("ticker")))) {
+                            Object q = m.get("qty");
+                            if (q instanceof Number n) held = BigDecimal.valueOf(n.doubleValue());
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[exec] 보유수량 조회 실패(SELL 클램프 스킵) proposal={}: {}", p.getId(), e.getMessage());
+                held = null;
+            }
+            if (held != null) {
+                if (held.signum() <= 0) {
+                    p.setStatus("EXEC_FAILED");
+                    p.setExecError("매도 거부: " + p.getTicker() + " 실보유 0주");
+                    proposalRepo.save(p);
+                    return new Result(false, "매도 거부: " + p.getTicker() + " 실보유 수량 0 (가상수량 매도 차단)", p);
+                }
+                if (qtyEff.compareTo(held) > 0) {
+                    log.warn("[exec] SELL qty 실보유 클램프 {} → {} proposal={}", qtyEff, held, p.getId());
+                    qtyEff = held;
+                }
+            }
+        }
+
         // 1건당 한도 (시장가는 현재가로 추정 — KIS/크립토 공통, 시장가 한도우회 방지)
         double estUsd = estimateUsd(broker, ba, p, qtyEff);
         if (ba.getMaxOrderUsd() != null && ba.getMaxOrderUsd() > 0 && estUsd > ba.getMaxOrderUsd()) {
@@ -106,11 +144,37 @@ public class ProposalExecutionService {
             }
         }
 
-        // 마크 APPROVED → 즉시 EXECUTED 시도
-        p.setStatus("APPROVED");
-        p.setDecidedAt(LocalDateTime.now());
+        // BUY 잔고 체크: 실계좌 예수금이 주문 예상 금액보다 적으면 차단.
+        // 잔고 조회 실패 시엔 주문을 막지 않는다(fail-open) — KIS API 불안정으로 합법 주문이 막히는 것을 방지.
+        if ("BUY".equals(p.getSide()) && estUsd > 0) {
+            try {
+                Map<String, Object> bal = broker.getBalance(ba);
+                if (bal != null) {
+                    double availableUsd = availableCashUsd(bal, ba);
+                    if (availableUsd >= 0 && availableUsd < estUsd) {
+                        String need = String.format("%.2f", estUsd);
+                        String avail = String.format("%.2f", availableUsd);
+                        return new Result(false,
+                                "잔고 부족: 주문 예상 $" + need + " / 가용 예수금 $" + avail
+                                + " (KIS KRW 계좌는 근사 환율 적용)", p);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[exec] BUY 잔고 확인 실패(스킵) proposal={}: {}", p.getId(), e.getMessage());
+            }
+        }
+
+        // 마크 APPROVED → 즉시 EXECUTED 시도.
+        // DDIA 7장(compare-and-set): 동시에 두 요청(더블클릭 approve, 또는 approve+자동체결)이 모두 위
+        // PENDING 검사를 통과해 '같은 주문을 두 번' 실주문하는 lost-update 를 원자적 상태전이로 차단.
+        // UPDATE ... WHERE status='PENDING' 이 행을 잠그므로 둘 중 하나만 affected=1, 나머지는 즉시 멱등 반환.
+        LocalDateTime decidedTs = LocalDateTime.now();
+        if (proposalRepo.claimForExecution(p.getId(), decidedTs, auto) == 0) {
+            return new Result(false, "이미 처리 중이거나 처리된 주문입니다.", p);
+        }
+        p.setStatus("APPROVED");   // 메모리 상태도 DB(claim)와 일치 — 이후 save 는 EXECUTED 기록
+        p.setDecidedAt(decidedTs);
         p.setAutoExecuted(auto);
-        proposalRepo.save(p);
 
         try {
             Broker.Side side = "BUY".equals(p.getSide()) ? Broker.Side.BUY : Broker.Side.SELL;
@@ -221,6 +285,30 @@ public class ProposalExecutionService {
                     .build());
         } catch (Exception e) {
             log.warn("[audit] 기록 실패 proposal={}: {}", p.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * 브로커 잔고 맵에서 가용 예수금(USD 기준)을 반환한다.
+     * KIS KRW 계좌: cash_krw / USD_KRW_APPROX + cash_usd(0으로 폴백)
+     * 그 외(Binance 등): cash_usd 직접 사용.
+     * 파싱 불가/키 없으면 -1 반환 → 호출측 {@code availableUsd >= 0} 조건이 false → gate 스킵(fail-open).
+     */
+    private double availableCashUsd(Map<String, Object> bal, BrokerAccount ba) {
+        try {
+            if (ba.getBrokerType() == BrokerAccount.BrokerType.KIS) {
+                Object krwObj = bal.get("cash_krw");
+                double krw = krwObj instanceof Number n ? n.doubleValue() : -1;
+                if (krw < 0) return -1;
+                Object usdObj = bal.get("cash_usd");
+                double usd = usdObj instanceof Number n ? n.doubleValue() : 0.0;
+                return krw / BrokerAccount.USD_KRW_APPROX + usd;
+            }
+            Object usdObj = bal.get("cash_usd");
+            if (usdObj instanceof Number n) return n.doubleValue();
+            return -1;
+        } catch (Exception e) {
+            return -1;
         }
     }
 

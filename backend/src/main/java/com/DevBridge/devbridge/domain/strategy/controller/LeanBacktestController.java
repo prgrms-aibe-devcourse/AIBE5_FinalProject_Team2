@@ -34,16 +34,43 @@ public class LeanBacktestController {
     @Value("${app.lean.enabled:false}")
     private boolean leanEnabled;
 
+    // Lean "저작"(전략 목록·코드 생성)은 Docker/실행 엔진이 필요 없는 순수 작업이라
+    // app.lean.enabled(실행 게이트)와 무관하게 항상 제공 → IDE 가 실제 코드를 보여줄 수 있음.
+    // 실제 "실행"(backtest/start, submit)만 leanEnabled 로 게이트(EKS 온디맨드).
     @GetMapping("/strategies")
     public ResponseEntity<?> listStrategies() {
         Long uid = AuthContext.currentUserId();
         if (uid == null) return unauthorized();
-        if (!leanEnabled) return disabled();
         try {
             JsonNode resp = analytics.leanListStrategies();
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             log.error("lean/strategies failed", e);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        }
+    }
+
+    /**
+     * 실제 실행될 Lean main.py 코드만 생성해 반환(데이터/Docker 실행 없음).
+     * IDE 가 전략 선택·파라미터 변경 시 호출 → 에디터에 '진짜 돌아가는 코드'를 표시(WYSIWYG).
+     * 응답: { success, code, strategy_id, bytes }
+     */
+    @PostMapping("/codegen")
+    public ResponseEntity<?> codegen(@RequestBody LeanBacktestReq req) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauthorized();
+        // 저작(코드 생성)은 실행 게이트와 무관 — 항상 제공(WYSIWYG 미리보기).
+        if (req.strategyId() == null || req.strategyId().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "strategyId 필수"));
+        }
+        try {
+            JsonNode resp = analytics.leanCodegen(
+                    req.strategyId(), req.symbols(), req.startDate(), req.endDate(),
+                    req.market(), req.paramOverrides());
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            log.error("lean/codegen failed user={} strategy={}", uid, req.strategyId(), e);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(Map.of("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         }
@@ -157,6 +184,41 @@ public class LeanBacktestController {
             return ResponseEntity.ok(analytics.leanQueue(limit));
         } catch (Exception e) {
             log.error("lean/queue failed", e);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        }
+    }
+
+    /** Lean 파라미터 최적화 시작(노드 풀 분산) — opt_id 반환. body=analytics LeanOptimizeReq(snake_case: strategy_id, symbols, start_date, end_date, param_grid, metric...). */
+    @PostMapping("/optimize/start")
+    public ResponseEntity<?> optimizeStart(@RequestBody Map<String, Object> body) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauthorized();
+        if (!leanEnabled) return disabled();
+        if (body == null || (body.get("strategy_id") == null && body.get("strategyId") == null)
+                || body.get("param_grid") == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "strategy_id, symbols, start_date, end_date, param_grid 필수"));
+        }
+        try {
+            log.info("[Lean] optimize start user={} strategy={}", uid, body.get("strategy_id"));
+            return ResponseEntity.ok(analytics.leanOptimizeStart(body));
+        } catch (Exception e) {
+            log.error("lean/optimize/start failed user={}", uid, e);
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(Map.of("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        }
+    }
+
+    /** Lean 최적화 진행 + 조합별 상태 + best(metric 최대). */
+    @GetMapping("/optimize/status/{optId}")
+    public ResponseEntity<?> optimizeStatus(@PathVariable String optId) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauthorized();
+        if (!leanEnabled) return disabled();
+        try {
+            return ResponseEntity.ok(analytics.leanOptimizeStatus(optId));
+        } catch (Exception e) {
+            log.error("lean/optimize/status failed opt={}", optId, e);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(Map.of("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         }

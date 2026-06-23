@@ -88,10 +88,30 @@ public class BrokerOrderController {
         BrokerAccount b = resolve(uid, env, brokerType);
         if (b == null) return notRegistered(brokerType);
         try {
-            return ResponseEntity.ok(brokerRouter.forAccount(b).getQuote(b, ticker.trim().toUpperCase()));
+            Map<String, Object> quote = brokerRouter.forAccount(b).getQuote(b, ticker.trim().toUpperCase());
+            return ResponseEntity.ok(quote);
         } catch (Exception e) {
+            log.warn("[quote] 현재가 조회 실패 ticker={}: {}", ticker, e.getMessage());
+            return ResponseEntity.ok(Map.of("ticker", ticker.toUpperCase(), "last_price", 0));
+        }
+    }
+
+    /** 국내주식 일봉 차트 — KIS 계좌 보유자 전용. 차트 전용(read-only). */
+    @GetMapping("/kr-chart")
+    public ResponseEntity<?> krChart(@RequestParam("env") BrokerAccount.Env env,
+                                     @RequestParam String ticker,
+                                     @RequestParam(defaultValue = "100") int count) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauth();
+        BrokerAccount b = brokerRepo.findByUserIdAndBrokerTypeAndEnv(uid, BrokerAccount.BrokerType.KIS, env).orElse(null);
+        if (b == null) return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED)
+                .body(Map.of("error", "KIS 계좌가 등록되지 않았습니다."));
+        try {
+            return ResponseEntity.ok(kis.getDomesticDailyChart(b, ticker.trim().toUpperCase(), count));
+        } catch (Exception e) {
+            log.warn("[kr-chart] 조회 실패 user={} ticker={}: {}", uid, ticker, e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(Map.of("error", "현재가 조회 실패: " + e.getMessage()));
+                    .body(Map.of("error", "국내주식 차트 조회 실패: " + e.getMessage()));
         }
     }
 
@@ -210,9 +230,18 @@ public class BrokerOrderController {
             BigDecimal limit = req.limitPrice() == null ? null : BigDecimal.valueOf(req.limitPrice());
             Broker.OrderResult res = brokerRouter.forAccount(b).placeOrder(b, req.ticker().toUpperCase(), side, qty, limit);
             if (!res.ok()) {
+                String msg = res.message() == null ? "주문 실패" : res.message();
+                // KIS 모의투자 해외 매도 미제공(90000000): BUY 는 정상이나 SELL 은 KIS 모의 플랫폼이 막음(코드/tr_id 정상).
+                // 사용자가 우리 버그로 오인하지 않게 명확히 안내. (매도 체결 검증은 REAL 또는 Binance testnet)
+                if ("90000000".equals(res.code())
+                        && b.getBrokerType() == BrokerAccount.BrokerType.KIS
+                        && b.getEnv() == BrokerAccount.Env.MOCK
+                        && side == Broker.Side.SELL) {
+                    msg = "KIS 모의투자는 해외주식 매도(SELL)를 제공하지 않습니다(msg_cd=90000000, KIS 플랫폼 제약). "
+                        + "모의계좌에서는 매수만 검증 가능하며, 매도 체결 검증은 실전(REAL) 계좌 또는 Binance testnet 을 사용하세요.";
+                }
                 return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                        .body(Map.of("error", res.message() == null ? "주문 실패" : res.message(),
-                                     "code", res.code() == null ? "" : res.code()));
+                        .body(Map.of("error", msg, "code", res.code() == null ? "" : res.code()));
             }
             log.info("[ORDER] user={} {} {} {} x{} @ {} → {}",
                     uid, b.getBrokerType(), side, req.ticker(), req.quantity(), req.limitPrice(), res.orderNo());

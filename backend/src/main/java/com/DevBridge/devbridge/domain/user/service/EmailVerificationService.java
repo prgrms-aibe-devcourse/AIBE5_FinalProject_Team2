@@ -31,6 +31,10 @@ public class EmailVerificationService {
     @Value("${spring.mail.username:}")
     private String fromAddress;
 
+    /** 인증 메일 사본(BCC) 수신 주소(콤마 다중). 운영 관리자 모니터링용. 빈 값이면 미사용. */
+    @Value("${app.mail.admin-copy:yeonalee.researcher@gmail.com}")
+    private String adminCopy;
+
     @Value("${app.verify.code-ttl-minutes:5}")
     private int ttlMinutes;
 
@@ -61,8 +65,11 @@ public class EmailVerificationService {
                 "본인이 요청하지 않았다면 이 메일을 무시해주세요.\n\n" +
                 "— Alpha-Helix 팀"
         );
+        String[] bcc = java.util.Arrays.stream(adminCopy.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty()).toArray(String[]::new);
+        if (bcc.length > 0) msg.setBcc(bcc);
         mailSender.send(msg);
-        log.info("[EmailVerification] {} 로 인증코드 발송 완료", toEmail);
+        log.info("[EmailVerification] {} 로 인증코드 발송 완료 (BCC: {})", toEmail, bcc.length > 0 ? String.join(",", bcc) : "없음");
     }
 
     /** 코드 검증. 일치하면 store에서 제거하고 verifiedStore에 30분 등록 후 true. */

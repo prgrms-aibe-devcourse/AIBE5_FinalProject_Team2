@@ -275,6 +275,35 @@ public class OrderProposalController {
         return ResponseEntity.ok(auditRepo.findByUserIdOrderByCreatedAtDesc(uid).stream().map(this::auditDto).toList());
     }
 
+    /** 제안 단건 삭제 (모든 상태 허용, 본인 소유만). */
+    @DeleteMapping("/{id}")
+    @Transactional
+    public ResponseEntity<?> delete(@PathVariable Long id) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauth();
+        OrderProposal p = proposalRepo.findByIdAndUserId(id, uid).orElse(null);
+        if (p == null) return ResponseEntity.notFound().build();
+        proposalRepo.delete(p);
+        return ResponseEntity.ok(Map.of("deleted", id));
+    }
+
+    /** 제안 일괄 삭제. body: {"ids":[1,2,3]} */
+    @DeleteMapping
+    @Transactional
+    public ResponseEntity<?> deleteBulk(@RequestBody Map<String, Object> body) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauth();
+        @SuppressWarnings("unchecked")
+        List<Number> rawIds = (List<Number>) body.getOrDefault("ids", List.of());
+        List<Long> ids = rawIds.stream().map(Number::longValue).toList();
+        if (ids.isEmpty()) return ResponseEntity.badRequest().body(Map.of("error", "ids 필수"));
+        List<OrderProposal> targets = proposalRepo.findAllById(ids).stream()
+                .filter(p -> uid.equals(p.getUserId()))
+                .toList();
+        proposalRepo.deleteAll(targets);
+        return ResponseEntity.ok(Map.of("deleted", targets.stream().map(OrderProposal::getId).toList()));
+    }
+
     /**
      * 가격 없는 EXECUTED 제안에 현재가를 fillAvgPrice로 소급 채움.
      * limitPrice도 null인 기존 레코드를 현재 시세로 근사 보정 (정확한 체결가가 아니므로 PnL은 근삿값).

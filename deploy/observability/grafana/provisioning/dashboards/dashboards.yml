@@ -1,0 +1,16 @@
+# Grafana 대시보드 자동 프로비저닝 프로바이더
+# /var/lib/grafana/dashboards 안의 *.json 을 기동 시 자동 로드한다.
+# (compose 가 grafana-dashboard-alpha.json 을 그 경로로 마운트)
+apiVersion: 1
+
+providers:
+  - name: 'alpha-helix'
+    orgId: 1
+    folder: 'Alpha-Helix'
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

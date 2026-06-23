@@ -134,15 +134,35 @@ public class AuthService {
     }
 
     /**
-     * 소셜 로그인 (구글 등) — 이메일 기반으로 기존 User 조회.
+     * 소셜 로그인 (구글 등) — 검증된 이메일 기반 find-or-create.
+     * 계정이 있으면 로그인, 없으면 자동 가입(GitHub 플로우와 동일).
+     * 호출 전 AuthController.verifyGoogleAccessToken 이 토큰을 Google 에 직접 검증하므로
+     * 위조 이메일은 들어올 수 없다 → 이메일 인증 코드(SMTP) 없이도 안전하게 가입 가능.
      */
+    @Transactional
     public User socialLogin(String email) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("가입되지 않은 이메일입니다."));
-        if (user.isDeleted()) {
-            throw new RuntimeException("탈퇴한 계정입니다.");
-        }
-        return user;
+        return userRepository.findByEmail(email)
+                .map(user -> {
+                    if (user.isDeleted()) throw new RuntimeException("탈퇴한 계정입니다.");
+                    return user;
+                })
+                .orElseGet(() -> {
+                    String base = email.split("@")[0].toLowerCase().replaceAll("[^a-z0-9_]", "_");
+                    if (base.isBlank()) base = "user";
+                    String username = base;
+                    int suffix = 2;
+                    while (userRepository.findByUsername(username).isPresent()) {
+                        username = base + suffix++;
+                    }
+                    User newUser = User.builder()
+                            .email(email)
+                            .username(username)
+                            .password(passwordEncoder.encode(java.util.UUID.randomUUID().toString()))
+                            .phone("00000000000")
+                            .userType(User.UserType.FREE)
+                            .build();
+                    return userRepository.save(newUser);
+                });
     }
 
     /**
