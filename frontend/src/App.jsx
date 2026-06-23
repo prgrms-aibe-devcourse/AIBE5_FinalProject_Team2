@@ -1,7 +1,16 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
 import PageLoader from "./components/PageLoader";
 import AppShell from "./components/shell/AppShell";
+
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    document.getElementById("main-scroll")?.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
 
 function RedirectKeepQuery({ to }) {
   const loc = useLocation();
@@ -57,6 +66,7 @@ const AlphaTermsOfService = lazy(() => import("./pages/AlphaTermsOfService"));
 function App() {
   return (
     <Suspense fallback={<PageLoader />}>
+      <ScrollToTop />
       <Routes>
         <Route path="/" element={<Navigate to="/home" replace />} />
         <Route path="/partner_home" element={<RedirectKeepQuery to="/home" />} />
