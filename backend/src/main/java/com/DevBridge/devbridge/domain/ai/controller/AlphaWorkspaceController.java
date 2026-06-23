@@ -49,8 +49,21 @@ public class AlphaWorkspaceController {
         Long uid = AuthContext.currentUserId();
         if (uid == null) return unauth();
         User u = svc.getUserRepo().findById(uid).orElseThrow();
-        String name = body == null ? "새 전략 워크스페이스"
-                : body.getOrDefault("name", "새 전략 워크스페이스");
+        String reqName = body == null ? null : body.get("name");
+        boolean explicit = reqName != null && !reqName.trim().isEmpty();
+        String name = explicit ? reqName.trim() : "새 전략 워크스페이스";
+        if (name.length() > 200) name = name.substring(0, 200);
+        if (explicit) {
+            // 사용자가 직접 지정한 이름은 중복 시 거부
+            if (svc.getWorkspaceRepo().existsByUserIdAndNameIgnoreCase(uid, name)) {
+                return ResponseEntity.status(409)
+                        .body(Map.of("error", "이미 같은 이름의 워크스페이스가 있습니다. 다른 이름을 사용하세요."));
+            }
+        } else {
+            // 기본 이름은 중복 시 자동 번호로 유니크화 (생성은 항상 성공)
+            String base = name; int n = 2;
+            while (svc.getWorkspaceRepo().existsByUserIdAndNameIgnoreCase(uid, name)) name = base + " " + (n++);
+        }
         AlphaWorkspace w = svc.getWorkspaceRepo().save(AlphaWorkspace.builder()
                 .user(u).name(name).status("DRAFT").build());
         svc.recordLog(w.getId(), "USER", "GOAL_DEFINED", "워크스페이스 생성: " + name, null);
@@ -93,6 +106,10 @@ public class AlphaWorkspaceController {
             return ResponseEntity.badRequest().body(Map.of("error", "name 필수"));
         String trimmed = name.trim();
         if (trimmed.length() > 200) trimmed = trimmed.substring(0, 200);
+        if (svc.getWorkspaceRepo().existsByUserIdAndNameIgnoreCaseAndIdNot(uid, trimmed, id)) {
+            return ResponseEntity.status(409)
+                    .body(Map.of("error", "이미 같은 이름의 워크스페이스가 있습니다. 다른 이름을 사용하세요."));
+        }
         ws.setName(trimmed);
         svc.getWorkspaceRepo().save(ws);
         svc.recordLog(ws.getId(), "USER", "GOAL_DEFINED", "슬로건 변경: " + trimmed, null);
@@ -292,6 +309,25 @@ public class AlphaWorkspaceController {
     }
 
     // ─────────────────────────────────────────── Code (DeveloperLab)
+
+    @PatchMapping("/workspaces/{id}/auto-order")
+    @Transactional
+    public ResponseEntity<?> toggleAutoOrder(@PathVariable Long id,
+                                              @RequestBody Map<String, Object> body) {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) return unauth();
+        var wsOpt = svc.getWorkspaceRepo().findByIdAndUserId(id, uid);
+        if (wsOpt.isEmpty()) return ResponseEntity.notFound().build();
+        Object raw = body.get("enabled");
+        if (raw == null) return ResponseEntity.badRequest().body(Map.of("error", "enabled 필수"));
+        boolean enabled = Boolean.parseBoolean(raw.toString());
+        AlphaWorkspace ws = wsOpt.get();
+        ws.setAutoOrderEnabled(enabled);
+        svc.getWorkspaceRepo().save(ws);
+        svc.recordLog(id, "USER", "AUTO_ORDER_TOGGLED",
+                "자동주문 " + (enabled ? "ON" : "OFF"), null);
+        return ResponseEntity.ok(svc.toSummary(ws));
+    }
 
     @PatchMapping("/workspaces/{id}/code")
     @Transactional

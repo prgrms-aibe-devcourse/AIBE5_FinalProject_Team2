@@ -28,4 +28,13 @@ public interface AiUsageLogRepository extends JpaRepository<AiUsageLog, Long> {
         GROUP BY u.modelId
     """)
     List<Object[]> sumTokensByUserSinceGrouped(@Param("uid") Long uid, @Param("since") LocalDateTime since);
+
+    /** 오늘(since 이후) 성공한 Perplexity 풀 브리핑 횟수 — 구독등급 일일 한도 집계.
+     *  Gemini 폴백(briefing_fallback)은 quota 에 안 세서, 한도 소진 후에도 Gemini 간략 브리핑은 계속 받게 한다. */
+    @Query("""
+        SELECT COUNT(u)
+        FROM AiUsageLog u
+        WHERE u.userId = :uid AND u.feature = 'briefing_perplexity' AND u.createdAt >= :since AND u.success = true
+    """)
+    long countBriefingsSince(@Param("uid") Long uid, @Param("since") LocalDateTime since);
 }

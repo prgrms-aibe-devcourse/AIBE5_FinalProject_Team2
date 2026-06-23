@@ -1,4 +1,4 @@
-﻿package com.DevBridge.devbridge.domain.strategy.service;
+package com.DevBridge.devbridge.domain.strategy.service;
 
 import com.DevBridge.devbridge.domain.notification.entity.Notification;
 import com.DevBridge.devbridge.domain.notification.service.NotificationService;
@@ -99,6 +99,25 @@ public class SubscriptionService {
         });
         log.info("Pro activated userId={} orderId={} expiresAt={}", userId, orderId, sub.getExpiresAt());
         return saved;
+    }
+
+    /** 구독 즉시 해지 — expiresAt 을 now로 당기고 유저를 FREE로 전환. */
+    @Transactional
+    public void cancel(Long userId) {
+        Subscription sub = findActiveSub(userId);
+        if (sub == null) throw new IllegalStateException("활성 구독이 없습니다.");
+        sub.setStatus(Subscription.Status.EXPIRED);
+        sub.setExpiresAt(LocalDateTime.now());
+        repo.save(sub);
+        userRepository.findById(userId).ifPresent(u -> {
+            u.setUserType(User.UserType.FREE);
+            userRepository.save(u);
+            notificationService.create(u, Notification.NotificationType.SUBSCRIPTION_EXPIRED,
+                    "구독이 해지되었습니다",
+                    "Pro 플랜 구독이 해지되어 무료 플랜으로 전환되었습니다. 이용해 주셔서 감사합니다.",
+                    "SUBSCRIPTION", sub.getId());
+        });
+        log.info("Subscription cancelled userId={} subId={}", userId, sub.getId());
     }
 
     /** 만료 처리 (매시간 실행). */

@@ -177,6 +177,21 @@ public class InfiniteBuyingController {
 
         Map<String, Object> extra = new HashMap<>();
         extra.put("period", String.valueOf(body.getOrDefault("period", "2y")));
+        // 무한매수법 변형 — 선택 전략에 variant가 오면 그걸, 없으면 이 앱 기본인 연리(yeonri)식으로 역산.
+        Object variantObj = body.get("variant");
+        String variant = (variantObj == null || String.valueOf(variantObj).isBlank())
+                ? "yeonri" : String.valueOf(variantObj).trim();
+        extra.put("variant", variant);
+        // 선택한 전략 종류 + 파라미터를 그대로 적용해 역산 (전략 바뀌면 티커·엔진·파라미터 모두 따라감)
+        Object stype = body.get("strategyType");
+        if (stype != null && !String.valueOf(stype).isBlank()) extra.put("strategy_type", String.valueOf(stype).trim());
+        for (String k : new String[]{
+                "split", "take_profit_pct", "loc_offset_pct",                                                  // 무한매수법
+                "rebalance_days", "expected_return", "band_pct", "pool_target_pct", "initial_pool_pct", "biweekly_contrib", // 밸류 리밸런싱
+                "lookback_days", "skip_recent_days", "top_n", "cash_asset"                                      // 모멘텀 로테이션
+        }) {
+            if (body.get(k) != null) extra.put(k, body.get(k));
+        }
         if (targetKrw != null && targetKrw > 0) extra.put("target_monthly_krw", targetKrw);
         if (targetUsd != null && targetUsd > 0) extra.put("target_monthly_usd", targetUsd);
         Double fx = asDouble(body.get("fx"));

@@ -39,7 +39,7 @@ public class FillReconciler {
      * @return 재조정 시도 성공 건수
      */
     public int reconcileOpenFills(Long userId) {
-        LocalDateTime since = LocalDateTime.now().minusHours(36);
+        LocalDateTime since = LocalDateTime.now().minusDays(7);
         List<OrderProposal> candidates = (userId == null)
                 ? proposalRepo.findFillCheckCandidates(since)
                 : proposalRepo.findFillCheckCandidatesByUser(userId, since);

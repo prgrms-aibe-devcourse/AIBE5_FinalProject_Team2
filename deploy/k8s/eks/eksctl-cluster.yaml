@@ -1,0 +1,96 @@
+# Alpha-Helix · Lean v2 멀티테넌트 클라우드 — AWS EKS ClusterConfig (eksctl)
+# ─────────────────────────────────────────────────────────────────────────────
+# 이 파일 그대로:  eksctl create cluster -f deploy/k8s/eks/eksctl-cluster.yaml
+#
+# 의도:
+#  - small 온디맨드 노드그룹 = 컨트롤/상시 워크로드(클러스터 오토스케일러·데몬셋 등). 항상 켜짐.
+#  - lean-worker 스팟 노드그룹 = 백테스트 Pod 전용(라벨 workload=lean-worker + 테인트).
+#    백테스트는 CPU 집약·짧고 멱등 재생성 가능 → 스팟으로 비용 최소화. 평소 0대, 잡 몰리면 확장.
+#  - OIDC 활성 → BE 컨트롤러를 클러스터 밖(EC2/다른 클러스터)에 두지 않고 in-cluster IRSA 로 운영 가능.
+#
+# 플레이스홀더(<...>)는 본인 값으로 치환. eksctl 1.x / Kubernetes 1.31 기준.
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: alphahelix-lean            # <CLUSTER> — Cluster Autoscaler autoDiscovery 와 동일해야 함
+  region: ap-northeast-2           # 서울 (라이브 검증 완료 2026-06-21)
+  version: "1.31"
+  tags:
+    project: alpha-helix
+    component: lean-v2
+
+# ── OIDC (IRSA: ServiceAccount ↔ IAM Role 매핑) ──────────────────────────────
+# Cluster Autoscaler·ECR 풀·(선택)S3 결과 업로드의 IAM 권한을 SA 단위로 최소권한 부여하는 기반.
+iam:
+  withOIDC: true
+  serviceAccounts:
+    # 클러스터 오토스케일러용 SA (cluster-autoscaler.md 의 helm 설치와 짝).
+    - metadata:
+        name: cluster-autoscaler
+        namespace: kube-system
+      wellKnownPolicies:
+        autoScaler: true
+    # (참고) lean-controller IRSA SA 는 제거함 — BE 를 클러스터 밖(EC2)에 두고 kubeconfig(인스턴스역할=admin)
+    # 로 kubectl apply 하는 토폴로지라 불필요. (eksctl 은 정책 없는 SA 를 거부하므로 두면 검증 에러)
+
+# ── 관리형 노드그룹 ──────────────────────────────────────────────────────────
+managedNodeGroups:
+  # (1) 상시 온디맨드 — 컨트롤플레인 부속(오토스케일러·CoreDNS·메트릭). 작고 항상 켜짐.
+  - name: ng-system
+    instanceType: t3.medium
+    amiFamily: AmazonLinux2023
+    desiredCapacity: 2
+    minSize: 2
+    maxSize: 3
+    volumeSize: 30
+    privateNetworking: true
+    labels:
+      workload: system
+    # Cluster Autoscaler 자동탐지 태그(이 NG 자체는 보통 고정이지만 일관성 위해 부여).
+    tags:
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/alphahelix-lean: "owned"   # <CLUSTER> 와 일치
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        cloudWatch: true
+
+  # (2) 백테스트 워커 — 스팟. 라벨 workload=lean-worker + 테인트(워커 Pod 만 스케줄).
+  #     03-lean-backtest-job.template.yaml / LeanJobManifestRenderer 의 Pod 가 이 NG 로 떨어지게 하려면
+  #     해당 Job 템플릿에 nodeSelector{workload: lean-worker} + 아래 테인트에 대응하는 toleration 추가 필요.
+  #     (현재 03 템플릿엔 미적용 — README "워커 노드그룹 타게팅" 섹션 참조. 미적용 시 ng-system 에도 떨어질 수 있음.)
+  - name: ng-lean-worker-spot
+    amiFamily: AmazonLinux2023
+    spot: true
+    instanceTypes:                   # 스팟 가용성 위해 동급 인스턴스 다종 지정(중단 회피)
+      - c6i.xlarge                   # 4 vCPU / 8 GiB — EXPERT(cpu 4 / mem 8Gi) Pod 1개를 정확히 수용
+      - c5.xlarge                    # (c6a.xlarge 는 서울 AZ 미지원 → 제거: eksctl AZ 0개 에러 유발)
+    desiredCapacity: 0               # 평소 0 → 잡 몰리면 Cluster Autoscaler 가 확장
+    minSize: 0
+    maxSize: 10                      # 비용 상한(=동시 노드 한도). 필요 시 조정
+    volumeSize: 100                  # 워커 이미지(~42.5GB) 안전 수용 (검증값; 60 은 빠듯)
+    privateNetworking: true
+    labels:
+      workload: lean-worker
+    taints:
+      - key: workload
+        value: lean-worker
+        effect: NoSchedule           # 일반 Pod 격리 — 백테스트 Pod(toleration 보유)만 허용
+    tags:
+      k8s.io/cluster-autoscaler/enabled: "true"
+      k8s.io/cluster-autoscaler/alphahelix-lean: "owned"   # <CLUSTER> 와 일치
+      # 스케일-투-제로(desired 0)에서 0→N 확장 시 오토스케일러가 라벨/테인트를 미리 알도록 명시:
+      k8s.io/cluster-autoscaler/node-template/label/workload: "lean-worker"
+      k8s.io/cluster-autoscaler/node-template/taint/workload: "lean-worker:NoSchedule"
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        # ECR 풀 권한은 관리형 NG 기본 인스턴스롤(AmazonEC2ContainerRegistryReadOnly)에 포함됨.
+
+# ── 애드온 ───────────────────────────────────────────────────────────────────
+addons:
+  - name: vpc-cni
+  - name: coredns
+  - name: kube-proxy
+  - name: aws-ebs-csi-driver        # 워커는 emptyDir 만 쓰지만, 향후 PVC(결과 캐시 등) 대비

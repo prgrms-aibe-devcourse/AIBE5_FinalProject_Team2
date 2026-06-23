@@ -1,0 +1,37 @@
+# 테넌트 네임스페이스 + 등급별 ResourceQuota (멀티테넌트 격리·공정).
+# BE 가 신규 테넌트/등급에 맞춰 토큰을 치환해 apply 한다. (envsubst 또는 BE 렌더러)
+# 토큰: __TENANT_ID__ __TIER__ __MAX_PODS__ __QUOTA_CPU__ __QUOTA_MEM__
+#
+# 예) EXPERT 테넌트 42: __TENANT_ID__=42 __TIER__=EXPERT __MAX_PODS__=4 __QUOTA_CPU__=16 __QUOTA_MEM__=32Gi
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lean-tenant-__TENANT_ID__
+  labels:
+    app: lean
+    tenant: "__TENANT_ID__"
+    tier: "__TIER__"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: lean-quota
+  namespace: lean-tenant-__TENANT_ID__
+spec:
+  hard:
+    pods: "__MAX_PODS__"              # 동시 백테스트(Pod) 한도 = 등급 동시 한도
+    requests.cpu: "__QUOTA_CPU__"
+    requests.memory: "__QUOTA_MEM__"
+    limits.cpu: "__QUOTA_CPU__"
+    limits.memory: "__QUOTA_MEM__"
+---
+# (선택) 테넌트 간 네트워크 격리 — 워커 Pod 는 BE 콜백/데이터 fetch 외 통신 불필요.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: lean-tenant-isolation
+  namespace: lean-tenant-__TENANT_ID__
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress: []                         # 인바운드 차단(워커는 아웃바운드만: 데이터·BE 콜백)

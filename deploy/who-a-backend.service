@@ -8,6 +8,7 @@ Type=simple
 User=ec2-user
 WorkingDirectory=/home/ec2-user
 EnvironmentFile=/home/ec2-user/.env.prod
+Environment=TZ=Asia/Seoul
 ExecStart=/usr/bin/java -Xms256m -Xmx512m -jar /home/ec2-user/app.jar
 SuccessExitStatus=143
 Restart=on-failure

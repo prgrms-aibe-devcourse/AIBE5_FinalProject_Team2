@@ -30,8 +30,24 @@ public interface OrderProposalRepository extends JpaRepository<OrderProposal, Lo
     boolean existsByUserIdAndSourceSignalIdAndStatusNotIn(Long userId, Long sourceSignalId,
                                                           java.util.Collection<String> terminalStatuses);
 
+    /** 주문큐 중복 방지: 같은 유저·워크스페이스·종목·side 의 특정 상태(PENDING) 제안 존재 여부. */
+    boolean existsByUserIdAndWorkspaceIdAndTickerAndSideAndStatus(Long userId, Long workspaceId,
+                                                                  String ticker, String side, String status);
+
     /** 만료 처리 잡용: PENDING 상태 + expires_at < now */
     List<OrderProposal> findByStatusAndExpiresAtBefore(String status, LocalDateTime cutoff);
+
+    /**
+     * DDIA 7장(compare-and-set): PENDING → APPROVED 원자적 상태전이.
+     * 동시에 두 요청(더블클릭 approve, 또는 수동 approve + 자동체결)이 모두 PENDING 검사를
+     * 통과해 '같은 주문을 두 번' 실주문하는 lost-update 를 차단한다.
+     * UPDATE ... WHERE status='PENDING' 이 행을 잠그므로 둘 중 하나만 affected=1, 나머지는 0(이미 가져감).
+     * @return 1=이 호출이 점유 성공(진행), 0=다른 스레드가 이미 점유(중단)
+     */
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("update OrderProposal p set p.status='APPROVED', p.decidedAt=:now, p.autoExecuted=:auto " +
+           "where p.id=:id and p.status='PENDING'")
+    int claimForExecution(@Param("id") Long id, @Param("now") LocalDateTime now, @Param("auto") boolean auto);
 
     /**
      * 당일 EXECUTED 주문 합산 USD. 일일누적 한도검증용.

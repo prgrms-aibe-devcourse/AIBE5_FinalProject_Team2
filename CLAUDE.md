@@ -219,8 +219,8 @@ Rate Limit: `AiRateLimitFilter` — 유저별 AI 채팅 20 req/hour (Bucket4j)
 - `APP_CRYPTO_KEY` 는 기본값이 없어 미설정 시 앱 기동 실패. 로컬에서도 반드시 설정.
 - `ANALYTICS_BASE_URL` 미설정 시 `AnalyticsClient`가 Resilience4j CB로 빠르게 폴백 — 시그널 없이 동작.
 - Toss Payments 테스트 키: 클라이언트 키(`test_ck_D5GePWvyJnrK0W0k6q8gLzN97Eoq`)와 시크릿 키(`test_sk_zXLkKEypNArWmo50nX3lmeaxYG5R`) 반드시 동일 계정 키쌍 사용.
-- XGBoost 모델은 최초 실행 시 데이터가 없으면 합성 데이터로 초기 학습. 매일 22:30 KST 재학습.
-- `Regime v2`: 5-State HMM (`bull_stable`, `bull_volatile`, `sideways`, `bear`, `high_vol_unstable`). MA200 slope EWM span=10, vol_high 임계값 75th percentile.
+- XGBoost 모델은 데이터가 충분하면 학습/추론하고, 데이터 부족·미존재 시 `predict_proba_up` 가 `None` 반환 또는 학습이 예외로 스킵된다(합성 데이터 자동 초기학습 경로는 코드에 없음). 매일 22:30 KST 재학습.
+- `Regime v2`: 5-State HMM (`bull_quiet`, `bull_volatile`, `sideways`, `bear`, `high_vol_unstable`). hmmlearn GaussianHMM(ret·vol20·mom60 피처). 표본부족/fit실패 시 rule-based 로 폴백하며 응답에 `method`(실제 사용)·`hmm_fallback` 표기. ⚠️ `/regime`·Trust Score 기본 method 는 현재 `rule`(빠름); HMM 은 `method=hmm` 명시 요청 시 사용.
 - Frontend `alpha/` 컴포넌트는 탭 분리 레이아웃: Chat / Config / Report / Regime / Trust / Briefing / Log.
 
 ---

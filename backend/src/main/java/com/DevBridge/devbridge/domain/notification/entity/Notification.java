@@ -10,7 +10,11 @@ import java.time.LocalDateTime;
 
 /** In-app system notifications: backtest, briefing, subscription, account, and order fill events. */
 @Entity
-@Table(name = "NOTIFICATION")
+@Table(name = "NOTIFICATION", indexes = {
+        // DDIA 3장: 알림 목록 정렬·안읽음 카운트 인덱스 (docker ddl-auto=update 가 자동 생성; 운영은 V33).
+        @Index(name = "idx_notif_user_created", columnList = "user_id, created_at"),
+        @Index(name = "idx_notif_user_read", columnList = "user_id, is_read")
+})
 @Getter
 @Setter
 @NoArgsConstructor

@@ -1,0 +1,49 @@
+# BE 컨트롤 플레인이 테넌트 네임스페이스에 Job/Namespace/Quota 를 생성·감시·정리할 권한.
+# BE 가 클러스터 안(in-cluster)이면 이 SA 토큰을, 밖이면 kubeconfig 를 사용.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lean-controller
+  namespace: lean-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: lean-controller
+rules:
+  # 테넌트 네임스페이스·쿼터 관리 (동적 생성)
+  - apiGroups: [""]
+    resources: [namespaces, resourcequotas]
+    verbs: [get, list, create, update, patch]
+  # 백테스트 Job·Pod 생성/감시/정리 + 로그(결과 폴백 회수)
+  - apiGroups: ["batch"]
+    resources: [jobs]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lean-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: lean-controller
+subjects:
+  - kind: ServiceAccount
+    name: lean-controller
+    namespace: lean-system
+---
+# 워커 Pod → BE 결과 콜백 인증용 내부 토큰(테넌트 네임스페이스마다 필요 — BE 가 생성 시 함께 apply).
+# 실제 값은 운영 시 외부 시크릿 매니저(AWS Secrets Manager 등)에서 주입.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lean-secrets
+  namespace: lean-tenant-__TENANT_ID__
+type: Opaque
+stringData:
+  internal-token: "__BE_INTERNAL_TOKEN__"
+  polygon-api-key: "__POLYGON_API_KEY__"

@@ -3,14 +3,17 @@ package com.DevBridge.devbridge.domain.notification.controller;
 import com.DevBridge.devbridge.domain.notification.dto.NotificationResponse;
 import com.DevBridge.devbridge.domain.notification.entity.Notification;
 import com.DevBridge.devbridge.domain.notification.repository.NotificationRepository;
+import com.DevBridge.devbridge.domain.notification.service.NotificationSseService;
 import com.DevBridge.devbridge.domain.user.entity.User;
 import com.DevBridge.devbridge.domain.user.repository.UserRepository;
 import com.DevBridge.devbridge.global.security.AuthContext;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
@@ -25,6 +28,24 @@ public class NotificationController {
 
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
+    private final NotificationSseService sseService;
+
+    /**
+     * SSE 구독 — 새 알림 발생 시 실시간 push.
+     * 프론트: const es = new EventSource('/api/notifications/stream', {withCredentials:true});
+     *         es.addEventListener('notification', e => handleNew(JSON.parse(e.data)));
+     * 연결 끊기면 EventSource가 자동 재연결 (지수 백오프).
+     */
+    @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream() {
+        Long uid = AuthContext.currentUserId();
+        if (uid == null) {
+            SseEmitter err = new SseEmitter();
+            err.completeWithError(new SecurityException("인증 필요"));
+            return err;
+        }
+        return sseService.subscribe(uid);
+    }
 
     @GetMapping
     public ResponseEntity<?> getAll() {
@@ -57,14 +78,8 @@ public class NotificationController {
     public ResponseEntity<?> markOneRead(@PathVariable Long notificationId) {
         User user = currentUser();
         if (user == null) return unauthorized();
-        return notificationRepository.findById(notificationId)
-                .filter(n -> n.getUser().getId().equals(user.getId()))
-                .map(n -> {
-                    n.setRead(true);
-                    notificationRepository.save(n);
-                    return ResponseEntity.noContent().build();
-                })
-                .orElse(ResponseEntity.notFound().build());
+        int updated = notificationRepository.markOneReadByIdAndUser(notificationId, user);
+        return updated > 0 ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
 
     @PatchMapping("/read-all")

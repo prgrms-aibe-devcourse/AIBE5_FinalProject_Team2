@@ -215,6 +215,22 @@ public class AnalyticsClient {
         return callOnce("/lean/backtest/start", "POST", body);
     }
 
+    /** POST /lean/codegen — 실제 실행될 Lean main.py 코드 생성(데이터 fetch·Docker 실행 없음). IDE 미리보기/편집용. */
+    public JsonNode leanCodegen(
+            String strategyId, List<String> symbols, String startDate, String endDate,
+            String market, Map<String, Object> paramOverrides) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("strategy_id", strategyId);
+        body.put("symbols", symbols);
+        body.put("start_date", startDate);
+        body.put("end_date", endDate);
+        body.put("market", market == null ? "us" : market);
+        if (paramOverrides != null && !paramOverrides.isEmpty()) {
+            body.put("param_overrides", paramOverrides);
+        }
+        return callOnce("/lean/codegen", "POST", body);
+    }
+
     /** GET /lean/backtest/status/{jobId}?since=N — 진행 로그(증분) + 완료 시 결과. */
     public JsonNode leanBacktestStatus(String jobId, int since) {
         return callOnce("/lean/backtest/status/" + jobId + "?since=" + Math.max(0, since), "GET", null);
@@ -223,6 +239,27 @@ public class AnalyticsClient {
     /** GET /lean/health — Lean 실행환경(Docker 데몬/lean CLI/이미지) 준비 상태. */
     public JsonNode leanHealth() {
         return callOnce("/lean/health", "GET", null);
+    }
+
+    /** GET /lean/nodes — Lean 노드 풀 상태(노드별 slots/active/idle). QC 노드 패널용. */
+    public JsonNode leanNodes() {
+        return callOnce("/lean/nodes", "GET", null);
+    }
+
+    /** GET /lean/queue — Lean 잡 큐/이력(running/queued + 총 슬롯 + 최근 잡 목록). QC 백테스트 목록용. */
+    public JsonNode leanQueue(int limit) {
+        return callOnce("/lean/queue?limit=" + Math.max(1, limit), "GET", null);
+    }
+
+    /** POST /lean/optimize/start — 파라미터 그리드를 노드 풀에 분산 백테스트(QC optimizer). body=LeanOptimizeReq(snake_case).
+     *  즉시 opt_id 반환(잡만 큐잉) → 재시도 없는 callOnce(중복 최적화 방지). */
+    public JsonNode leanOptimizeStart(Map<String, Object> body) {
+        return callOnce("/lean/optimize/start", "POST", body);
+    }
+
+    /** GET /lean/optimize/status/{optId} — 최적화 진행 + 조합별 상태 + best(metric 최대). */
+    public JsonNode leanOptimizeStatus(String optId) {
+        return callOnce("/lean/optimize/status/" + optId, "GET", null);
     }
 
     /** GET /data/status — 수집된 시장 데이터 현황(소스/심볼별 행 수 + 최신 시각). */
@@ -389,6 +426,25 @@ public class AnalyticsClient {
         body.put("period", "10y");
         if (extra != null) body.putAll(extra);
         return call("/orders/infinite-buying/plan", "POST", body);
+    }
+
+    /** POST /orders/value-rebalancing/plan — 다음 거래일 VR 주문 계획(vr_lower=BUY / vr_upper=SELL). */
+    public JsonNode valueRebalancingPlan(List<String> tickers, Map<String, Object> extra) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("tickers", tickers);
+        body.put("period", "10y");
+        if (extra != null) body.putAll(extra);
+        return call("/orders/value-rebalancing/plan", "POST", body);
+    }
+
+    /** POST /orders/preset/plan — 프리셋(vbt 6전략) 엔진-매칭 다음 거래일 주문(entry=BUY / exit=SELL). */
+    public JsonNode presetPlan(List<String> tickers, String strategy, Map<String, Object> extra) {
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("tickers", tickers);
+        body.put("strategy", strategy);
+        body.put("period", "5y");
+        if (extra != null) body.putAll(extra);
+        return call("/orders/preset/plan", "POST", body);
     }
 
     /** POST /backtest/infinite-buying/sizing — 목표 월수익 → 필요 시드 역산. */

@@ -2,6 +2,9 @@ package com.DevBridge.devbridge.domain.ai.controller;
 
 import com.DevBridge.devbridge.global.security.AuthContext;
 import com.DevBridge.devbridge.domain.ai.service.AlphaHelixService;
+import com.DevBridge.devbridge.domain.ai.service.BriefingQuotaPolicy;
+import com.DevBridge.devbridge.domain.ai.repository.AiUsageLogRepository;
+import com.DevBridge.devbridge.domain.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -29,6 +32,8 @@ import java.util.concurrent.CompletableFuture;
 public class AlphaAnalyticsController {
 
     private final AlphaHelixService svc;
+    private final AiUsageLogRepository usageRepo;
+    private final BriefingQuotaPolicy briefingQuota;
 
     // ─────────────────────────────────────────── Backtest
 
@@ -60,18 +65,24 @@ public class AlphaAnalyticsController {
             if (body != null && body.get("end") != null) customParams.put("end", body.get("end"));
             String json = svc.doBacktest(ws, periodFinal, customParams);
 
-            // 백테스트 완료 후 개선 제안서 자동 생성 (비동기 — 응답 블로킹 없음)
+            // 백테스트 완료 후 개선 제안서 자동 생성 (비동기 — 응답 블로킹 없음, 1시간 쿨다운)
             final var wsFinal = ws;
             final Long uidFinal = uid;
             final String pFinal = periodFinal;
             final Map<String, Object> cpFinal = new java.util.HashMap<>(customParams);
-            CompletableFuture.runAsync(() -> {
-                try {
-                    svc.doImproveProposal(wsFinal, uidFinal, pFinal, cpFinal);
-                } catch (Exception ex) {
-                    log.warn("[auto improve-proposal] ws={} {}", id, ex.getMessage());
-                }
-            });
+            boolean improveOnCooldown = wsFinal.getLastImproveAt() != null &&
+                    wsFinal.getLastImproveAt().isAfter(java.time.LocalDateTime.now().minusHours(IMPROVE_COOLDOWN_HOURS));
+            if (!improveOnCooldown) {
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        svc.doImproveProposal(wsFinal, uidFinal, pFinal, cpFinal);
+                        wsFinal.setLastImproveAt(java.time.LocalDateTime.now());
+                        svc.getWorkspaceRepo().save(wsFinal);
+                    } catch (Exception ex) {
+                        log.warn("[auto improve-proposal] ws={} {}", id, ex.getMessage());
+                    }
+                });
+            }
 
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_JSON)
@@ -94,12 +105,24 @@ public class AlphaAnalyticsController {
         if (uid == null) return unauth();
         var wsOpt = svc.getWorkspaceRepo().findByIdAndUserId(id, uid);
         if (wsOpt.isEmpty()) return ResponseEntity.notFound().build();
+        var ws = wsOpt.get();
+        if (ws.getLastImproveAt() != null &&
+                ws.getLastImproveAt().isAfter(java.time.LocalDateTime.now().minusHours(IMPROVE_COOLDOWN_HOURS))) {
+            long remainMin = java.time.Duration.between(
+                    java.time.LocalDateTime.now(),
+                    ws.getLastImproveAt().plusHours(IMPROVE_COOLDOWN_HOURS)).toMinutes() + 1;
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "개선 제안서는 1시간에 1회 생성 가능합니다.",
+                            "cooldown", true, "remainMinutes", remainMin));
+        }
         try {
             String period = body != null && body.get("period") != null ? String.valueOf(body.get("period")) : null;
             @SuppressWarnings("unchecked")
             Map<String, Object> customParams = (body != null && body.get("customParams") instanceof Map)
                     ? (Map<String, Object>) body.get("customParams") : Map.of();
-            Map<String, Object> result = svc.doImproveProposal(wsOpt.get(), uid, period, customParams);
+            Map<String, Object> result = svc.doImproveProposal(ws, uid, period, customParams);
+            ws.setLastImproveAt(java.time.LocalDateTime.now());
+            svc.getWorkspaceRepo().save(ws);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
             log.error("improve-proposal fail ws={}", id, e);
@@ -178,7 +201,8 @@ public class AlphaAnalyticsController {
     // ─────────────────────────────────────────── Queue Orders
 
     @PostMapping("/workspaces/{id}/queue-orders")
-    public ResponseEntity<?> queueOrders(@PathVariable Long id) {
+    public ResponseEntity<?> queueOrders(@PathVariable Long id,
+                                         @RequestBody(required = false) Map<String, Object> body) {
         Long uid = AuthContext.currentUserId();
         if (uid == null) return unauth();
         var wsOpt = svc.getWorkspaceRepo().findByIdAndUserId(id, uid);
@@ -188,8 +212,11 @@ public class AlphaAnalyticsController {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
                     .body(Map.of("error", "전략 정형화가 먼저 필요합니다"));
         }
+        // IDE 가 보낸 현재 전략(프리셋 lean→vbt 매핑 또는 __unsupported__:id). 없으면 cfg.strategy_type 라우팅.
+        String presetOverride = (body != null && body.get("strategy") != null)
+                ? String.valueOf(body.get("strategy")) : null;
         try {
-            Map<String, Object> resp = svc.doQueueOrders(ws, uid);
+            Map<String, Object> resp = svc.doQueueOrders(ws, uid, presetOverride);
             return ResponseEntity.ok(resp);
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
@@ -228,14 +255,49 @@ public class AlphaAnalyticsController {
 
     // ─────────────────────────────────────────── Briefing
 
+    private static final long BRIEFING_COOLDOWN_HOURS = 7;
+    private static final long IMPROVE_COOLDOWN_HOURS = 1;
+
     @PostMapping("/workspaces/{id}/briefing")
     public ResponseEntity<?> briefing(@PathVariable Long id) {
         Long uid = AuthContext.currentUserId();
         if (uid == null) return unauth();
         var wsOpt = svc.getWorkspaceRepo().findByIdAndUserId(id, uid);
         if (wsOpt.isEmpty()) return ResponseEntity.notFound().build();
+        var ws = wsOpt.get();
+        // ① 워크스페이스별 쿨다운 (새로고침 간격) — 7시간
+        if (ws.getLastBriefingAt() != null &&
+                ws.getLastBriefingAt().isAfter(java.time.LocalDateTime.now().minusHours(BRIEFING_COOLDOWN_HOURS))) {
+            long remainMin = java.time.Duration.between(
+                    java.time.LocalDateTime.now(),
+                    ws.getLastBriefingAt().plusHours(BRIEFING_COOLDOWN_HOURS)).toMinutes() + 1;
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "브리핑은 " + BRIEFING_COOLDOWN_HOURS + "시간에 1회 생성 가능합니다.",
+                            "cooldown", true, "remainMinutes", remainMin));
+        }
+        // ② 구독등급별 하루 LIVE 브리핑 총 횟수 (FREE1/STD2/PREM4/EXP7) — 유저 단위, KST 자정 리셋
+        User.UserType ut = svc.getUserRepo().findById(uid).map(User::getUserType).orElse(User.UserType.FREE);
+        int dailyLimit = briefingQuota.dailyLimitFor(ut);
+        if (dailyLimit <= 0) {  // FREE — LIVE 브리핑 미제공 (Perplexity 호출 전 차단 → 비용 0)
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "LIVE 브리핑은 STANDARD 등급 이상부터 이용할 수 있어요.",
+                            "quotaExceeded", true, "dailyLimit", 0, "usedToday", 0));
+        }
+        java.time.LocalDateTime todayStart = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).atStartOfDay();
+        long usedToday = usageRepo.countBriefingsSince(uid, todayStart);
+        // 일일 Perplexity 한도 소진 시: 차단 대신 Gemini 간략 브리핑으로 다운그레이드(degraded). Gemini 는 quota 에 안 셈.
+        boolean degraded = usedToday >= dailyLimit;
         try {
-            Map<String, Object> resp = svc.doBriefing(wsOpt.get(), uid);
+            Map<String, Object> resp = new java.util.HashMap<>(svc.doBriefing(ws, uid, degraded));
+            ws.setLastBriefingAt(java.time.LocalDateTime.now());
+            svc.getWorkspaceRepo().save(ws);
+            resp.put("dailyLimit", dailyLimit);
+            if (degraded) {
+                resp.put("degraded", "gemini");
+                resp.put("usedToday", usedToday);   // Gemini 다운그레이드는 한도 미차감
+            } else {
+                resp.put("usedToday", usedToday + 1);
+            }
             return ResponseEntity.ok(resp);
         } catch (Exception e) {
             log.error("briefing fail ws={}", id, e);

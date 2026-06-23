@@ -34,7 +34,7 @@ public class JwtUtil {
             bytes = padded;
         }
         this.key = Keys.hmacShaKeyFor(bytes);
-        this.ttlMillis = ttlHours * 60 * 60 * 1000L;
+        this.ttlMillis = 30 * 60 * 1000L;
     }
 
     /**

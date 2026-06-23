@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface BrokerAccountRepository extends JpaRepository<BrokerAccount, Long> {
+    int countByUserId(Long userId);
     Optional<BrokerAccount> findByUserIdAndEnv(Long userId, BrokerAccount.Env env);
     Optional<BrokerAccount> findByUserIdAndBrokerTypeAndEnv(Long userId, BrokerAccount.BrokerType brokerType, BrokerAccount.Env env);
     Optional<BrokerAccount> findByIdAndUserId(Long id, Long userId);

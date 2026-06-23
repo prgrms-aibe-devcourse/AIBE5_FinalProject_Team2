@@ -58,6 +58,14 @@ public class AlphaWorkspace {
     @Lob @Column(name = "last_report_json", columnDefinition = "LONGTEXT")
     private String lastReportJson;
 
+    /** 마지막 브리핑 생성 시각. 3시간 쿨다운 적용용. */
+    @Column(name = "last_briefing_at")
+    private LocalDateTime lastBriefingAt;
+
+    /** 마지막 개선 제안서 생성 시각. 1시간 쿨다운 적용용. */
+    @Column(name = "last_improve_at")
+    private LocalDateTime lastImproveAt;
+
     /** 사용자가 편집한 Python 전략 코드 파일들. JSON: {"main":"...","risk_control":"..."} */
     @Lob @Column(name = "code_json", columnDefinition = "LONGTEXT")
     private String codeJson;
@@ -92,6 +100,15 @@ public class AlphaWorkspace {
      */
     @Column(name = "claude_session_id", length = 64)
     private String claudeSessionId;
+
+    /**
+     * 자동주문 활성화 스위치. true 이면 daily auto-run 중 queue-orders 단계를 실행하여
+     * 해당 워크스페이스의 전략에 맞는 PENDING OrderProposal 을 생성한다.
+     * 사람 승인 후 실주문이 발생하므로 autoExecute 와는 다른 개념.
+     */
+    @Column(name = "auto_order_enabled", nullable = false)
+    @Builder.Default
+    private Boolean autoOrderEnabled = false;
 
     @CreationTimestamp
     private LocalDateTime createdAt;

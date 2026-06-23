@@ -106,6 +106,24 @@ public class BrokerAccountController {
         String capViol = realCapViolation(env, req.maxOrderUsd(), req.dailyOrderUsd(), req.dailyBuyKrw(), req.dailySellKrw());
         if (capViol != null) return badReq(capViol);
 
+        // 구독 플랜별 계좌 연동 한도 (FREE=0, STANDARD=1, PREMIUM=3, EXPERT=무제한)
+        boolean isNewAccount = !brokerRepo.existsByUserIdAndBrokerTypeAndEnv(uid, brokerType, env);
+        if (isNewAccount) {
+            User planUser = userRepo.findById(uid).orElseThrow();
+            User.UserType ut = planUser.getUserType();
+            int maxAccounts = switch (ut) {
+                case STANDARD -> 1;
+                case PREMIUM  -> 3;
+                case EXPERT   -> Integer.MAX_VALUE;
+                default       -> 0;
+            };
+            if (maxAccounts == 0) return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+                    .body(Map.of("error", "계좌 연동은 Standard 이상 구독부터 가능합니다"));
+            int currentCount = brokerRepo.countByUserId(uid);
+            if (currentCount >= maxAccounts) return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+                    .body(Map.of("error", "현재 플랜(" + ut.name() + ")의 계좌 연동 한도(" + maxAccounts + "개)를 초과했습니다"));
+        }
+
         BrokerAccount b = brokerRepo.findByUserIdAndBrokerTypeAndEnv(uid, brokerType, env).orElseGet(() -> {
             User u = userRepo.findById(uid).orElseThrow();
             return BrokerAccount.builder().user(u).brokerType(brokerType).env(env).build();
@@ -148,6 +166,13 @@ public class BrokerAccountController {
         if (brokerType == null) brokerType = BrokerAccount.BrokerType.KIS; // 하위호환
         BrokerAccount b = brokerRepo.findByUserIdAndBrokerTypeAndEnv(uid, brokerType, env).orElse(null);
         if (b == null) return ResponseEntity.notFound().build();
+
+        if (enabled) {
+            User tradingMasterUser = userRepo.findById(uid).orElseThrow();
+            if (tradingMasterUser.getUserType() == User.UserType.FREE)
+                return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+                        .body(Map.of("error", "자동매매 활성화는 Standard 이상 구독부터 가능합니다"));
+        }
 
         boolean isReal = env == BrokerAccount.Env.REAL;
         if (enabled && isReal && b.getLastVerifiedAt() == null) {
@@ -219,6 +244,12 @@ public class BrokerAccountController {
         if (b == null) return ResponseEntity.notFound().build();
 
         if (enabled) {
+            // 자동매매는 STANDARD 이상 전용
+            User tradingUser = userRepo.findById(uid).orElseThrow();
+            User.UserType ut = tradingUser.getUserType();
+            if (ut == User.UserType.FREE) return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+                    .body(Map.of("error", "자동매매는 Standard 이상 구독부터 가능합니다"));
+
             if (!Boolean.TRUE.equals(b.getTradingEnabled())) {
                 return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED)
                         .body(Map.of("error", "먼저 tradingEnabled(자동매매 마스터 스위치)를 켜야 합니다."));
@@ -483,6 +514,15 @@ public class BrokerAccountController {
             ));
         } catch (Exception e) {
             String msg = e.getMessage() == null ? "" : e.getMessage();
+            // 키 복호화 실패(서버 APP_CRYPTO_KEY 변경 등)는 Binance 문제가 아니라 재등록 필요 케이스 — KIS /test 와 동일 처리.
+            if (msg.contains("decrypt failed") || msg.contains("key mismatch") || msg.contains("tampered")) {
+                log.warn("[binance/test] DECRYPT FAIL user={} env={} — APP_CRYPTO_KEY mismatch", uid, env);
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                        "error", "저장된 Binance 키를 복호화할 수 없습니다 (서버 암호화 키 변경). 계좌를 삭제 후 다시 등록해 주세요.",
+                        "code", "DECRYPT_FAILED",
+                        "requireReregister", true
+                ));
+            }
             log.warn("[binance/test] failed user={} env={}: {}", uid, env, msg);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(Map.of("error", friendlyBinanceError(msg),
