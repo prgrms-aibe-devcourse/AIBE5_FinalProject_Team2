@@ -496,7 +496,9 @@ public class BinanceApiClient {
         if (raw.contains("-1121") || raw.contains("Invalid symbol"))
             return "유효하지 않은 심볼입니다. (예: BTCUSDT)";
         if (raw.contains("-2015") || raw.contains("Invalid API-key"))
-            return "Binance API Key가 유효하지 않거나 만료되었습니다. API 권한(읽기/거래)을 확인해 주세요.";
+            return "Binance API Key가 거부되었습니다(-2015). ① API 권한(읽기/Spot 거래)이 켜져 있는지, "
+                 + "② 실전 키라면 API Key의 IP 접근 제한(allowlist)에 서버 IP가 등록되어 있는지, "
+                 + "③ 키가 만료·삭제되지 않았는지 확인해 주세요.";
         if (raw.contains("-1022") || raw.contains("Signature"))
             return "서명 검증 실패 — API Secret가 올바르지 않거나 시스템 시각이 맞지 않습니다.";
         if (raw.contains("-1021"))

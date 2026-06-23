@@ -1,0 +1,48 @@
+# 백테스트 1건 = K8s Job 1개. BE(LeanJobManifestRenderer)가 토큰을 치환해 테넌트 네임스페이스에 생성.
+# K8s 스케줄러가 노드에 빈패킹, resources.limits 로 컨테이너 자원 캡, activeDeadlineSeconds 로 타임아웃.
+#
+# 토큰: __TENANT_ID__ __JOB_ID__ __WORKER_IMAGE__ __CPU__ __MEM__ __TIMEOUT_SEC__
+#       __STRATEGY_ID__ __SYMBOLS_JSON__ __START__ __END__ __MARKET__ __PARAMS_JSON__ __CALLBACK_URL__
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lean-bt-__JOB_ID__
+  namespace: lean-tenant-__TENANT_ID__
+  labels:
+    app: lean
+    tenant: "__TENANT_ID__"
+    leanJobId: "__JOB_ID__"
+spec:
+  backoffLimit: 0                       # 재시도 안 함(멱등 아님 — 실패는 BE 가 판단)
+  activeDeadlineSeconds: __TIMEOUT_SEC__ # 등급별 타임아웃(초과 시 K8s 가 죽임)
+  ttlSecondsAfterFinished: 600          # 완료 후 10분 뒤 Job/Pod 자동 정리
+  template:
+    metadata:
+      labels:
+        app: lean
+        leanJobId: "__JOB_ID__"
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: lean-worker
+          image: __WORKER_IMAGE__
+          imagePullPolicy: IfNotPresent
+          resources:                    # ★ 컨테이너 자원 캡 = 부하 최소화 핵심(한 백테스트가 노드 독식 방지)
+            requests: { cpu: "__CPU__", memory: "__MEM__" }
+            limits:   { cpu: "__CPU__", memory: "__MEM__" }
+          env:
+            - { name: LEAN_JOB_ID,    value: "__JOB_ID__" }
+            - { name: STRATEGY_ID,    value: "__STRATEGY_ID__" }
+            - { name: SYMBOLS,        value: '__SYMBOLS_JSON__' }   # JSON 배열
+            - { name: START_DATE,     value: "__START__" }
+            - { name: END_DATE,       value: "__END__" }
+            - { name: MARKET,         value: "__MARKET__" }
+            - { name: PARAM_OVERRIDES, value: '__PARAMS_JSON__' }   # JSON 객체
+            - { name: BE_CALLBACK_URL, value: "__CALLBACK_URL__" }  # 결과 POST 대상
+            - name: BE_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef: { name: lean-secrets, key: internal-token }
+            - name: POLYGON_API_KEY            # 데이터 소스(get_history 가 키 있으면 Polygon 우선)
+              valueFrom:
+                secretKeyRef: { name: lean-secrets, key: polygon-api-key }

@@ -1,12 +1,12 @@
 package com.DevBridge.devbridge.domain.ai.service.gateway;
 
-import com.DevBridge.devbridge.domain.strategy.service.SubscriptionService;
 import com.DevBridge.devbridge.domain.ai.dto.AiChatRequest;
 import com.DevBridge.devbridge.domain.ai.entity.AiModelCatalog;
 import com.DevBridge.devbridge.domain.ai.entity.AiUsageLog;
-import com.DevBridge.devbridge.domain.strategy.entity.Subscription;
 import com.DevBridge.devbridge.domain.ai.repository.AiModelCatalogRepository;
 import com.DevBridge.devbridge.domain.ai.repository.AiUsageLogRepository;
+import com.DevBridge.devbridge.domain.user.entity.User;
+import com.DevBridge.devbridge.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,7 +34,7 @@ public class AiGatewayService {
 
     private final AiModelCatalogRepository catalogRepo;
     private final AiUsageLogRepository usageRepo;
-    private final SubscriptionService subscriptionService;
+    private final UserRepository userRepository;
     private final List<AiProvider> providers;
 
     /** 채팅 호출 — 최종 텍스트 반환. quota/provider 에러는 RuntimeException. */
@@ -69,20 +69,19 @@ public class AiGatewayService {
     /** UI에 노출할 모델 목록 + 사용 가능 여부 + 잔여 한도. */
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listModelsFor(Long userId) {
-        Subscription.Tier tier = subscriptionService.currentTier(userId);
+        User.UserType userType = resolveUserType(userId);
         LocalDateTime monthStart = LocalDateTime.now().withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0);
 
-        // N+1 방지: 모델별 사용량을 한 번의 GROUP BY 쿼리로 가져와 맵으로 조회.
         Map<String, Long> usedByModel = new HashMap<>();
         for (Object[] row : usageRepo.sumTokensByUserSinceGrouped(userId, monthStart)) {
             usedByModel.put((String) row[0], row[1] == null ? 0L : ((Number) row[1]).longValue());
         }
 
         return catalogRepo.findByEnabledTrueOrderBySortOrderAsc().stream().map(m -> {
-            long quota = (tier == Subscription.Tier.PRO) ? m.getProQuota() : m.getFreeQuota();
+            long quota = quotaFor(m, userType);
             long used = usedByModel.getOrDefault(m.getModelId(), 0L);
             boolean providerOk = providerForOpt(m).map(AiProvider::isAvailable).orElse(false);
-            boolean unlocked = quota != 0 || tier == Subscription.Tier.PRO;
+            boolean unlocked = quota != 0;
             boolean usable = providerOk && unlocked && (quota == -1 || used < quota);
             long remaining = (quota == -1) ? Long.MAX_VALUE : Math.max(0, quota - used);
 
@@ -91,20 +90,25 @@ public class AiGatewayService {
                     "displayName", m.getDisplayName(),
                     "provider", m.getProvider().name(),
                     "strength", m.getStrength() == null ? "" : m.getStrength(),
-                    "tier", tier.name(),
+                    "tier", userType.name(),
                     "quota", quota,
                     "used", used,
                     "remaining", remaining == Long.MAX_VALUE ? -1 : remaining,
                     "usable", usable,
-                    "lockReason", lockReason(providerOk, unlocked, quota, used, tier)
+                    "lockReason", lockReason(providerOk, unlocked, quota, used, userType)
             );
         }).toList();
     }
 
-    private String lockReason(boolean providerOk, boolean unlocked, long quota, long used, Subscription.Tier tier) {
+    private String lockReason(boolean providerOk, boolean unlocked, long quota, long used, User.UserType tier) {
         if (!providerOk) return "API 키 미설정";
-        if (!unlocked) return "Pro 전용";
-        if (quota != -1 && used >= quota) return tier == Subscription.Tier.PRO ? "이번 달 한도 초과" : "Free 한도 초과";
+        if (!unlocked) return switch (tier) {
+            case FREE      -> "Standard 이상 전용";
+            case STANDARD  -> "Premium 이상 전용";
+            case PREMIUM   -> "Expert 전용";
+            default        -> "미지원 모델";
+        };
+        if (quota != -1 && used >= quota) return "이번 달 한도 초과";
         return "";
     }
 
@@ -114,10 +118,16 @@ public class AiGatewayService {
                 .filter(AiModelCatalog::isEnabled)
                 .orElseThrow(() -> new IllegalArgumentException("알 수 없거나 비활성화된 모델: " + modelId));
 
-        Subscription.Tier tier = subscriptionService.currentTier(userId);
-        long quota = (tier == Subscription.Tier.PRO) ? model.getProQuota() : model.getFreeQuota();
+        User.UserType userType = resolveUserType(userId);
+        long quota = quotaFor(model, userType);
         if (quota == 0) {
-            throw new IllegalStateException("이 모델은 Pro 전용입니다. (" + model.getDisplayName() + ")");
+            String required = switch (userType) {
+                case FREE     -> "Standard";
+                case STANDARD -> "Premium";
+                case PREMIUM  -> "Expert";
+                default       -> "상위";
+            };
+            throw new IllegalStateException(required + " 이상 구독에서만 사용할 수 있는 모델입니다. (" + model.getDisplayName() + ")");
         }
         if (quota != -1) {
             LocalDateTime monthStart = LocalDateTime.now().withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0);
@@ -127,6 +137,22 @@ public class AiGatewayService {
             }
         }
         return model;
+    }
+
+    private User.UserType resolveUserType(Long userId) {
+        if (userId == null) return User.UserType.FREE;
+        return userRepository.findById(userId)
+                .map(User::getUserType)
+                .orElse(User.UserType.FREE);
+    }
+
+    private long quotaFor(AiModelCatalog model, User.UserType userType) {
+        return switch (userType) {
+            case STANDARD -> model.getStandardQuota();
+            case PREMIUM  -> model.getPremiumQuota();
+            case EXPERT   -> model.getExpertQuota();
+            default       -> model.getFreeQuota();
+        };
     }
 
     private AiProvider providerFor(AiModelCatalog model) {

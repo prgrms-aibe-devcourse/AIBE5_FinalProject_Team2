@@ -1,0 +1,48 @@
+# Prometheus 스크레이프 설정 — Alpha-Helix 백엔드 p95/p99 지연 · 에러율 수집
+#
+# 백엔드(Spring Boot + Micrometer)는 /actuator/prometheus 로 메트릭을 노출한다.
+# (application.properties: management.endpoints.web.exposure.include=...,prometheus)
+# 주요 메트릭: http_server_requests_seconds_{bucket,count,sum} (uri/method/status/outcome 태그)
+#
+# ── target 선택 가이드 ──────────────────────────────────────────────
+# Prometheus 가 컨테이너 안에서 호스트의 BE 를 긁어야 하는 경우가 많다.
+#   * BE 도 같은 docker-compose 네트워크 안에 있으면:  backend:8080
+#   * BE 가 호스트에서 직접 떠 있으면(로컬 ./gradlew bootRun, 기본 8080):
+#         - Docker Desktop(Win/Mac):  host.docker.internal:8080
+#         - eden 로컬 스택(BE 포트 9091):  host.docker.internal:9091
+#   * Linux 호스트면 host.docker.internal 대신 extra_hosts 매핑 필요
+#     (docker-compose.observability.yml 에 host-gateway 매핑 추가됨).
+# 아래는 Docker Desktop + BE:8080 기준. 환경에 맞게 targets 만 바꾸면 된다.
+# ────────────────────────────────────────────────────────────────────
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+scrape_configs:
+  # ── Alpha-Helix 백엔드 (Spring Boot Actuator + Micrometer) ──
+  - job_name: 'alpha-be'
+    metrics_path: '/actuator/prometheus'
+    scheme: http
+    static_configs:
+      - targets: ['host.docker.internal:8080']   # 로컬 BE:8080 (eden 로컬은 :9091 로 변경)
+        labels:
+          app: 'alpha-helix'
+          component: 'backend'
+
+  # ── (옵션) Analytics FastAPI 사이드카 (:8001) ──
+  # FastAPI 자체는 기본적으로 Prometheus 메트릭을 노출하지 않는다.
+  # prometheus-fastapi-instrumentator 등으로 /metrics 를 노출하도록 추가한 경우에만 주석 해제.
+  # - job_name: 'alpha-analytics'
+  #   metrics_path: '/metrics'
+  #   static_configs:
+  #     - targets: ['host.docker.internal:8001']
+  #       labels:
+  #         app: 'alpha-helix'
+  #         component: 'analytics'
+
+  # ── (옵션) Prometheus 자기 자신 ──
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

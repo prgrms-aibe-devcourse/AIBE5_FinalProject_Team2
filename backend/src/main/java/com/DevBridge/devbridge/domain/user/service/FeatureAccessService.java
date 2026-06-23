@@ -43,7 +43,7 @@ public class FeatureAccessService {
         return u != null && u.getEmail() != null && allowlist().contains(u.getEmail().toLowerCase());
     }
 
-    /** Developer IDE + BYOK(Claude) 사용 가능 여부. */
+    /** Developer IDE (vectorbt) 사용 가능 여부 — PREMIUM 이상. */
     @Transactional(readOnly = true)
     public boolean canUseDeveloper(Long uid) {
         if (uid == null) return false;
@@ -51,7 +51,17 @@ public class FeatureAccessService {
         if (u == null) return false;
         if (inAllowlist(u)) return true;
         User.UserType t = u.getUserType();
-        return t == User.UserType.STANDARD || t == User.UserType.PREMIUM || t == User.UserType.EXPERT;
+        return t == User.UserType.PREMIUM || t == User.UserType.EXPERT;
+    }
+
+    /** Lean IDE 사용 가능 여부 — EXPERT 전용. */
+    @Transactional(readOnly = true)
+    public boolean canUseLean(Long uid) {
+        if (uid == null) return false;
+        User u = userRepository.findById(uid).orElse(null);
+        if (u == null) return false;
+        if (inAllowlist(u)) return true;
+        return u.getUserType() == User.UserType.EXPERT;
     }
 
     /** 프론트 게이팅 UI 용 — 접근 가능 여부 + 사유 + 등급. (키/이메일 등 민감정보 미포함) */
@@ -60,12 +70,13 @@ public class FeatureAccessService {
         User u = uid == null ? null : userRepository.findById(uid).orElse(null);
         boolean byAllow = inAllowlist(u);
         User.UserType t = u == null ? null : u.getUserType();
-        boolean allowed = byAllow || t == User.UserType.STANDARD || t == User.UserType.PREMIUM || t == User.UserType.EXPERT;
+        boolean allowed = byAllow || t == User.UserType.PREMIUM || t == User.UserType.EXPERT;
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("developer", allowed);
+        m.put("lean", byAllow || t == User.UserType.EXPERT);
         m.put("reason", allowed ? (byAllow ? "allowlist" : "subscription") : "locked");
         m.put("userType", t == null ? "FREE" : t.name());
-        m.put("requiredPlan", "STANDARD");
+        m.put("requiredPlan", "PREMIUM");
         return m;
     }
 }

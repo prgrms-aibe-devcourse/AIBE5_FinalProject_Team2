@@ -1,0 +1,30 @@
+# Lean 워커 이미지(14GB) 사전 풀 DaemonSet.
+# 각 워커 노드에 sleep 파드 1개 → 노드마다 lean-worker 이미지를 미리 당겨 캐시.
+# 없으면 데모 첫 잡이 노드별 ~7분(14GB 풀) 멈춤. DaemonSet 이라 스케일업 신규 노드도 자동 사전풀.
+# 데모 전 prewarm.sh 가 apply + rollout status 로 전 노드 풀 완료까지 대기.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: lean-image-prepull
+  namespace: kube-system
+  labels: { app: lean-image-prepull }
+spec:
+  selector:
+    matchLabels: { app: lean-image-prepull }
+  template:
+    metadata:
+      labels: { app: lean-image-prepull }
+    spec:
+      # 워커 노드(스팟·taint)에만. 이미지를 당기는 게 목적이라 워커와 같은 노드에 떠야 함.
+      nodeSelector: { workload: lean-worker }
+      tolerations:
+        - { key: workload, operator: Equal, value: lean-worker, effect: NoSchedule }
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: prepull
+          # ⚠️ BE 의 LEAN_WORKER_IMAGE 와 반드시 동일 태그(현재 :vr). 바꾸면 여기도 갱신.
+          image: 685835763566.dkr.ecr.ap-northeast-2.amazonaws.com/lean-worker:vr
+          command: ["sh", "-c", "echo prepulled; sleep infinity"]   # 백테스트 안 함 — 이미지만 캐시
+          resources:
+            requests: { cpu: "10m", memory: "16Mi" }
+            limits: { cpu: "50m", memory: "64Mi" }

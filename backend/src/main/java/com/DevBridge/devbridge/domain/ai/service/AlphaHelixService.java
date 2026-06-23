@@ -101,7 +101,9 @@ public class AlphaHelixService {
         m.put("name", w.getName());
         m.put("status", w.getStatus());
         m.put("brokerAccountId", w.getBrokerAccountId());
+        m.put("autoOrderEnabled", Boolean.TRUE.equals(w.getAutoOrderEnabled()));
         m.put("updatedAt", w.getUpdatedAt());
+        m.put("createdAt", w.getCreatedAt());
         return m;
     }
 
@@ -782,6 +784,14 @@ public class AlphaHelixService {
      */
     @Transactional
     public String doBacktest(AlphaWorkspace ws, String period, Map<String, Object> customParams) throws Exception {
+        return doBacktest(ws, period, customParams, false);
+    }
+
+    /**
+     * @param quiet true 이면 백테스트 완료 알림을 보내지 않는다.
+     *              파라미터 최적화(N회 루프) 중 개별 실행에서 사용 — 마지막 best 풀 백테스트 한 번만 알림.
+     */
+    public String doBacktest(AlphaWorkspace ws, String period, Map<String, Object> customParams, boolean quiet) throws Exception {
         JsonNode cfg = getActiveStrategy(om.readTree(ws.getStrategyConfigJson()));
         String stype = cfg.path("strategy_type").asText("moving_average_timing");
         String pickedPeriod = (period != null && !period.isBlank()) ? period.trim() : "5y";
@@ -834,9 +844,9 @@ public class AlphaHelixService {
                 try { ibPayloadJson = om.writeValueAsString(ibPayload); } catch (Exception ignored) {}
                 recordLog(ws.getId(), "SYSTEM", "BACKTEST_RUN", ibTitle, ibPayloadJson);
             }
-            try {
+            if (!quiet) try {
                 notificationService.create(ws.getUser(), Notification.NotificationType.BACKTEST_COMPLETE,
-                        "백테스트 완료",
+                        ws.getName() + " 백테스트 완료",
                         String.join(", ", tickers) + " 무한매수법 백테스트가 완료되었습니다.",
                         "WORKSPACE", ws.getId());
             } catch (Exception e) {
@@ -890,9 +900,9 @@ public class AlphaHelixService {
                 try { vrPayloadJson = om.writeValueAsString(vrPayload); } catch (Exception ignored) {}
                 recordLog(ws.getId(), "SYSTEM", "BACKTEST_RUN", vrTitle, vrPayloadJson);
             }
-            try {
+            if (!quiet) try {
                 notificationService.create(ws.getUser(), Notification.NotificationType.BACKTEST_COMPLETE,
-                        "백테스트 완료",
+                        ws.getName() + " 백테스트 완료",
                         String.join(", ", tickers) + " 밸류 리밸런싱 백테스트가 완료되었습니다.",
                         "WORKSPACE", ws.getId());
             } catch (Exception e) {
@@ -948,7 +958,7 @@ public class AlphaHelixService {
             }
             try {
                 notificationService.create(ws.getUser(), Notification.NotificationType.BACKTEST_COMPLETE,
-                        "백테스트 완료", "섹터 모멘텀 로테이션 백테스트가 완료되었습니다.",
+                        ws.getName() + " 백테스트 완료", "섹터 모멘텀 로테이션 백테스트가 완료되었습니다.",
                         "WORKSPACE", ws.getId());
             } catch (Exception e) {
                 log.warn("[Backtest] 알림 전송 실패 (무시): {}", e.getMessage());
@@ -1472,12 +1482,9 @@ public class AlphaHelixService {
     // ═══════════════════════════════════════════ Queue Orders ════════════════
 
     @Transactional
-    public Map<String, Object> doQueueOrders(AlphaWorkspace ws, Long uid) throws Exception {
+    public Map<String, Object> doQueueOrders(AlphaWorkspace ws, Long uid, String presetOverride) throws Exception {
         JsonNode cfg = getActiveStrategy(om.readTree(ws.getStrategyConfigJson()));
         String stype = cfg.path("strategy_type").asText("");
-        if (!"infinite_buying".equals(stype)) {
-            throw new IllegalStateException("현재는 infinite_buying 전략만 자동 주문 큐를 지원합니다");
-        }
 
         Long brokerId = ws.getBrokerAccountId();
         if (brokerId == null) {
@@ -1492,19 +1499,62 @@ public class AlphaHelixService {
         List<String> tickers = new ArrayList<>();
         if (cfg.path("assets").isArray())
             for (JsonNode a : cfg.path("assets")) tickers.add(normalizeTicker(a.asText()));
-        if (tickers.isEmpty()) tickers = List.of("TQQQ", "SOXL");
 
-        Map<String, Object> ibExtra = new HashMap<>();
+        // 전략별 다음 거래일 주문 계획(plan.plans[]) — IB·VR 지원.
+        // (모멘텀 로테이션은 plan 이 '목표 보유'라 현 포지션 대비 delta 주문 계산이 별도 필요 → 후속)
         JsonNode pms = cfg.path("parameters");
-        if (pms.path("split").isNumber()) ibExtra.put("split", pms.path("split").asInt());
-        if (pms.path("take_profit_pct").isNumber())
-            ibExtra.put("take_profit_pct", pms.path("take_profit_pct").asDouble());
-        if (pms.path("loc_offset_pct").isNumber())
-            ibExtra.put("loc_offset_pct", pms.path("loc_offset_pct").asDouble());
-        if (pms.path("initial_capital").isNumber())
-            ibExtra.put("initial_capital", pms.path("initial_capital").asDouble());
-
-        JsonNode plan = analytics.infiniteBuyingPlan(tickers, ibExtra);
+        JsonNode plan;
+        String rationalePrefix;
+        if ("infinite_buying".equals(stype)) {
+            if (tickers.isEmpty()) tickers = List.of("TQQQ", "SOXL");
+            Map<String, Object> ibExtra = new HashMap<>();
+            if (pms.path("split").isNumber()) ibExtra.put("split", pms.path("split").asInt());
+            if (pms.path("take_profit_pct").isNumber()) ibExtra.put("take_profit_pct", pms.path("take_profit_pct").asDouble());
+            if (pms.path("loc_offset_pct").isNumber()) ibExtra.put("loc_offset_pct", pms.path("loc_offset_pct").asDouble());
+            if (pms.path("initial_capital").isNumber()) ibExtra.put("initial_capital", pms.path("initial_capital").asDouble());
+            plan = analytics.infiniteBuyingPlan(tickers, ibExtra);
+            rationalePrefix = "무한매수법 ";
+        } else if ("value_rebalancing".equals(stype)) {
+            if (tickers.isEmpty()) tickers = List.of("QLD");
+            Map<String, Object> vrExtra = new HashMap<>();
+            for (String k : List.of("rebalance_days", "expected_return", "band_pct",
+                                     "pool_target_pct", "initial_pool_pct", "biweekly_contrib", "initial_capital")) {
+                if (pms.path(k).isNumber()) vrExtra.put(k, pms.path(k).asDouble());
+            }
+            plan = analytics.valueRebalancingPlan(tickers, vrExtra);
+            rationalePrefix = "밸류 리밸런싱 ";
+        } else if ("momentum_rotation".equals(stype)) {
+            throw new IllegalStateException(
+                    "모멘텀 로테이션은 '목표 보유' 전략이라 주문큐가 현 포지션 대비 delta 계산 필요 — 후속 지원 예정");
+        } else {
+            // 프리셋(vbt 6전략) 엔진-매칭. vbtStrategy 결정: IDE override(lean 전략 매핑) 우선, 없으면 cfg(pyStrategyOf).
+            final java.util.Set<String> PRESET_VBT = java.util.Set.of(
+                    "buy_and_hold", "sma_cross", "rsi_meanrev", "macd", "momentum_12_1", "vix_risk_off");
+            String vbtStrategy;
+            if (presetOverride != null && presetOverride.startsWith("__unsupported__")) {
+                throw new IllegalStateException("전략 '" + presetOverride.replace("__unsupported__:", "")
+                        + "' 는 아직 주문큐 미지원입니다. vectorbt 의 sma/momentum, 또는 무한매수법·밸류리밸런싱으로 전환하세요");
+            } else if (presetOverride != null && PRESET_VBT.contains(presetOverride)) {
+                vbtStrategy = presetOverride;                 // lean 모드: sma_crossover→sma_cross, momentum→momentum_12_1
+            } else {
+                vbtStrategy = pyStrategyOf(stype);            // vbt 모드: moving_average_timing→sma_cross
+            }
+            if (!PRESET_VBT.contains(vbtStrategy)) {
+                throw new IllegalStateException("자동 주문 큐 미지원 전략: " + stype
+                        + " (지원: 무한매수법·밸류리밸런싱·프리셋 sma/momentum/rsi/macd/vix/buy_and_hold)");
+            }
+            if (tickers.isEmpty()) tickers = List.of("SPY");
+            Map<String, Object> psExtra = new HashMap<>();
+            for (String k : List.of("sma_fast", "sma_slow", "rsi_period", "rsi_low", "rsi_high",
+                                     "macd_fast", "macd_slow", "macd_signal",
+                                     "momentum_long_days", "momentum_short_days")) {
+                if (pms.path(k).isInt()) psExtra.put(k, pms.path(k).asInt());
+            }
+            if (pms.path("vix_threshold").isNumber())   psExtra.put("vix_threshold", pms.path("vix_threshold").asDouble());
+            if (pms.path("initial_capital").isNumber()) psExtra.put("initial_capital", pms.path("initial_capital").asDouble());
+            plan = analytics.presetPlan(tickers, vbtStrategy, psExtra);
+            rationalePrefix = "프리셋(" + vbtStrategy + ") ";
+        }
         List<Map<String, Object>> queued = new ArrayList<>();
         int created = 0;
         final Long finalBrokerId = brokerId;
@@ -1517,6 +1567,9 @@ public class AlphaHelixService {
                 double qty = p.path("qty").asDouble(0);
                 int intQty = (int) Math.floor(qty);
                 if (intQty <= 0) continue;
+                // 중복 방지(R6): 같은 ws·종목·side 의 살아있는 PENDING 제안이 이미 있으면 스킵 — 더블클릭·cron 재실행 시 이중 제안→이중 체결 차단.
+                if (orderProposalRepo.existsByUserIdAndWorkspaceIdAndTickerAndSideAndStatus(
+                        uid, ws.getId(), tk, side, "PENDING")) continue;
 
                 OrderProposal op = OrderProposal.builder()
                         .userId(uid)
@@ -1525,10 +1578,13 @@ public class AlphaHelixService {
                         .ticker(tk)
                         .side(side)
                         .qty(intQty)
+                        // analytics plan 이 명시한 order_type 존중(IB/VR=LOC, 프리셋=LIMIT). 누락 시 LIMIT.
+                        // (KIS MOCK 은 LOC→지정가 자동 폴백, REAL 만 실제 LOC. 기존엔 무시돼 전부 LIMIT 으로 둔갑하던 버그 수정)
+                        .orderType(p.path("order_type").asText("LIMIT"))
                         .limitPrice(price > 0 ? java.math.BigDecimal.valueOf(price) : null)
-                        .source("SIGNAL")
+                        .source("WS_QUEUE")
                         .status("PENDING")
-                        .rationale("무한매수법 " + p.path("reason").asText() + " @ " + price)
+                        .rationale(rationalePrefix + p.path("reason").asText() + " @ " + price)
                         .expiresAt(LocalDateTime.now().plusHours(24))
                         .build();
                 orderProposalRepo.save(op);
@@ -1546,7 +1602,7 @@ public class AlphaHelixService {
         }
 
         recordLog(ws.getId(), "SYSTEM", "ORDERS_QUEUED",
-                "무한매수법 주문 " + created + "건 큐잉 (PENDING)", plan.toString());
+                rationalePrefix + "주문 " + created + "건 큐잉 (PENDING)", plan.toString());
 
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("brokerAccountId", finalBrokerId);
@@ -1560,6 +1616,11 @@ public class AlphaHelixService {
     // ═══════════════════════════════════════════ Briefing ════════════════════
 
     public Map<String, Object> doBriefing(AlphaWorkspace ws, Long uid) throws Exception {
+        return doBriefing(ws, uid, false);
+    }
+
+    /** forceGemini=true 면 Perplexity 를 건너뛰고 바로 Gemini 간략 브리핑(=일일 한도 소진 후 다운그레이드 경로). */
+    public Map<String, Object> doBriefing(AlphaWorkspace ws, Long uid, boolean forceGemini) throws Exception {
         List<String> tickers = extractTickers(ws);
         String[] session = usMarketSession();           // [kind, 한글 라벨]
         String sessionKind = session[0], sessionLabel = session[1];
@@ -1568,15 +1629,15 @@ public class AlphaHelixService {
         resp.put("generatedAt", LocalDateTime.now().format(TS));
         resp.put("references", buildRegimeReferences(ws));
 
-        // 1) Perplexity 실뉴스 구조화 브리핑 (키가 설정된 경우)
-        if (perplexity.available()) {
+        // 1) Perplexity 실뉴스 구조화 브리핑 (키가 설정 + 다운그레이드 아님)
+        if (!forceGemini && perplexity.available()) {
             try {
                 PerplexityProvider.Answer ans = perplexity.ask(
                         briefingSystemPrompt(),
                         briefingUserPrompt(ws, tickers, sessionKind, sessionLabel),
-                        "sonar-pro");
+                        perplexity.briefingModel());
 
-                gateway.logExternalUsage(uid, "sonar-pro", ans.tokensIn(), ans.tokensOut(), true, null, "briefing_perplexity");
+                gateway.logExternalUsage(uid, perplexity.briefingModel(), ans.tokensIn(), ans.tokensOut(), true, null, "briefing_perplexity");
                 Map<String, Object> sections = parseSections(ans.content());
                 if (sections != null && !sections.isEmpty()) {
                     sections.put("sessionLabel", sessionLabel);
@@ -1601,7 +1662,7 @@ public class AlphaHelixService {
                 return resp;
             } catch (Exception e) {
                 log.warn("Perplexity 브리핑 실패 → Gemini 폴백: {}", e.getMessage());
-                gateway.logExternalUsage(uid, "sonar-pro", 0, 0, false, e.getMessage(), "briefing_perplexity");
+                gateway.logExternalUsage(uid, perplexity.briefingModel(), 0, 0, false, e.getMessage(), "briefing_perplexity");
             }
         }
 
@@ -1887,10 +1948,11 @@ public class AlphaHelixService {
             report.put("trustError", e.getMessage());
         }
 
-        // 5) infinite_buying → queue-orders
-        if ("infinite_buying".equals(stype)) {
+        // 5) infinite_buying·value_rebalancing → queue-orders (autoOrderEnabled 게이트)
+        if (("infinite_buying".equals(stype) || "value_rebalancing".equals(stype))
+                && Boolean.TRUE.equals(ws.getAutoOrderEnabled())) {
             try {
-                Map<String, Object> orders = self.doQueueOrders(ws, uid);
+                Map<String, Object> orders = self.doQueueOrders(ws, uid, null);
                 report.put("orders", orders);
                 steps.add("queue-orders");
             } catch (Exception e) {

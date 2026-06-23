@@ -1,0 +1,3 @@
+# 데이터 fetch 용만 추가(pandas/numpy 는 quantconnect/lean 이미지에 이미 존재 — 재설치 시 엔진 python 충돌 위험).
+# --no-deps 가 아닌 일반 설치라 yfinance 의 의존(requests 등)은 따라오되, 기존 pandas/numpy 는 만족 시 유지.
+yfinance>=0.2.40

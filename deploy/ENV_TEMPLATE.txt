@@ -16,8 +16,8 @@ STREAM_CHAT_API_SECRET=__REPLACE_ME__
 MAIL_USERNAME=__REPLACE_ME__
 MAIL_PASSWORD=__REPLACE_ME__
 
-# 새 인스턴스 IP로 교체 (콤마 구분, http://IP 또는 http://도메인)
-CORS_ALLOWED_ORIGINS=http://NEW_PUBLIC_IP
+# 새 인스턴스 IP로 교체 (콤마 구분, https://도메인). 반드시 APP_CORS_ALLOWED_ORIGINS 이름 사용.
+APP_CORS_ALLOWED_ORIGINS=https://www.quant-alphahelix.com,https://quant-alphahelix.com
 
 UPLOAD_DIR=/var/devbridge/uploads
 
@@ -43,3 +43,7 @@ DEVELOPER_ALLOWLIST=admin@example.com,dev@example.com
 TOSS_SECRET_KEY=__REPLACE_ME__
 APPROVAL_HMAC_SECRET=__REPLACE_ME__
 TRADING_KILL_SWITCH=false
+
+# ───── GitHub OAuth ─────
+GITHUB_CLIENT_ID=__REPLACE_ME__
+GITHUB_CLIENT_SECRET=__REPLACE_ME__

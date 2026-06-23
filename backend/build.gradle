@@ -55,6 +55,10 @@ dependencies {
 	implementation 'io.github.resilience4j:resilience4j-circuitbreaker:2.2.0'
 	implementation 'io.github.resilience4j:resilience4j-retry:2.2.0'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	// Micrometer Prometheus 레지스트리 — /actuator/prometheus 로 메트릭 스크레이프 노출.
+	// http.server.requests p95/p99 히스토그램(application.properties 의 distribution.* 설정)을
+	// Prometheus 가 긁어 Grafana 로 시각화한다. 버전은 Spring Boot 4.0 BOM 이 관리(좌표만 명시).
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'com.mysql:mysql-connector-j'

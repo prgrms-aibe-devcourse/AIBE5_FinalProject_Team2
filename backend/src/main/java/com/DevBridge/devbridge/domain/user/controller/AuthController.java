@@ -70,7 +70,7 @@ public class AuthController {
                 .secure(cookieSecure)
                 .sameSite(cookieSameSite)
                 .path("/")
-                .maxAge(java.time.Duration.ofHours(jwtTtlHours))
+                .maxAge(java.time.Duration.ofMinutes(30))
                 .build();
     }
 

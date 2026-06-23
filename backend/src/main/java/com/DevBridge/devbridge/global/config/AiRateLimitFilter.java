@@ -1,6 +1,8 @@
 package com.DevBridge.devbridge.global.config;
 
 import com.DevBridge.devbridge.global.security.JwtAuthenticationFilter;
+import com.DevBridge.devbridge.domain.user.entity.User;
+import com.DevBridge.devbridge.domain.user.repository.UserRepository;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.Refill;
@@ -47,6 +49,15 @@ public class AiRateLimitFilter extends OncePerRequestFilter {
 
     @Value("${app.ratelimit.ai-chat.refill-minutes:60}")
     private int refillMinutes;
+
+    // 일일 상한 (티어 차등) — 시간당 버스트 한도 위에 하루 누적 한도를 겹쳐 지속 남용 방지.
+    @Value("${app.ratelimit.ai-daily.free:100}")     private int dailyFree;
+    @Value("${app.ratelimit.ai-daily.standard:200}") private int dailyStandard;
+    @Value("${app.ratelimit.ai-daily.premium:400}")  private int dailyPremium;
+    @Value("${app.ratelimit.ai-daily.expert:800}")   private int dailyExpert;
+
+    private final UserRepository userRepo;
+    public AiRateLimitFilter(UserRepository userRepo) { this.userRepo = userRepo; }
 
     /** userId → Bucket */
     private final Map<Long, Bucket> buckets = new ConcurrentHashMap<>();
@@ -95,17 +106,33 @@ public class AiRateLimitFilter extends OncePerRequestFilter {
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
             response.setCharacterEncoding("UTF-8");
             response.getWriter().write(
-                "{\"error\":\"요청이 너무 많습니다. AI 채팅은 1시간에 " + capacity + "회까지 가능합니다. 잠시 후 다시 시도해주세요.\"," +
+                "{\"error\":\"AI 요청 한도를 초과했습니다 (시간당 " + capacity + "회 · 하루 " + dailyCapFor(userId) + "회). 잠시 후 다시 시도해주세요.\"," +
                 "\"remaining\":" + availableIn + "}"
             );
         }
     }
 
+    /** 구독 등급별 일일 AI 요청 상한. */
+    private int dailyCapFor(Long userId) {
+        try {
+            User.UserType ut = userRepo.findById(userId).map(User::getUserType).orElse(User.UserType.FREE);
+            if (ut == null) return dailyFree;
+            return switch (ut) {
+                case EXPERT -> dailyExpert;
+                case PREMIUM -> dailyPremium;
+                case STANDARD -> dailyStandard;
+                default -> dailyFree;   // FREE
+            };
+        } catch (Exception e) { return dailyFree; }
+    }
+
     private Bucket newBucket(Long userId) {
-        Bandwidth limit = Bandwidth.classic(
-            capacity,
-            Refill.greedy(refillTokens, Duration.ofMinutes(refillMinutes))
-        );
-        return Bucket.builder().addLimit(limit).build();
+        // 시간당 버스트 + 하루 누적(티어 차등)을 같은 버킷에 겹쳐 둘 다 통과해야 허용.
+        Bandwidth hourly = Bandwidth.classic(
+            capacity, Refill.greedy(refillTokens, Duration.ofMinutes(refillMinutes)));
+        int daily = dailyCapFor(userId);
+        Bandwidth dailyLimit = Bandwidth.classic(
+            daily, Refill.intervally(daily, Duration.ofDays(1)));
+        return Bucket.builder().addLimit(hourly).addLimit(dailyLimit).build();
     }
 }

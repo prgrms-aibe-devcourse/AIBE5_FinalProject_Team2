@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -89,21 +90,43 @@ public class DailySignalGenerator {
             log.error("[DailySignal] email dispatch failed: {}", e.getMessage());
         }
 
-        // 4) BUY 시그널 → PENDING OrderProposal 자동 생성
+    }
+
+    /**
+     * 매 평일 08:30 KST — 장 시작(09:00) 30분 전 주문 제안 큐잉.
+     * ① Strategy 기반 BUY 시그널 → PENDING OrderProposal 생성 (전날 영업일 시그널 사용)
+     * ② Alpha-Helix 워크스페이스 auto-run (backtest·regime·trust·queue-orders)
+     * 사용자가 09:00 전에 제안을 확인·승인할 수 있도록 22:30 잡에서 분리.
+     */
+    @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
+    public void runMorningProposals() {
+        log.info("[MorningProposal] start");
+
+        // 1) Strategy 기반 BUY 시그널 → 제안 생성 (전 영업일 시그널)
+        LocalDate signalDate = prevBusinessDay(LocalDate.now());
         try {
-            int created = createProposalsFor(LocalDate.now());
-            log.info("[DailySignal] auto-proposals created={}", created);
+            int created = createProposalsFor(signalDate);
+            log.info("[MorningProposal] proposals created={} (signalDate={})", created, signalDate);
         } catch (Exception e) {
-            log.error("[DailySignal] proposal generation failed: {}", e.getMessage());
+            log.error("[MorningProposal] proposal generation failed: {}", e.getMessage());
         }
 
-        // 5) Alpha-Helix 워크스페이스(TESTED/LIVE) 자동 재실행: backtest+regime+trust+queue-orders
+        // 2) Alpha-Helix 워크스페이스 자동 재실행 (queue-orders 포함)
         try {
             int refreshed = refreshAlphaWorkspaces();
-            log.info("[DailySignal] alpha workspaces refreshed={}", refreshed);
+            log.info("[MorningProposal] alpha workspaces refreshed={}", refreshed);
         } catch (Exception e) {
-            log.error("[DailySignal] alpha refresh failed: {}", e.getMessage());
+            log.error("[MorningProposal] alpha refresh failed: {}", e.getMessage());
         }
+    }
+
+    /** 주어진 날짜의 직전 영업일(토·일 건너뜀). 월요일이면 금요일 반환. */
+    private LocalDate prevBusinessDay(LocalDate date) {
+        LocalDate d = date.minusDays(1);
+        while (d.getDayOfWeek() == DayOfWeek.SATURDAY || d.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            d = d.minusDays(1);
+        }
+        return d;
     }
 
     /**
@@ -177,7 +200,9 @@ public class DailySignalGenerator {
                 if (sp > 0) stockLimitPrice = java.math.BigDecimal.valueOf(sp);
             }
 
-            OrderProposal saved = proposalRepo.save(OrderProposal.builder()
+            OrderProposal saved;
+            try {
+                saved = proposalRepo.save(OrderProposal.builder()
                     .userId(userId)
                     .workspaceId(null) // Strategy↔Workspace 매핑은 별도 step에서. 일단 null.
                     .brokerAccountId(target.getId())
@@ -192,6 +217,12 @@ public class DailySignalGenerator {
                     .status("PENDING")
                     .expiresAt(LocalDateTime.now().plusHours(24))
                     .build());
+            } catch (org.springframework.dao.DataIntegrityViolationException dup) {
+                // uq_op_source_signal(시그널당 1행)과 멱등가드의 레이스 — 한 건 충돌이 배치 전체를
+                // 죽이지 않도록 이 시그널만 건너뛴다. (DDIA 7장: 제약 위반은 흡수하고 진행)
+                log.debug("[auto-proposal] 중복 시그널 제안 스킵 sig={}", sig.getId());
+                continue;
+            }
             created++;
 
             // 자동 체결: 계정이 autoExecute=ON 이면 사람 승인 없이 즉시 실행한다.

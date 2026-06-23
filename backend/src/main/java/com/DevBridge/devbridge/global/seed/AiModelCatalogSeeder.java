@@ -36,20 +36,21 @@ public class AiModelCatalogSeeder implements CommandLineRunner {
         if (repo.count() > 0) return;
 
         List<AiModelCatalog> seed = List.of(
+                // free, pro(legacy), standard, premium, expert
                 model("gemini-2.5-flash",  "Gemini 2.5 Flash",  Provider.GEMINI,
-                        "범용 / 빠른 응답 / 무료",          200_000L, -1L,         10),
+                        "범용 / 빠른 응답 / 무료",          200_000L, -1L, -1L, -1L, -1L, 10),
                 model("gemini-2.5-pro",    "Gemini 2.5 Pro",    Provider.GEMINI,
-                        "범용 + 정밀 추론",                  0L,        500_000L,    20),
+                        "범용 + 정밀 추론",                  0L, 500_000L, 300_000L, -1L, -1L, 20),
 
                 model("claude-sonnet-4",   "Claude Sonnet 4",   Provider.ANTHROPIC,
-                        "코드/전략 로직 정밀 (전문가급)",     0L,        300_000L,    30),
+                        "코드/전략 로직 정밀 (전문가급)",     0L, 300_000L, 0L, -1L, -1L, 30),
                 model("claude-opus-4",     "Claude Opus 4",     Provider.ANTHROPIC,
-                        "최고 품질 코드/심층 분석",           0L,        100_000L,    40),
+                        "최고 품질 코드/심층 분석",           0L, 100_000L, 0L, 0L, -1L, 40),
 
                 model("gpt-4o-mini",       "GPT-4o mini",       Provider.OPENAI,
-                        "빠른 대화 / 무료",                  100_000L,  -1L,         50),
+                        "빠른 대화 / 무료",                  100_000L, -1L, -1L, -1L, -1L, 50),
                 model("gpt-4o",            "GPT-4o",            Provider.OPENAI,
-                        "대화형 전략 설계 / 자연스러운 설명", 0L,        300_000L,    60)
+                        "대화형 전략 설계 / 자연스러운 설명", 0L, 300_000L, 200_000L, -1L, -1L, 60)
         );
 
         repo.saveAll(seed);
@@ -57,7 +58,9 @@ public class AiModelCatalogSeeder implements CommandLineRunner {
     }
 
     private AiModelCatalog model(String id, String name, Provider p, String strength,
-                                  long freeQuota, long proQuota, int sortOrder) {
+                                  long freeQuota, long proQuota,
+                                  long standardQuota, long premiumQuota, long expertQuota,
+                                  int sortOrder) {
         return AiModelCatalog.builder()
                 .modelId(id)
                 .displayName(name)
@@ -65,6 +68,9 @@ public class AiModelCatalogSeeder implements CommandLineRunner {
                 .strength(strength)
                 .freeQuota(freeQuota)
                 .proQuota(proQuota)
+                .standardQuota(standardQuota)
+                .premiumQuota(premiumQuota)
+                .expertQuota(expertQuota)
                 .sortOrder(sortOrder)
                 .enabled(true)
                 .build();
