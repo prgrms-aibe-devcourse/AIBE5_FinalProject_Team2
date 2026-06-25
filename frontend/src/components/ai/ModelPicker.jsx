@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Lock, Crown, Check } from "lucide-react";
+import { ChevronDown, Crown, Check } from "lucide-react";
 import { fetchAiModels } from "../../lib/aiClient";
 
 /**
@@ -106,48 +106,37 @@ export default function ModelPicker({ value, onChange, compact = false, glass = 
           )}
           {models.map(m => {
             const isSelected = m.modelId === value;
+            const isComingSoon = m.modelId !== "gemini-2.5-flash";
             const remainingTxt = m.remaining === -1 ? "무제한"
-                : m.quota === 0 ? "Pro 전용"
+                : isComingSoon ? "준비중"
                 : `${formatNum(m.remaining)} / ${formatNum(m.quota)} tok`;
             return (
               <button
                 key={m.modelId}
                 onClick={() => {
-                  if (!m.usable) {
-                    if (m.lockReason === "Pro 전용" || m.lockReason === "Free 한도 초과") goPricing();
-                    return;
-                  }
+                  if (isComingSoon) return;
+                  if (!m.usable) return;
                   onChange?.(m.modelId);
                   setOpen(false);
                 }}
-                disabled={!m.usable && m.lockReason !== "Pro 전용" && m.lockReason !== "Free 한도 초과"}
+                disabled={isComingSoon}
                 style={{
                   width: "100%", textAlign: "left",
                   border: isSelected ? "1px solid #BFDBFE" : "none",
                   background: isSelected ? "#EFF6FF" : "white",
                   padding: isSelected ? "9px 13px" : "10px 14px",
-                  cursor: m.usable ? "pointer" : (m.lockReason === "Pro 전용" || m.lockReason === "Free 한도 초과" ? "pointer" : "not-allowed"),
+                  cursor: isComingSoon ? "not-allowed" : "pointer",
                   display: "flex", flexDirection: "column", gap: 2,
                   borderBottom: isSelected ? "1px solid #BFDBFE" : "1px solid #F8FAFC",
-                  opacity: (m.usable || isSelected) ? 1 : 0.6,
+                  opacity: isComingSoon ? 0.45 : 1,
                 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: isSelected ? 700 : 600, color: isSelected ? "#1D4ED8" : "#0F172A" }}>
                   {isSelected && <Check size={12} color="#2563EB" strokeWidth={2.5} />}
                   {m.displayName}
-                  {m.provider === "OPENAI" && (
+                  {isComingSoon && (
                     <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 700, color: "#6B7280", background: "#F3F4F6", padding: "1px 6px", borderRadius: 999 }}>
                       준비중
-                    </span>
-                  )}
-                  {m.provider !== "OPENAI" && !m.usable && m.lockReason === "Pro 전용" && (
-                    <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, color: "#A16207", background: "#FEF3C7", padding: "1px 6px", borderRadius: 999 }}>
-                      <Crown size={10} /> Pro
-                    </span>
-                  )}
-                  {m.provider !== "OPENAI" && !m.usable && m.lockReason === "API 키 미설정" && (
-                    <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, color: "#94A3B8" }}>
-                      <Lock size={10} /> 비활성
                     </span>
                   )}
                 </div>
