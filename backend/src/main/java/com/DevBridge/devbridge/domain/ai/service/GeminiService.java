@@ -1,12 +1,16 @@
 package com.DevBridge.devbridge.domain.ai.service;
 
 import com.DevBridge.devbridge.domain.ai.dto.AiChatRequest;
+import com.DevBridge.devbridge.domain.ai.service.gateway.AnthropicProvider;
+import com.DevBridge.devbridge.domain.ai.service.gateway.OpenAiProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.security.MessageDigest;
@@ -41,6 +45,12 @@ public class GeminiService {
     private final String baseUrl;
     private final String cacheBaseUrl;
     private final RestClient restClient;
+
+    // Gemini 전체 장애 시 GPT → Claude 순서로 폴백 — 키 없으면 null(선택적)
+    @Autowired(required = false)
+    private OpenAiProvider openAiProvider;
+    @Autowired(required = false)
+    private AnthropicProvider anthropicProvider;
 
     // system_instruction 해시 → 캐시 항목 (앱 수명 동안 유지)
     private final ConcurrentHashMap<String, CachedEntry> promptCache = new ConcurrentHashMap<>();
@@ -126,7 +136,26 @@ public class GeminiService {
                 "maxOutputTokens", 32768
         ));
 
-        return extractText(generateContent(body, systemInstruction));
+        try {
+            return extractText(generateContent(body, systemInstruction));
+        } catch (RuntimeException geminiEx) {
+            if (!isGeminiUnavailable(geminiEx)) throw geminiEx;
+            // Gemini 전체 장애 → GPT-4o-mini 시도
+            if (openAiProvider != null && openAiProvider.isAvailable()) {
+                try {
+                    log.warn("Gemini 전체 장애 — GPT-4o-mini로 폴백: {}", geminiEx.getMessage());
+                    return openAiProvider.chat("gpt-4o-mini", request).text();
+                } catch (RuntimeException gptEx) {
+                    log.warn("GPT 폴백 실패 — Claude Haiku로 폴백: {}", gptEx.getMessage());
+                }
+            }
+            // GPT도 실패 → Claude Haiku 시도
+            if (anthropicProvider != null && anthropicProvider.isAvailable()) {
+                log.warn("Claude Haiku로 최종 폴백");
+                return anthropicProvider.chat("claude-haiku-4-5-20251001", request).text();
+            }
+            throw geminiEx;
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -190,7 +219,26 @@ public class GeminiService {
         }
         body.put("generationConfig", genConfig);
 
-        return extractText(generateContent(body, systemInstruction));
+        try {
+            return extractText(generateContent(body, systemInstruction));
+        } catch (RuntimeException geminiEx) {
+            if (!isGeminiUnavailable(geminiEx)) throw geminiEx;
+            // Gemini 전체 장애 → GPT-4o-mini 시도
+            if (openAiProvider != null && openAiProvider.isAvailable()) {
+                try {
+                    log.warn("Gemini 전체 장애(oneShot) — GPT-4o-mini로 폴백: {}", geminiEx.getMessage());
+                    return openAiProvider.oneShot("gpt-4o-mini", systemInstruction, userPrompt, wantJson).text();
+                } catch (RuntimeException gptEx) {
+                    log.warn("GPT 폴백 실패(oneShot) — Claude Haiku로 폴백: {}", gptEx.getMessage());
+                }
+            }
+            // GPT도 실패 → Claude Haiku 시도
+            if (anthropicProvider != null && anthropicProvider.isAvailable()) {
+                log.warn("Claude Haiku로 최종 폴백(oneShot)");
+                return anthropicProvider.oneShot("claude-haiku-4-5-20251001", systemInstruction, userPrompt, wantJson).text();
+            }
+            throw geminiEx;
+        }
     }
 
     public String oneShot(String systemInstruction, String userPrompt) {
@@ -333,16 +381,32 @@ public class GeminiService {
             }
         } catch (HttpClientErrorException e) {
             int status = e.getStatusCode().value();
-            // 403(Forbidden) 또는 503(Unavailable) — fallback 모델로 재시도
-            if ((status == 403 || status == 503)
+            // rateLimitedPost의 onStatus 핸들러가 4xx·5xx 모두 HttpClientErrorException으로 변환하므로
+            // 503/529도 여기서 처리한다 (HttpServerErrorException 블록은 실제로 도달하지 않음).
+            if ((status == 503 || status == 529)
                     && fallbackModel != null && !fallbackModel.isBlank() && !fallbackModel.equals(model)) {
                 log.warn("Gemini HTTP {} on primary model {}. Falling back to {}.", status, model, fallbackModel);
+                try {
+                    return postGenerateContent(fallbackModel, buildFallbackBody(body, systemInstruction), false);
+                } catch (HttpClientErrorException fallbackEx) {
+                    int fs = fallbackEx.getStatusCode().value();
+                    if (fs == 503 || fs == 529) {
+                        throw new RuntimeException("Gemini 서비스가 일시적으로 혼잡합니다. 잠시 후 다시 시도해 주세요.", fallbackEx);
+                    }
+                    throw fallbackEx;
+                }
+            }
+            // 403(Forbidden) — fallback 모델로 재시도
+            if (status == 403
+                    && fallbackModel != null && !fallbackModel.isBlank() && !fallbackModel.equals(model)) {
+                log.warn("Gemini HTTP 403 on primary model {}. Falling back to {}.", model, fallbackModel);
                 return postGenerateContent(fallbackModel, buildFallbackBody(body, systemInstruction), false);
             }
-            if (status == 503) {
-                throw new RuntimeException("Gemini 서비스가 일시적으로 혼잡합니다. 잠시 후 다시 시도해 주세요.", e);
-            }
             throw e;
+        } catch (HttpServerErrorException e) {
+            // rateLimitedPost의 onStatus가 5xx도 HttpClientErrorException으로 변환하므로
+            // 이 블록은 실제로 실행되지 않음 — 안전망으로만 유지.
+            throw new RuntimeException("Gemini 서비스가 일시적으로 혼잡합니다. 잠시 후 다시 시도해 주세요.", e);
         }
     }
 
@@ -450,6 +514,16 @@ public class GeminiService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }
+    }
+
+    /** Gemini 서비스 전체 불가 여부 — 503/529 HttpClientErrorException 또는 "혼잡" RuntimeException */
+    private static boolean isGeminiUnavailable(RuntimeException e) {
+        if (e.getMessage() != null && e.getMessage().contains("혼잡")) return true;
+        if (e instanceof org.springframework.web.client.HttpStatusCodeException hsce) {
+            int status = hsce.getStatusCode().value();
+            return status == 503 || status == 529;
+        }
+        return false;
     }
 
     private void sleepMs(long ms) {

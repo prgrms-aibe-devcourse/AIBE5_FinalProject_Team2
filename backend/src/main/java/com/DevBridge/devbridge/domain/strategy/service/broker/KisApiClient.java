@@ -313,7 +313,17 @@ public class KisApiClient {
             log.debug("[KIS] balance cache hit user={} env={}", b.getUser().getId(), b.getEnv());
             return cached.data;
         }
-        return fetchOverseasBalance(b, false);
+        try {
+            return fetchOverseasBalance(b, false);
+        } catch (Exception e) {
+            // 일시 실패(KIS 초당제한 EGW00201 등) — 직전 '성공 잔고'가 있으면 그대로 유지(예수금 5억이 0/502 로 튀는 것 방지).
+            if (cached != null) {
+                log.warn("[KIS] balance fetch 실패 — 직전 잔고(stale) 유지 user={} env={}: {}",
+                        b.getUser().getId(), b.getEnv(), e.getMessage());
+                return cached.data;
+            }
+            throw e;
+        }
     }
 
     private Map<String, Object> fetchOverseasBalance(BrokerAccount b, boolean isRetry) {
@@ -322,69 +332,43 @@ public class KisApiClient {
         String trId = b.getEnv() == BrokerAccount.Env.REAL ? "TTTS3012R" : "VTTS3012R";
         String appSecret = crypto.decrypt(b.getAppSecretEnc());
 
-        // 거래소별 잔고 조회 헬퍼 — NASD / NYSE 병렬 호출하여 전 종목 커버
-        java.util.function.Function<String, CompletableFuture<JsonNode>> exchFuture = excgCd ->
-                CompletableFuture.supplyAsync(() -> {
-                    try {
-                        return withRateLimitRetry(() -> http(b.getEnv()).get()
-                                .uri(uriBuilder -> uriBuilder.path("/uapi/overseas-stock/v1/trading/inquire-balance")
-                                        .queryParam("CANO", b.getCano())
-                                        .queryParam("ACNT_PRDT_CD", b.getAcntPrdtCd())
-                                        .queryParam("OVRS_EXCG_CD", excgCd)
-                                        .queryParam("TR_CRCY_CD", "USD")
-                                        .queryParam("CTX_AREA_FK200", "")
-                                        .queryParam("CTX_AREA_NK200", "")
-                                        .build())
-                                .header("authorization", "Bearer " + token)
-                                .header("appkey", b.getAppKey())
-                                .header("appsecret", appSecret)
-                                .header("tr_id", trId)
-                                .retrieve()
-                                .body(JsonNode.class));
-                    } catch (Exception e) {
-                        log.warn("[KIS] inquire-balance {} failed user={}: {}", excgCd, b.getUser().getId(), e.getMessage());
-                        return null;
-                    }
-                });
-
-        // NASD(나스닥) + NYSE(뉴욕) 병렬 호출
-        CompletableFuture<JsonNode> nasdFuture = exchFuture.apply("NASD");
-        CompletableFuture<JsonNode> nyseFuture  = exchFuture.apply("NYSE");
-
-        CompletableFuture<Map<String, Object>> domesticFuture = CompletableFuture.supplyAsync(() -> {
-            try { return getDomesticBalance(b, token); }
-            catch (Exception e) {
-                log.warn("[KIS] getDomesticBalance failed user={} env={}: {}",
-                        b.getUser().getId(), b.getEnv(), e.getMessage());
-                return Map.of("cash_krw", 0.0, "positions", java.util.List.of());
+        // ⚠️ KIS 모의는 초당 호출제한(EGW00201)이 빡빡 — 잔고 구성 4개 호출(NASD·NYSE·국내·USD)을 동시에 쏘면
+        // 서로 레이트리밋을 때려 일부(특히 국내 예수금=대부분 자산)가 실패 → 502/0 으로 튄다.
+        // 따라서 '병렬(CompletableFuture)' 금지 — in-flight 1개로 '순차' 호출한다(withRateLimitRetry 가 건당 1.5s 재시도).
+        java.util.function.Function<String, JsonNode> exchCall = excgCd -> {
+            try {
+                return withRateLimitRetry(() -> http(b.getEnv()).get()
+                        .uri(uriBuilder -> uriBuilder.path("/uapi/overseas-stock/v1/trading/inquire-balance")
+                                .queryParam("CANO", b.getCano())
+                                .queryParam("ACNT_PRDT_CD", b.getAcntPrdtCd())
+                                .queryParam("OVRS_EXCG_CD", excgCd)
+                                .queryParam("TR_CRCY_CD", "USD")
+                                .queryParam("CTX_AREA_FK200", "")
+                                .queryParam("CTX_AREA_NK200", "")
+                                .build())
+                        .header("authorization", "Bearer " + token)
+                        .header("appkey", b.getAppKey())
+                        .header("appsecret", appSecret)
+                        .header("tr_id", trId)
+                        .retrieve()
+                        .body(JsonNode.class));
+            } catch (Exception e) {
+                log.warn("[KIS] inquire-balance {} failed user={}: {}", excgCd, b.getUser().getId(), e.getMessage());
+                return null;
             }
-        });
+        };
 
-        CompletableFuture<Double> usdFuture = CompletableFuture.supplyAsync(() -> {
-            try { return getOverseasCashUsd(b, token); }
-            catch (Exception e) {
-                log.warn("[KIS] getOverseasCashUsd failed user={} env={}: {}",
-                        b.getUser().getId(), b.getEnv(), e.getMessage());
-                return -1.0; // -1 = 실패 sentinel (cash_usd 덮어쓰기 생략)
-            }
-        });
-
-        JsonNode nasdResp = null;
-        try { nasdResp = nasdFuture.get(15, TimeUnit.SECONDS); }
-        catch (Exception e) { log.warn("[KIS] NASD balance future failed user={}: {}", b.getUser().getId(), e.getMessage()); }
-
-        // NASD 실패 = 토큰 만료 레이스컨디션 가능성 → 토큰 무효화 후 1회 재시도.
-        // 실패 결과(0원)를 캐시에 올리지 않도록 여기서 조기 반환.
+        // 1) NASD(나스닥) 잔고
+        JsonNode nasdResp = exchCall.apply("NASD");
+        // NASD 실패 = 토큰 만료 레이스 가능성 → 토큰만 무효화 후 1회 재시도. (잔고캐시는 지우지 않음 → 직전 5억 보존)
         if (nasdResp == null && !isRetry) {
             tokenCache.remove(key);
-            balanceCache.remove(key);
             log.info("[KIS] NASD balance null — 토큰 무효화 후 재시도 user={} env={}", b.getUser().getId(), b.getEnv());
             return fetchOverseasBalance(b, true);
         }
 
-        JsonNode nyseResp = null;
-        try { nyseResp = nyseFuture.get(15, TimeUnit.SECONDS); }
-        catch (Exception e) { log.warn("[KIS] NYSE balance future failed user={}: {}", b.getUser().getId(), e.getMessage()); }
+        // 2) NYSE(뉴욕) 잔고 — 순차
+        JsonNode nyseResp = exchCall.apply("NYSE");
 
         // NASD 응답 기준으로 정규화 후 NYSE 포지션 병합
         Map<String, Object> out = normalizeBalance(nasdResp);
@@ -401,22 +385,35 @@ public class KisApiClient {
             }
         }
 
-        // 국내주식 잔고: cash_krw + 국내 포지션 병합
-        try {
-            Map<String, Object> dom = domesticFuture.get(15, TimeUnit.SECONDS);
-            out.put("cash_krw", dom.getOrDefault("cash_krw", 0.0));
-            @SuppressWarnings("unchecked")
-            java.util.List<Map<String, Object>> domPos = (java.util.List<Map<String, Object>>) dom.get("positions");
-            if (domPos != null && !domPos.isEmpty()) {
-                @SuppressWarnings("unchecked")
-                java.util.List<Map<String, Object>> allPos = new java.util.ArrayList<>((java.util.List<Map<String, Object>>) out.get("positions"));
-                allPos.addAll(domPos);
-                out.put("positions", allPos);
+        // 3) 국내주식 잔고: cash_krw(예수금) + 국내 포지션 — 순차. 모의계좌 자산의 대부분이라 0 으로 덮으면 안 됨.
+        // 실패면 토큰 무효화 후 1회 재시도, 그래도 실패면 throw → 호출측 getOverseasBalance 가 '직전 성공 잔고'로 폴백.
+        Map<String, Object> dom;
+        try { dom = getDomesticBalance(b, token); }
+        catch (Exception e) {
+            log.warn("[KIS] getDomesticBalance failed user={} env={}: {}", b.getUser().getId(), b.getEnv(), e.getMessage());
+            dom = Map.of("_failed", (Object) Boolean.TRUE);
+        }
+        if (Boolean.TRUE.equals(dom.get("_failed"))) {
+            if (!isRetry) {
+                tokenCache.remove(key);
+                log.info("[KIS] domestic balance failed — 토큰 무효화 후 재시도 user={} env={}", b.getUser().getId(), b.getEnv());
+                return fetchOverseasBalance(b, true);
             }
-        } catch (Exception e) { out.put("cash_krw", 0.0); }
+            throw new RuntimeException("국내 잔고(예수금) 조회 실패 — KIS 초당 호출 제한(EGW00201).");
+        }
+        out.put("cash_krw", dom.getOrDefault("cash_krw", 0.0));
+        @SuppressWarnings("unchecked")
+        java.util.List<Map<String, Object>> domPos = (java.util.List<Map<String, Object>>) dom.get("positions");
+        if (domPos != null && !domPos.isEmpty()) {
+            @SuppressWarnings("unchecked")
+            java.util.List<Map<String, Object>> allPos = new java.util.ArrayList<>((java.util.List<Map<String, Object>>) out.get("positions"));
+            allPos.addAll(domPos);
+            out.put("positions", allPos);
+        }
 
+        // 4) USD 예수금 — 순차
         try {
-            double usd = usdFuture.get(15, TimeUnit.SECONDS);
+            double usd = getOverseasCashUsd(b, token);
             if (usd > 0) out.put("cash_usd", usd);
         } catch (Exception e) { /* normalizeBalance 의 cash_usd 유지 */ }
 
@@ -1011,31 +1008,60 @@ public class KisApiClient {
      * 응답 정규화: { ticker, last_price, change_rate_pct, volume, raw_rt_cd }
      */
     public Map<String, Object> getOverseasQuote(BrokerAccount b, String ticker) {
-        String token = getAccessToken(b);
-        JsonNode resp = http(b.getEnv()).get()
-                .uri(uriBuilder -> uriBuilder.path("/uapi/overseas-price/v1/quotations/price")
-                        .queryParam("AUTH", "")
-                        .queryParam("EXCD", quoteExchangeOf(ticker))
-                        .queryParam("SYMB", ticker)
-                        .build())
-                .header("authorization", "Bearer " + token)
-                .header("appkey", b.getAppKey())
-                .header("appsecret", crypto.decrypt(b.getAppSecretEnc()))
-                .header("tr_id", "HHDFS00000300")
-                .retrieve()
-                .body(JsonNode.class);
-
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("ticker", ticker.toUpperCase());
-        out.put("exchange", quoteExchangeOf(ticker));
-        if (resp == null) { out.put("last_price", 0.0); return out; }
-        JsonNode o = resp.path("output");
-        out.put("last_price", o.path("last").asDouble(0));
-        out.put("change_rate_pct", o.path("rate").asDouble(0));
-        out.put("volume", o.path("tvol").asLong(0));
-        out.put("raw_rt_cd", resp.path("rt_cd").asText(""));
-        out.put("raw_msg", resp.path("msg1").asText(""));
-        return out;
+        Map<String, Object> fallback = new LinkedHashMap<>();
+        fallback.put("ticker", ticker.toUpperCase());
+        fallback.put("exchange", quoteExchangeOf(ticker));
+        fallback.put("last_price", 0.0);
+        // 매핑 거래소 우선 → last_price=0 이면 나머지 미국 거래소(NAS/NYS/AMS) 폴백.
+        // EXCHANGE_BY_TICKER 매핑이 누락/부정확한 종목(QLD 등 NYSE Arca ETF)도 자동으로 올바른 거래소를 찾는다.
+        String primary = quoteExchangeOf(ticker);
+        java.util.List<String> tryOrder = new java.util.ArrayList<>();
+        tryOrder.add(primary);
+        for (String ex : new String[]{"NAS", "NYS", "AMS"}) if (!ex.equals(primary)) tryOrder.add(ex);
+        try {
+            String token = getAccessToken(b);
+            String appsecret = crypto.decrypt(b.getAppSecretEnc());
+            Map<String, Object> lastOut = fallback;
+            for (String excd : tryOrder) {
+                JsonNode resp;
+                try {
+                    resp = http(b.getEnv()).get()
+                            .uri(uriBuilder -> uriBuilder.path("/uapi/overseas-price/v1/quotations/price")
+                                    .queryParam("AUTH", "")
+                                    .queryParam("EXCD", excd)
+                                    .queryParam("SYMB", ticker)
+                                    .build())
+                            .header("authorization", "Bearer " + token)
+                            .header("appkey", b.getAppKey())
+                            .header("appsecret", appsecret)
+                            .header("tr_id", "HHDFS00000300")
+                            .retrieve()
+                            .body(JsonNode.class);
+                } catch (Exception ex) {
+                    log.warn("[KIS] getOverseasQuote {} EXCD={} 실패: {}", ticker, excd, ex.getMessage());
+                    continue;
+                }
+                if (resp == null) continue;
+                String rtCd = resp.path("rt_cd").asText("");
+                JsonNode o = resp.path("output");
+                double last = o.path("last").asDouble(0);
+                if (last <= 0) last = o.path("base").asDouble(0); // last=0이면 전일종가(base)
+                Map<String, Object> out = new LinkedHashMap<>();
+                out.put("ticker", ticker.toUpperCase());
+                out.put("exchange", excd);
+                out.put("last_price", last);
+                out.put("change_rate_pct", o.path("rate").asDouble(0));
+                out.put("volume", o.path("tvol").asLong(0));
+                out.put("raw_rt_cd", rtCd);
+                out.put("raw_msg", resp.path("msg1").asText(""));
+                if (last > 0) return out;   // 유효 시세 확보 → 즉시 반환
+                lastOut = out;              // 0 이면 다음 거래소 시도(마지막 결과 보관)
+            }
+            return lastOut;
+        } catch (Exception e) {
+            log.warn("[KIS] getOverseasQuote {} 조회 실패 env={}: {}", ticker, b.getEnv(), e.getMessage());
+            return fallback;
+        }
     }
 
     /**

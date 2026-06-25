@@ -372,6 +372,7 @@ public class OrderProposalController {
         m.put("qty", p.getQty());
         m.put("qtyDecimal", p.getQtyDecimal());
         m.put("limitPrice", p.getLimitPrice());
+        m.put("orderType", p.getOrderType());
         m.put("source", p.getSource());
         m.put("sourceSignalId", p.getSourceSignalId());
         m.put("status", p.getStatus());

@@ -49,6 +49,18 @@ public class BrokerOrderController {
         try {
             return ResponseEntity.ok(brokerRouter.forAccount(b).getBalance(b));
         } catch (Exception e) {
+            // 모의(MOCK)는 KIS 해외잔고 API가 점검·초당제한·모의 불안정으로 자주 일시 실패 → 502로 페이지 깨지 말고
+            // 빈 잔고(₩0)로 graceful degrade(orders/today·quote 와 동일 패턴, 테스트 모드). 실전(REAL)은 사용자가 알 수 있게 502 유지.
+            if (b.getEnv() == BrokerAccount.Env.MOCK) {
+                log.warn("[balance] {} MOCK 잔고 조회 일시 실패(graceful) user={}: {}", b.getBrokerType(), uid, e.getMessage());
+                return ResponseEntity.ok(Map.of(
+                        "cash_usd", 0,
+                        "cash_krw", 0,
+                        "positions", java.util.List.of(),
+                        "stale", true,
+                        "note", "KIS 모의 잔고 조회 일시 오류 — 잠시 후 다시 시도하세요.",
+                        "error_detail", e.getMessage() == null ? "" : e.getMessage()));
+            }
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(Map.of("error", "잔고 조회 실패: " + e.getMessage()));
         }

@@ -70,9 +70,10 @@ public class ProposalExecutionService {
             log.warn("[exec] kill-switch ON (REAL) — 실거래 주문 거부 proposal={}", p.getId());
             return new Result(false, "전역 거래 차단(kill-switch) 활성화 — 실거래(REAL) 주문 거부", p);
         }
-        // tradingEnabled 는 자동매매 마스터 스위치. 수동 제안(MANUAL)은 사용자가 직접 승인하므로 이 체크를 생략.
-        if (!Boolean.TRUE.equals(ba.getTradingEnabled()) && !"MANUAL".equals(p.getSource())) {
-            return new Result(false, "BrokerAccount.tradingEnabled=false — 자동매매 마스터 스위치 OFF", p);
+        // tradingEnabled(자동매매 마스터)는 자동 체결(auto=true)에만 요구한다. 사용자가 직접 승인(auto=false)하면 생략.
+        // (수동 승인은 사용자가 해당 1건을 명시적으로 인가하는 행위 — 자동매매 마스터 스위치와 무관. REAL 비상정지는 kill-switch가 담당.)
+        if (auto && !Boolean.TRUE.equals(ba.getTradingEnabled())) {
+            return new Result(false, "BrokerAccount.tradingEnabled=false — 자동매매 마스터 스위치 OFF (자동체결)", p);
         }
 
         Broker broker = brokerRouter.forAccount(ba);

@@ -63,25 +63,30 @@ public class AlphaAnalyticsController {
             // 직접 지정(달력) 기간 — 시드계산기와 같은 selector 공유
             if (body != null && body.get("start") != null) customParams.put("start", body.get("start"));
             if (body != null && body.get("end") != null) customParams.put("end", body.get("end"));
-            String json = svc.doBacktest(ws, periodFinal, customParams);
+            // quiet=true: 최적화 스윕 중간 실행 — 알림·개선제안서 생략
+            boolean quiet = body != null && Boolean.TRUE.equals(body.get("quiet"));
+            String json = svc.doBacktest(ws, periodFinal, customParams, quiet);
 
             // 백테스트 완료 후 개선 제안서 자동 생성 (비동기 — 응답 블로킹 없음, 1시간 쿨다운)
-            final var wsFinal = ws;
-            final Long uidFinal = uid;
-            final String pFinal = periodFinal;
-            final Map<String, Object> cpFinal = new java.util.HashMap<>(customParams);
-            boolean improveOnCooldown = wsFinal.getLastImproveAt() != null &&
-                    wsFinal.getLastImproveAt().isAfter(java.time.LocalDateTime.now().minusHours(IMPROVE_COOLDOWN_HOURS));
-            if (!improveOnCooldown) {
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        svc.doImproveProposal(wsFinal, uidFinal, pFinal, cpFinal);
-                        wsFinal.setLastImproveAt(java.time.LocalDateTime.now());
-                        svc.getWorkspaceRepo().save(wsFinal);
-                    } catch (Exception ex) {
-                        log.warn("[auto improve-proposal] ws={} {}", id, ex.getMessage());
-                    }
-                });
+            // quiet=true 이면 최적화 중간 실행이므로 개선 제안서도 생략
+            if (!quiet) {
+                final var wsFinal = ws;
+                final Long uidFinal = uid;
+                final String pFinal = periodFinal;
+                final Map<String, Object> cpFinal = new java.util.HashMap<>(customParams);
+                boolean improveOnCooldown = wsFinal.getLastImproveAt() != null &&
+                        wsFinal.getLastImproveAt().isAfter(java.time.LocalDateTime.now().minusHours(IMPROVE_COOLDOWN_HOURS));
+                if (!improveOnCooldown) {
+                    CompletableFuture.runAsync(() -> {
+                        try {
+                            svc.doImproveProposal(wsFinal, uidFinal, pFinal, cpFinal);
+                            wsFinal.setLastImproveAt(java.time.LocalDateTime.now());
+                            svc.getWorkspaceRepo().save(wsFinal);
+                        } catch (Exception ex) {
+                            log.warn("[auto improve-proposal] ws={} {}", id, ex.getMessage());
+                        }
+                    });
+                }
             }
 
             return ResponseEntity.ok()

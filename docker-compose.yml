@@ -61,6 +61,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      PERPLEXITY_API_KEY: ${PERPLEXITY_API_KEY:-}
 
       ANALYTICS_BASE_URL: http://analytics:8001
       ANALYTICS_INTERNAL_TOKEN: ${ANALYTICS_INTERNAL_TOKEN:-dev-internal-token-change-me}
@@ -83,6 +84,7 @@ services:
 
       STREAM_CHAT_API_KEY: ${STREAM_CHAT_API_KEY:-}
       STREAM_CHAT_API_SECRET: ${STREAM_CHAT_API_SECRET:-}
+
 
     volumes:
       - claude_home:/home/app/.claude
@@ -128,6 +130,6 @@ services:
 
 volumes:
   db_data:
+  price_cache:
   claude_home:
   uploads:
-  price_cache:

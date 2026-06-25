@@ -124,7 +124,8 @@ public class AlphaWorkspaceController {
         if (uid == null) return unauth();
         String status = body == null ? null : body.get("status");
         if (status == null) return ResponseEntity.badRequest().body(Map.of("error", "status 필수"));
-        Set<String> allowed = Set.of("DRAFT", "GOAL_SET", "FORMALIZED", "TESTED", "LIVE");
+        // IDLE = LIVE 중지 상태(Stop 버튼) — FE LiveDashboard.handleStop 이 'IDLE' 전송하므로 허용해야 중지됨.
+        Set<String> allowed = Set.of("DRAFT", "GOAL_SET", "FORMALIZED", "TESTED", "LIVE", "IDLE");
         if (!allowed.contains(status))
             return ResponseEntity.badRequest().body(Map.of("error", "허용되지 않은 status"));
         var wsOpt = svc.getWorkspaceRepo().findByIdAndUserId(id, uid);

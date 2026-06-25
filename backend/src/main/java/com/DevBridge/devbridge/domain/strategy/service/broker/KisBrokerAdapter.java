@@ -2,6 +2,7 @@ package com.DevBridge.devbridge.domain.strategy.service.broker;
 
 import com.DevBridge.devbridge.domain.strategy.entity.BrokerAccount;
 import com.DevBridge.devbridge.domain.strategy.entity.OrderProposal;
+import com.DevBridge.devbridge.domain.strategy.service.MarketDataService;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +32,7 @@ import java.util.Map;
 public class KisBrokerAdapter implements Broker {
 
     private final KisApiClient kis;
+    private final MarketDataService marketData; // 모의투자 해외시세 미지원 시 DB 최근 종가로 폴백
 
     @Override
     public BrokerAccount.BrokerType type() {
@@ -60,10 +62,25 @@ public class KisBrokerAdapter implements Broker {
                         Object lp = quote.get("last_price");
                         double px = lp instanceof Number n ? n.doubleValue() : Double.parseDouble(String.valueOf(lp));
                         if (px > 0) lim = px;
-                    } catch (Exception ignore) { }
+                    } catch (Exception e) {
+                        log.warn("[KIS] {} 지정가 산정용 시세 조회 예외: {}", symbol, e.getMessage());
+                    }
+                    // KIS 모의투자 도메인은 해외 시세(HHDFS00000300)를 제대로 안 줘서 0 반환 → 우리 DB 최근 종가로 폴백.
+                    // 지정가(LIMIT) 주문이라 종가가 다소 과거여도 안전(가격 보호 — 시세 어긋나면 미체결일 뿐 과지불 없음).
+                    if (lim == null) {
+                        try {
+                            var rows = marketData.getDaily(symbol, java.time.LocalDate.now().minusDays(14));
+                            if (rows != null && !rows.isEmpty()) {
+                                double close = rows.get(rows.size() - 1).getClose().doubleValue();
+                                if (close > 0) { lim = close; log.info("[KIS] {} 시세 DB 종가 폴백 사용: {}", symbol, close); }
+                            }
+                        } catch (Exception e) {
+                            log.warn("[KIS] {} DB 종가 폴백 실패: {}", symbol, e.getMessage());
+                        }
+                    }
                     if (lim == null) {
                         return OrderResult.failure("NO_QUOTE",
-                                "KIS 지정가 산정 실패: " + symbol + " 현재가를 조회할 수 없어 0원 지정가 전송을 막았습니다. 잠시 후 다시 시도하세요.");
+                                "KIS 지정가 산정 실패: " + symbol + " 현재가·DB 종가 모두 조회 불가로 0원 전송을 막았습니다. 잠시 후 다시 시도하세요.");
                     }
                 }
                 resp = kis.placeOverseasOrder(b, symbol, ks, q, lim, ordDvsn);

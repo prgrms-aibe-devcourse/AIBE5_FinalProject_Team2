@@ -1511,16 +1511,22 @@ public class AlphaHelixService {
             if (pms.path("split").isNumber()) ibExtra.put("split", pms.path("split").asInt());
             if (pms.path("take_profit_pct").isNumber()) ibExtra.put("take_profit_pct", pms.path("take_profit_pct").asDouble());
             if (pms.path("loc_offset_pct").isNumber()) ibExtra.put("loc_offset_pct", pms.path("loc_offset_pct").asDouble());
-            if (pms.path("initial_capital").isNumber()) ibExtra.put("initial_capital", pms.path("initial_capital").asDouble());
+            if (pms.path("initial_capital").isNumber()) {
+                double krw = pms.path("initial_capital").asDouble();
+                ibExtra.put("initial_capital", krw / BrokerAccount.USD_KRW_APPROX);
+            }
             plan = analytics.infiniteBuyingPlan(tickers, ibExtra);
             rationalePrefix = "무한매수법 ";
         } else if ("value_rebalancing".equals(stype)) {
             if (tickers.isEmpty()) tickers = List.of("QLD");
             Map<String, Object> vrExtra = new HashMap<>();
             for (String k : List.of("rebalance_days", "expected_return", "band_pct",
-                                     "pool_target_pct", "initial_pool_pct", "biweekly_contrib", "initial_capital")) {
+                                     "pool_target_pct", "initial_pool_pct", "biweekly_contrib")) {
                 if (pms.path(k).isNumber()) vrExtra.put(k, pms.path(k).asDouble());
             }
+            // initial_capital 은 KRW 시드인데 분석엔진 가격은 USD → 환산해야 주문수량이 ~1300배 폭증하지 않음.
+            if (pms.path("initial_capital").isNumber())
+                vrExtra.put("initial_capital", pms.path("initial_capital").asDouble() / BrokerAccount.USD_KRW_APPROX);
             plan = analytics.valueRebalancingPlan(tickers, vrExtra);
             rationalePrefix = "밸류 리밸런싱 ";
         } else if ("momentum_rotation".equals(stype)) {
@@ -1551,12 +1557,14 @@ public class AlphaHelixService {
                 if (pms.path(k).isInt()) psExtra.put(k, pms.path(k).asInt());
             }
             if (pms.path("vix_threshold").isNumber())   psExtra.put("vix_threshold", pms.path("vix_threshold").asDouble());
-            if (pms.path("initial_capital").isNumber()) psExtra.put("initial_capital", pms.path("initial_capital").asDouble());
+            if (pms.path("initial_capital").isNumber())  // KRW 시드 → USD 환산 (주문수량 폭증 방지)
+                psExtra.put("initial_capital", pms.path("initial_capital").asDouble() / BrokerAccount.USD_KRW_APPROX);
             plan = analytics.presetPlan(tickers, vbtStrategy, psExtra);
             rationalePrefix = "프리셋(" + vbtStrategy + ") ";
         }
         List<Map<String, Object>> queued = new ArrayList<>();
         int created = 0;
+        double planDayUsd = 0, planMaxUsd = 0, planDayBuyUsd = 0; // 전략 일일 주문액 — 계좌 한도 자동맞춤용
         final Long finalBrokerId = brokerId;
 
         if (plan.path("plans").isArray()) {
@@ -1567,6 +1575,9 @@ public class AlphaHelixService {
                 double qty = p.path("qty").asDouble(0);
                 int intQty = (int) Math.floor(qty);
                 if (intQty <= 0) continue;
+                double orderUsd = intQty * price; // 일일 주문액 누적(중복 스킵분도 한도에 포함되도록 dedup 이전 합산)
+                planDayUsd += orderUsd; planMaxUsd = Math.max(planMaxUsd, orderUsd);
+                if ("BUY".equals(side)) planDayBuyUsd += orderUsd;
                 // 중복 방지(R6): 같은 ws·종목·side 의 살아있는 PENDING 제안이 이미 있으면 스킵 — 더블클릭·cron 재실행 시 이중 제안→이중 체결 차단.
                 if (orderProposalRepo.existsByUserIdAndWorkspaceIdAndTickerAndSideAndStatus(
                         uid, ws.getId(), tk, side, "PENDING")) continue;
@@ -1599,6 +1610,27 @@ public class AlphaHelixService {
                 row.put("reason", p.path("reason").asText());
                 queued.add(row);
             }
+        }
+
+        // 계좌 일일/1건 한도가 전략 일일 주문액보다 작으면 자동 상향(raise-only, 15% 버퍼) — 안전게이트에 막혀 주문이 안 나가는 것 방지.
+        // 상향만(절대 낮추지 않음) · 한도는 전략 자체 산출액(시드/분할) 범위라 발산 위험 없음 · DecisionLog 로 감사.
+        if (finalBrokerId != null && planDayUsd > 0) {
+            final long needMax = (long) Math.ceil(planMaxUsd * 1.15);
+            final long needDay = (long) Math.ceil(planDayUsd * 1.15);
+            final long needBuyKrw = (long) Math.ceil(planDayBuyUsd * 1.15 * BrokerAccount.USD_KRW_APPROX);
+            brokerAccountRepo.findById(finalBrokerId).ifPresent(ba -> {
+                boolean ch = false;
+                if (ba.getMaxOrderUsd() == null || ba.getMaxOrderUsd() < needMax) { ba.setMaxOrderUsd(needMax); ch = true; }
+                if (ba.getDailyOrderUsd() == null || ba.getDailyOrderUsd() < needDay) { ba.setDailyOrderUsd(needDay); ch = true; }
+                if (ba.getDailyBuyKrw() != null && ba.getDailyBuyKrw() < needBuyKrw) { ba.setDailyBuyKrw(needBuyKrw); ch = true; }
+                if (ch) {
+                    brokerAccountRepo.save(ba);
+                    recordLog(ws.getId(), "SYSTEM", "LIMITS_AUTOFIT",
+                            "전략 일일 주문액에 맞춰 계좌 한도 자동 상향 — 1건 $" + ba.getMaxOrderUsd()
+                                    + " · 일일 $" + ba.getDailyOrderUsd()
+                                    + (ba.getDailyBuyKrw() != null ? " · 일일매수 ₩" + ba.getDailyBuyKrw() : ""), null);
+                }
+            });
         }
 
         recordLog(ws.getId(), "SYSTEM", "ORDERS_QUEUED",

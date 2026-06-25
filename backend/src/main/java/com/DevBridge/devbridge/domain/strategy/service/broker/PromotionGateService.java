@@ -28,7 +28,7 @@ import java.util.Map;
 @Slf4j
 public class PromotionGateService {
 
-    private static final int MIN_MOCK_EXECUTED = 5;
+    private static final int MIN_MOCK_EXECUTED = 2;
     private static final double MAX_MOCK_FAIL_RATIO = 0.30;
 
     private final BrokerAccountRepository brokerRepo;
