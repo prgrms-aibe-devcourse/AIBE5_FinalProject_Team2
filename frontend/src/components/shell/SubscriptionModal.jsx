@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   X, Crown, Check, Zap, TrendingUp, Code2, Infinity,
-  Bot, Wallet, ShieldCheck, Star, Calendar,
+  Bot, Wallet, ShieldCheck, Star, Calendar, Newspaper,
 } from "lucide-react";
 import { fetchSubscription, cancelSubscription } from "../../lib/aiClient";
 
@@ -20,6 +20,7 @@ const PLANS = [
     grad: "linear-gradient(135deg,#F8FAFC,#F1F5F9)",
     border: "#CBD5E1",
     features: [
+      { icon: <Newspaper size={14}/>, text: "Perplexity 일일 퀀트 전략 시황 & 팟캐스트 (미제공)" },
       { icon: <Bot size={14}/>,      text: "Gemini 2.5 Flash (200k tok/월)", highlight: true },
       { icon: <Bot size={14}/>,      text: "GPT-4o mini (100k tok/월)", highlight: true },
       { icon: <TrendingUp size={14}/>, text: "전략 백테스트 무제한" },
@@ -38,6 +39,7 @@ const PLANS = [
     grad: "linear-gradient(135deg,#DBEAFE,#EFF6FF)",
     border: "#93C5FD",
     features: [
+      { icon: <Newspaper size={14}/>,   text: "Perplexity 일일 퀀트 전략 시황 & 팟캐스트 (재생성 2회/일)", highlight: true },
       { icon: <Wallet size={14}/>,      text: "증권 계좌 연동 (1개)", highlight: true },
       { icon: <Zap size={14}/>,         text: "자동 매수 / 매도 활성화", highlight: true },
       { icon: <TrendingUp size={14}/>,  text: "전략 백테스트 무제한" },
@@ -57,6 +59,7 @@ const PLANS = [
     grad: "linear-gradient(135deg,#EDE9FE,#F0F9FF)",
     border: "#A5B4FC",
     features: [
+      { icon: <Newspaper size={14}/>,   text: "Perplexity 일일 퀀트 전략 시황 & 팟캐스트 (재생성 3회/일)", highlight: true },
       { icon: <Wallet size={14}/>,      text: "증권 계좌 연동 (3개)", highlight: true },
       { icon: <Zap size={14}/>,         text: "자동 매수 / 매도 활성화", highlight: true },
       { icon: <Code2 size={14}/>,       text: "퀀트 IDE (vectorbt 엔진)", highlight: true },
@@ -77,6 +80,7 @@ const PLANS = [
     grad: "linear-gradient(135deg,#F5F3FF,#EDE9FE)",
     border: "#C4B5FD",
     features: [
+      { icon: <Newspaper size={14}/>,   text: "Perplexity 일일 퀀트 전략 시황 & 팟캐스트 (재생성 4회/일)", highlight: true },
       { icon: <Wallet size={14}/>,      text: "증권 계좌 연동 무제한", highlight: true },
       { icon: <Zap size={14}/>,         text: "자동 매수 / 매도 활성화", highlight: true },
       { icon: <Code2 size={14}/>,       text: "퀀트 IDE (LEAN + vectorbt 엔진)", highlight: true },
