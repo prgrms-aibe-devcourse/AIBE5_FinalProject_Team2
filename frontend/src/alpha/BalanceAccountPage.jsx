@@ -100,10 +100,26 @@ export default function BalanceAccountPage() {
       for (let i = 0; i < ordered.length; i++) {
         const acct = ordered[i];
         try {
-          const bal = await getBrokerBalance(acct.env, acct.brokerType);
-          brokerCache.setBalance(acct.env, acct.brokerType, bal);
-          setAccountsData((prev) => prev.map((d) => d.acct.id === acct.id
-            ? { ...d, bal, sum: summarizeBalance(bal, acct.brokerType), _loading: false } : d));
+          let bal = await getBrokerBalance(acct.env, acct.brokerType);
+          let newSum = summarizeBalance(bal, acct.brokerType);
+          let newTotal = (newSum.mv || 0) + (newSum.cashUsd || 0) + (newSum.cashKrw || 0);
+          // 0원 가드(KIS): 잔고가 사실상 0으로 오면 KIS 초당호출제한(EGW00201) 부분조회 실패일 수 있어 1.6초 후 1회 재시도
+          if (newTotal <= 0 && acct.brokerType !== "BINANCE") {
+            await sleep(1600);
+            try {
+              const bal2 = await getBrokerBalance(acct.env, acct.brokerType);
+              const sum2 = summarizeBalance(bal2, acct.brokerType);
+              if ((sum2.mv || 0) + (sum2.cashUsd || 0) + (sum2.cashKrw || 0) > 0) { bal = bal2; newSum = sum2; newTotal = 1; }
+            } catch { /* 재시도 실패는 무시 */ }
+          }
+          setAccountsData((prev) => prev.map((d) => {
+            if (d.acct.id !== acct.id) return d;
+            const prevTotal = (d.sum?.mv || 0) + (d.sum?.cashUsd || 0) + (d.sum?.cashKrw || 0);
+            // 새 잔고가 0인데 직전 정상값(>0)이 있으면 부분조회 실패로 보고 직전값 유지 — 0 으로 절대 안 덮음
+            if (newTotal <= 0 && prevTotal > 0) return { ...d, _loading: false };
+            return { ...d, bal, sum: newSum, _loading: false };
+          }));
+          if (newTotal > 0) brokerCache.setBalance(acct.env, acct.brokerType, bal); // 0 잔고는 캐시에 올리지 않음
         } catch {
           setAccountsData((prev) => prev.map((d) => d.acct.id === acct.id ? { ...d, _loading: false } : d));
         }

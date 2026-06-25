@@ -237,10 +237,14 @@ function BySymbolView({ accountsData, showKrw }) {
   );
 }
 
-/** 현금 — 계좌별 예수금 + 총 현금. */
+/** 현금 — 계좌별 예수금 + 총 현금. T+2 미결제 매도대금(pendingUsd/pendingKrw) 포함. */
 function CashView({ accountsData, showKrw }) {
-  const rows = accountsData.map((d) => ({ acct: d.acct, cashUsd: d.sum.cashUsd + d.sum.cashKrw / FX_KRW_PER_USD }));
-  const totalUsd = rows.reduce((s, r) => s + r.cashUsd, 0);
+  const rows = accountsData.map((d) => ({
+    acct: d.acct,
+    cashUsd: d.sum.cashUsd + d.sum.cashKrw / FX_KRW_PER_USD,
+    pendingUsd: (d.pendingUsd ?? 0) + (d.pendingKrw ?? 0) / FX_KRW_PER_USD,
+  }));
+  const totalUsd = rows.reduce((s, r) => s + r.cashUsd + r.pendingUsd, 0);
   const fmtC = (u) => showKrw ? fmtKrw(u * FX_KRW_PER_USD) : fmtUsd(u);
   return (
     <div>
@@ -251,7 +255,14 @@ function CashView({ accountsData, showKrw }) {
       {rows.map((r, i) => (
         <div key={i} style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 16px", marginBottom: 10, background: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>{acctLabel(r.acct)}</span>
-          <span style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>{fmtC(r.cashUsd)}</span>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>{fmtC(r.cashUsd + r.pendingUsd)}</div>
+            {r.pendingUsd > 0 && (
+              <div style={{ fontSize: 11, color: "#6366f1", fontWeight: 600 }}>
+                T+2 정산 예정 {fmtC(r.pendingUsd)} 포함
+              </div>
+            )}
+          </div>
         </div>
       ))}
     </div>
