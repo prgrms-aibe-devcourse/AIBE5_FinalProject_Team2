@@ -4044,7 +4044,7 @@ export default function DeveloperLab() {
       const cp = { ...base, ...combos[i] };
       const ts = now();
       try {
-        const r = await runBacktest(wsId, period || "5y", cp);
+        const r = await runBacktest(wsId, period || "5y", cp, undefined, undefined, true);
         const s = r?.stats || {};
         const raw = Number(s[metric]);
         results.push({ params: combos[i], stats: s, score: Number.isFinite(raw) ? raw : null, equity: r?.equity_curve || null, ms: now() - ts });
@@ -4856,7 +4856,7 @@ export default function DeveloperLab() {
                         { icon:<BarChart3 size={12} color="#F59E0B"/>, label:"백테스트 결과", active: activeTab?.type==="report",
                           fn:()=>{ const t=openTabs.find(tt=>tt.type==="report"); if(t) setActiveTabId(t.id); else handleRunBacktest(); } },
                         { icon:<BookOpen size={12} color="#a78bfa"/>,  label:"코드 해설", active: activeTab?.type==="notebook", fn:handleOpenNotebook },
-                        { icon:<Lightbulb size={12} color="#F59E0B"/>, label:"최적화 개선", active:false, fn:handleImproveProposal },
+                        { icon:<Lightbulb size={12} color="#F59E0B"/>, label:"최적화 개선", active: activeTab?.type==="optimize"||activeTab?.type==="optresult", fn:handleOpenOptimize },
                         { icon:<Rocket size={12} color="#a78bfa"/>,    label:"Deploy to Live", active: activeTab?.type==="deploy", fn:handleDeploy },
                       ].map((n,i)=>(
                         <div key={i} onClick={n.fn}
