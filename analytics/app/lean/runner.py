@@ -150,6 +150,8 @@ def run_lean_backtest(req: LeanBacktestRequest, progress_cb=None) -> LeanBacktes
                 definition = StrategyRegistry.build_with_params(req.strategy_id, **req.param_overrides)
             else:
                 definition = StrategyRegistry.build(req.strategy_id)
+            if definition is None:  # 미등록 id → None 반환(raise X) → 아래 except 로 명시 핸들
+                raise KeyError(req.strategy_id)
         except KeyError:
             return LeanBacktestResult(
                 success=False, run_id=run_id, statistics={}, equity_curve=[], trades_count=0,
@@ -268,6 +270,41 @@ def run_lean_backtest(req: LeanBacktestRequest, progress_cb=None) -> LeanBacktes
             success=False, run_id=run_id, statistics={}, equity_curve=[], trades_count=0,
             error=str(e), elapsed_seconds=elapsed,
         )
+
+
+def generate_lean_code(strategy_id: str, symbols: List[str], start_date: str, end_date: str,
+                       market: str = "us", param_overrides: Optional[Dict[str, Any]] = None,
+                       initial_capital: float = 100_000_000.0, commission_rate: float = 0.00015,
+                       tax_rate: float = 0.0, slippage: float = 0.0) -> str:
+    """데이터 fetch·Docker 실행 없이 '실제 실행될' Lean main.py 코드 문자열만 생성.
+
+    IDE 미리보기/편집용 — run_lean_backtest 의 5번(코드 생성) 단계와 *동일* 로직이라
+    여기서 보여주는 코드 == 실제 백테스트가 돌리는 코드(WYSIWYG).
+    우선순위: custom(main_py 자유작성) > raw-algo(infinite_buying 등 stateful) > DSL preset codegen.
+    """
+    params = param_overrides or {}
+    import app.lean  # noqa: F401  — sys.path 주입(kis_backtest)
+    import kis_backtest.strategies.preset  # noqa: F401  — preset 자동 등록
+    from kis_backtest.strategies.registry import StrategyRegistry
+    from kis_backtest.codegen.generator import LeanCodeGenerator, CodeGenConfig
+    from kis_backtest.codegen.raw_algos import RAW_ALGOS, render_raw_algo, render_custom
+
+    market_type = "us" if market == "us" else "krx"
+    custom_src = params.get("main_py")
+    if custom_src:
+        return render_custom(custom_src, market=market_type)
+    if strategy_id in RAW_ALGOS:
+        return render_raw_algo(strategy_id, symbols, start_date, end_date, initial_capital,
+                               market=market_type, params=params)
+    definition = (StrategyRegistry.build_with_params(strategy_id, **params) if params
+                  else StrategyRegistry.build(strategy_id))
+    if definition is None:  # build()/build_with_params() 는 미등록 id 에 raise 안 하고 None 반환 → 명시적으로 404 화
+        raise KeyError(f"{strategy_id} (가능: {sorted(StrategyRegistry.list().keys())} + {sorted(RAW_ALGOS)})")
+    from kis_backtest.core.converters import from_definition
+    schema = from_definition(definition)
+    cfg = CodeGenConfig(market=market_type, commission_rate=commission_rate,
+                        tax_rate=tax_rate, slippage=slippage, initial_capital=initial_capital)
+    return LeanCodeGenerator(schema, cfg).generate(symbols, start_date, end_date)
 
 
 def list_available_strategies() -> List[Dict[str, Any]]:

@@ -27,6 +27,7 @@ from app.data.collector import (
     US_SYMBOLS, CRYPTO_SYMBOLS, FRED_SERIES,
 )
 from app.backtest.vbt_engine import BacktestParams, run_backtest, latest_signal
+from app.backtest.preset_plan import latest_preset_plan, ALLOWED_PRESETS
 from app.backtest.infinite_buying import (
     InfiniteBuyingParams,
     run_infinite_buying,
@@ -563,6 +564,63 @@ def value_rebalancing_plan(req: ValueRebalancingReq):
         return latest_vr_plan(closes, _build_vr_params(req))
     except Exception as e:
         log.exception("value_rebalancing plan failed")
+        raise HTTPException(500, str(e))
+
+
+# ---------- 프리셋(vbt 6전략) 엔진-매칭 주문 plan — sma/momentum/rsi/macd/vix/buy_and_hold ----------
+class PresetPlanReq(BaseModel):
+    tickers: list[str] = Field(default_factory=lambda: ["SPY"])
+    strategy: str = "sma_cross"
+    period: str = "5y"
+    # 전략 파라미터(BacktestParams 동형 — 기본값 일치)
+    sma_fast: int = 20
+    sma_slow: int = 60
+    rsi_period: int = 14
+    rsi_low: int = 30
+    rsi_high: int = 70
+    macd_fast: int = 12
+    macd_slow: int = 26
+    macd_signal: int = 9
+    momentum_long_days: int = 252
+    momentum_short_days: int = 21
+    vix_threshold: float = 25.0
+    initial_capital: float = 100_000_000.0
+    fees: float = 0.0025
+    slippage: float = 0.001
+
+
+def _build_preset_params(req: "PresetPlanReq") -> BacktestParams:
+    return BacktestParams(
+        strategy=req.strategy,
+        sma_fast=req.sma_fast, sma_slow=req.sma_slow,
+        rsi_period=req.rsi_period, rsi_low=req.rsi_low, rsi_high=req.rsi_high,
+        macd_fast=req.macd_fast, macd_slow=req.macd_slow, macd_signal=req.macd_signal,
+        momentum_long_days=req.momentum_long_days, momentum_short_days=req.momentum_short_days,
+        vix_threshold=req.vix_threshold,
+        initial_capital=req.initial_capital, fees=req.fees, slippage=req.slippage,
+    )
+
+
+@app.post("/orders/preset/plan", dependencies=[Depends(require_internal_token)])
+def preset_plan(req: PresetPlanReq):
+    if req.strategy not in ALLOWED_PRESETS:
+        raise HTTPException(422, f"unsupported preset strategy: {req.strategy} (지원: {sorted(ALLOWED_PRESETS)})")
+    try:
+        closes: dict = {}
+        for t in req.tickers:
+            df = get_history(t, period=req.period)
+            closes[t.upper()] = df["Close"]
+        vix = None
+        if req.strategy == "vix_risk_off":
+            try:
+                vix = get_history("^VIX", period=req.period)["Close"]
+            except Exception:
+                log.warning("VIX fetch failed for preset plan", exc_info=True)
+        return latest_preset_plan(closes, _build_preset_params(req), vix=vix)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("preset plan failed")
         raise HTTPException(500, str(e))
 
 
@@ -1273,6 +1331,33 @@ def lean_list_strategies():
         return {"strategies": list_available_strategies()}
     except Exception as e:
         log.exception("lean/strategies failed")
+        raise HTTPException(500, str(e))
+
+
+@app.post("/lean/codegen", dependencies=[Depends(require_internal_token)])
+def lean_codegen(req: LeanBacktestReq):
+    """실제 실행될 Lean main.py 코드를 '생성만' 해서 반환(데이터 fetch·Docker 실행 없음).
+
+    IDE 가 전략 선택/파라미터 변경 시 호출 → 에디터에 '진짜 돌아가는 코드'를 표시.
+    custom(param_overrides.main_py)·raw-algo·preset 모두 run_lean_backtest 와 동일 codegen 경로라
+    여기서 보여주는 코드 == 백테스트가 실제 돌리는 코드.
+    """
+    try:
+        from app.lean.runner import generate_lean_code
+        code = generate_lean_code(
+            strategy_id=req.strategy_id, symbols=req.symbols,
+            start_date=req.start_date, end_date=req.end_date,
+            market=req.market, param_overrides=req.param_overrides,
+            initial_capital=req.initial_capital, commission_rate=req.commission_rate,
+            tax_rate=req.tax_rate, slippage=req.slippage,
+        )
+        return {"success": True, "code": code, "strategy_id": req.strategy_id, "bytes": len(code)}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"strategy not found: {req.strategy_id}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("lean/codegen failed")
         raise HTTPException(500, str(e))
 
 
