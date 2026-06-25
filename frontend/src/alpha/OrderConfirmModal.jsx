@@ -247,7 +247,7 @@ export default function OrderConfirmModal({ open, proposal, loading, error, onCo
           </div>
           {proposal.limitPrice != null ? (
             <div style={{ fontSize: 14, color: theme.textMuted }}>
-              지정가 {isCrypto ? `${Number(proposal.limitPrice)} USDT` : `$${Number(proposal.limitPrice).toFixed(2)}`}
+              {proposal.orderType === "LOC" ? "LOC(장마감) " : "지정가 "}{isCrypto ? `${Number(proposal.limitPrice)} USDT` : `$${Number(proposal.limitPrice).toFixed(2)}`}
               {estUsd != null && (
                 <span style={{ marginLeft: 10, color: theme.text, fontWeight: 700 }}>
                   예상 ${estUsd.toLocaleString("en-US", { maximumFractionDigits: 2 })}
