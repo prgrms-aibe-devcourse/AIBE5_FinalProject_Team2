@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Inbox, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, RefreshCw, Plus, X, Pencil, Trash2,
+  Inbox, CheckCircle2, XCircle, Clock, AlertTriangle, Loader2, RefreshCw, Plus, X, Pencil, Trash2, SlidersHorizontal,
 } from "lucide-react";
 import { useTheme, BRAND_GRADIENT } from "./ThemeContext";
 import { useLanguage } from "../i18n/useLanguage";
-import { listProposals, approveProposal, rejectProposal, createProposal, amendProposal, listBrokerAccounts, deleteProposal, deleteProposalsBulk } from "./alphaApi";
+import { listProposals, approveProposal, rejectProposal, createProposal, amendProposal, listBrokerAccounts, deleteProposal, deleteProposalsBulk, patchBrokerLimits } from "./alphaApi";
 import OrderConfirmModal from "./OrderConfirmModal";
 import OrderAmendModal from "./OrderAmendModal";
 import OrderRejectModal from "./OrderRejectModal";
@@ -44,6 +44,20 @@ const acctName = (a) => a
 
 const EMPTY_FORM = { brokerAccountId: "", ticker: "", side: "BUY", qty: "", limitPrice: "", rationale: "", orderType: "LIMIT", kisSubType: "정규장" };
 
+// 한도 입력 필드 (한도 모달 전용)
+function LimitField({ label, value, onChange, suffix }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "#475569", marginBottom: 6 }}>{label}</label>
+      <div style={{ position: "relative" }}>
+        <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#94A3B8", fontSize: 14, fontWeight: 700 }}>{suffix}</span>
+        <input type="number" min="0" value={value} onChange={e => onChange(e.target.value)} placeholder="미설정 시 빈칸"
+          style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px 10px 28px", borderRadius: 10, border: "1.5px solid #E2E8F0", fontSize: 14, color: "#0F172A", outline: "none" }} />
+      </div>
+    </div>
+  );
+}
+
 export default function ProposalsPage() {
   const { theme } = useTheme();
   const { t } = useLanguage();
@@ -80,6 +94,14 @@ export default function ProposalsPage() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { type: "single", id, ticker } | { type: "bulk", count }
+
+  // 일일/1건 한도 빠른 수정 모달 (KIS 계좌)
+  const [limitsOpen, setLimitsOpen]   = useState(false);
+  const [limitsEnv, setLimitsEnv]     = useState("MOCK");
+  const [limitsForm, setLimitsForm]   = useState({ maxOrderUsd: "", dailyBuyKrw: "", dailySellKrw: "" });
+  const [limitsBusy, setLimitsBusy]   = useState(false);
+  const [limitsErr, setLimitsErr]     = useState(null);
+  const [limitsHover, setLimitsHover] = useState(false);
 
   // expiresAt 지난 PENDING → 클라이언트에서 EXPIRED로 정규화
   const normalizedRows = allRows.map(r =>
@@ -128,6 +150,54 @@ export default function ProposalsPage() {
       const accts = await listBrokerAccounts();
       setBrokerAccounts(Array.isArray(accts) ? accts : []);
     } catch (_) { setBrokerAccounts([]); }
+  };
+
+  // KIS 계좌의 현재 한도를 폼에 채우기
+  const fillLimitsForm = (env, accts) => {
+    const a = (accts || brokerAccounts).find(x => x.brokerType === "KIS" && x.env === env);
+    setLimitsForm({
+      maxOrderUsd:  a?.maxOrderUsd  ?? "",
+      dailyBuyKrw:  a?.dailyBuyKrw  ?? "",
+      dailySellKrw: a?.dailySellKrw ?? "",
+    });
+  };
+
+  const openLimits = async () => {
+    setLimitsErr(null);
+    setLimitsOpen(true);
+    try {
+      const accts = await listBrokerAccounts();
+      const arr = Array.isArray(accts) ? accts : [];
+      setBrokerAccounts(arr);
+      const kis = arr.filter(a => a.brokerType === "KIS");
+      const env = kis.some(a => a.env === "MOCK") ? "MOCK" : (kis[0]?.env || "MOCK");
+      setLimitsEnv(env);
+      fillLimitsForm(env, arr);
+    } catch (e) {
+      setBrokerAccounts([]);
+      setLimitsErr(e?.response?.data?.error || e.message);
+    }
+  };
+
+  const saveLimits = async () => {
+    setLimitsBusy(true);
+    setLimitsErr(null);
+    try {
+      const body = {};
+      if (limitsForm.maxOrderUsd  !== "" && limitsForm.maxOrderUsd  != null) body.maxOrderUsd  = Number(limitsForm.maxOrderUsd);
+      if (limitsForm.dailyBuyKrw  !== "" && limitsForm.dailyBuyKrw  != null) body.dailyBuyKrw  = Number(limitsForm.dailyBuyKrw);
+      if (limitsForm.dailySellKrw !== "" && limitsForm.dailySellKrw != null) body.dailySellKrw = Number(limitsForm.dailySellKrw);
+      await patchBrokerLimits(limitsEnv, body, "KIS");
+      setToast({ type: "info", title: "한도 저장됨",
+        body: `한국투자증권 ${limitsEnv === "REAL" ? "실전" : "모의"}계좌 한도가 업데이트되었습니다.` });
+      setLimitsOpen(false);
+      const accts = await listBrokerAccounts().catch(() => null);
+      if (Array.isArray(accts)) setBrokerAccounts(accts);
+    } catch (e) {
+      setLimitsErr(e?.response?.data?.error || e.message);
+    } finally {
+      setLimitsBusy(false);
+    }
   };
 
   const onSubmitCreate = async (e) => {
@@ -309,6 +379,70 @@ export default function ProposalsPage() {
     <div className="alpha-proposals" style={{ padding: "clamp(16px, 3vw, 36px) clamp(12px, 3vw, 40px) 80px", background: "#F8FAFC", minHeight: "calc(100vh - 44px)" }}>
       {toast && <Toast title={toast.title} body={toast.body} type={toast.type} onClose={() => setToast(null)} />}
 
+      {/* ── 매매 한도 빠른 수정 모달 (KIS) ── */}
+      {limitsOpen && (
+        <div onClick={() => !limitsBusy && setLimitsOpen(false)} style={{
+          position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 1000,
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "white", borderRadius: 18, padding: 26, width: "100%", maxWidth: 460,
+            boxShadow: "0 24px 60px rgba(0,0,0,0.28)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#0F172A", display: "flex", alignItems: "center", gap: 8 }}>
+                <SlidersHorizontal size={18} color="#6366f1" /> 매매 한도 설정
+              </h3>
+              <button onClick={() => !limitsBusy && setLimitsOpen(false)} style={{
+                background: "none", border: "none", cursor: "pointer", color: "#94A3B8", display: "flex",
+              }}><X size={20} /></button>
+            </div>
+            <p style={{ margin: "0 0 16px", fontSize: 12.5, color: "#64748B", lineHeight: 1.5 }}>
+              한국투자증권 계좌의 1건·일일 매수/매도 한도입니다. 전략 주문은 큐잉 시 자동 상향되며, 여기서 직접 올리거나 낮출 수 있습니다.
+            </p>
+
+            {/* 모의/실전 토글 — KIS 계좌가 있는 env 만 */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+              {["MOCK", "REAL"].filter(env => brokerAccounts.some(a => a.brokerType === "KIS" && a.env === env)).map(env => (
+                <button key={env} onClick={() => { setLimitsEnv(env); fillLimitsForm(env); }} style={{
+                  flex: 1, padding: "9px 0", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                  border: `1.5px solid ${limitsEnv === env ? "#6366f1" : "#E2E8F0"}`,
+                  background: limitsEnv === env ? "#EEF2FF" : "white",
+                  color: limitsEnv === env ? "#4338CA" : "#64748B",
+                }}>{env === "REAL" ? "실전계좌" : "모의계좌"}</button>
+              ))}
+            </div>
+
+            <LimitField label="1건 주문 한도 (USD)" value={limitsForm.maxOrderUsd}
+              onChange={v => setLimitsForm(f => ({ ...f, maxOrderUsd: v }))} suffix="$" />
+            <LimitField label="일일 매수 한도 (원화)" value={limitsForm.dailyBuyKrw}
+              onChange={v => setLimitsForm(f => ({ ...f, dailyBuyKrw: v }))} suffix="₩" />
+            <LimitField label="일일 매도 한도 (원화)" value={limitsForm.dailySellKrw}
+              onChange={v => setLimitsForm(f => ({ ...f, dailySellKrw: v }))} suffix="₩" />
+
+            {limitsEnv === "REAL" && (
+              <p style={{ margin: "4px 0 0", fontSize: 11.5, color: "#B45309" }}>
+                ⚠️ 실전계좌는 안전 상한이 적용됩니다 (상한 초과 시 저장 거부).
+              </p>
+            )}
+            {limitsErr && <p style={{ margin: "10px 0 0", fontSize: 12.5, color: "#DC2626" }}>{limitsErr}</p>}
+
+            <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
+              <button onClick={() => setLimitsOpen(false)} disabled={limitsBusy} style={{
+                flex: 1, padding: "11px 0", borderRadius: 11, border: "1.5px solid #E2E8F0",
+                background: "white", color: "#475569", fontWeight: 700, fontSize: 13.5, cursor: "pointer",
+              }}>취소</button>
+              <button onClick={saveLimits} disabled={limitsBusy} style={{
+                flex: 1, padding: "11px 0", borderRadius: 11, border: "none",
+                background: "linear-gradient(135deg,#60a5fa 0%,#6366f1 100%)", color: "white",
+                fontWeight: 700, fontSize: 13.5, cursor: limitsBusy ? "default" : "pointer",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 6, opacity: limitsBusy ? 0.7 : 1,
+              }}>{limitsBusy ? <Loader2 size={15} className="spin" /> : null} 저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── 삭제 확인 모달 ── */}
       {deleteConfirm && (
         <div
@@ -473,6 +607,22 @@ export default function ProposalsPage() {
             <Trash2 size={14} />
             {deleteMode ? t("proposals.deleteMode.exit") : t("proposals.deleteMode.enter")}
           </button>
+          {!deleteMode && (
+            <button onClick={openLimits}
+              onMouseEnter={() => setLimitsHover(true)}
+              onMouseLeave={() => setLimitsHover(false)}
+              style={{
+                background: limitsHover ? "linear-gradient(135deg, #FEF9C3, #FDE68A)" : "#FEFCE8",
+                border: "1.5px solid #FDE68A",
+                color: "#A16207", padding: "9px 18px", borderRadius: 12,
+                cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 13,
+                fontWeight: 600,
+                boxShadow: limitsHover ? "0 4px 14px rgba(202,138,4,0.28)" : "0 1px 4px rgba(0,0,0,0.06)",
+                transition: "background 0.15s, box-shadow 0.15s",
+              }}>
+              <SlidersHorizontal size={14} /> {t("proposals.limits") || "한도 수정"}
+            </button>
+          )}
           <button onClick={load} disabled={loading}
             style={{
               background: "white", border: "1.5px solid #E2E8F0",
