@@ -591,7 +591,8 @@ function AccountActive({ theme, env, acct, reload, setMsg }) {
             <div style={{ fontSize: 13, color: theme.subtle, marginBottom: 8 }}>
               {t("account.cashUsd")} <b style={{ color: theme.text }}>${Number(balance.cash_usd || 0).toFixed(2)}</b>
               {" · "}{t("account.cashKrw")} <b style={{ color: theme.text }}>₩{Number(balance.cash_krw || 0).toLocaleString()}</b>
-              {" · "}{t("account.totalValue")} <b style={{ color: theme.text }}>${Number(balance.total_market_value_usd || 0).toFixed(2)}</b>
+              {" · "}{t("account.totalValue")} <b style={{ color: theme.text }}>${(Number(balance.cash_usd || 0) + (balance.positions || []).reduce((s, p) => s + Number(p.market_value || 0), 0)).toFixed(2)}</b>
+              <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 4 }}>(T+2 정산 전)</span>
             </div>
             {(balance.positions || []).length === 0 ? (
               <div style={{ color: theme.subtle, fontSize: 13 }}>{t("account.noPositions")}</div>

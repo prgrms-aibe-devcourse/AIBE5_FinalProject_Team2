@@ -586,7 +586,17 @@ function BriefingCard({ s, briefingData, busy, onRefresh, onNavigate, t, isPrima
               />
             </div>
           )}
-          {quota && (() => {
+          {(() => {
+            if (!quota) return (
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 999,
+                color: "rgba(255,255,255,0.4)", background: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.12)", whiteSpace: "nowrap",
+              }}>
+                {t("briefing.card.quota.remaining", { remaining: "?", limit: "?" })}
+              </span>
+            );
             const remaining = quota.dailyLimit - quota.usedToday;
             const isEmpty = remaining <= 0;
             return (
@@ -1009,6 +1019,13 @@ export default function BriefingPage() {
         } catch (_) {}
       });
       setBriefings(cached);
+
+      // 캐시에서 쿼터 복원 — 페이지 진입 시 잔여 횟수 즉시 표시
+      const currentPrimaryId = Number(localStorage.getItem("alpha.primaryWsId")) || null;
+      const primaryBriefing = cached[currentPrimaryId] ?? Object.values(cached)[0];
+      if (primaryBriefing?.dailyLimit != null && primaryBriefing?.usedToday != null) {
+        setQuota({ usedToday: primaryBriefing.usedToday, dailyLimit: primaryBriefing.dailyLimit });
+      }
 
       // 자동 생성은 대표(primary) 워크스페이스 1개만 — LIVE 전체를 돌리면 워크스페이스 수만큼
       // Perplexity 호출이 폭주하기 때문. 나머지는 사용자가 직접 버튼으로 생성.

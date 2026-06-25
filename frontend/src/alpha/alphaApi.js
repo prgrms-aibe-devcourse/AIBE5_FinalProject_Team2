@@ -25,12 +25,13 @@ export const sendChat            = (id, text) => api.post(`/alpha/workspaces/${i
 export const formalize           = (id) => api.post(`/alpha/workspaces/${id}/formalize`).then(r => r.data);
 export const selectStrategyCandidate = (id, candidateId) =>
   api.patch(`/alpha/workspaces/${id}/strategy-config/select`, { candidateId }).then(r => r.data);
-export const runBacktest         = (id, period, customParams, start, end) => {
+export const runBacktest         = (id, period, customParams, start, end, quiet) => {
   const body = {};
   if (period) body.period = period;
   if (customParams && Object.keys(customParams).length > 0) body.customParams = customParams;
   if (start) body.start = start;   // 직접 지정(달력) 기간 — 시드계산기와 공유
   if (end) body.end = end;
+  if (quiet) body.quiet = true;    // 최적화 스윕 중간 실행 — 백엔드 알림 억제
   return api.post(`/alpha/workspaces/${id}/backtest`, body).then(r => r.data);
 };
 // P3: 전략 개선 제안서 — 진단 + 선택지(기존/안정형/공격형) + 각 선택지 전후 백테스트 비교

@@ -43,12 +43,15 @@ function renderRichText(text) {
 
 const SYS = `너는 Alpha-Helix 투자 AI "Heli". 투자 파트너 톤으로 3~6줄 간결하게. 핵심은 **굵게**.
 
-[Patch]
-① 명시적 변경 요청(적용/바꿔/설정/고쳐/수정) 또는
-② 투자 목표 정보 2개 이상 제공 시
-→ 답변 끝에 \`\`\`heli-patch 블록 첨부. ②는 "목표 프로필 저장됨" 안내 필수.
+[Patch — 반드시 준수]
+아래 두 경우 중 하나라도 해당하면 답변 끝에 반드시 \`\`\`heli-patch 코드블록을 첨부해야 한다. 절대 생략 금지.
+① 명시적 변경 요청(적용/바꿔/설정/고쳐/수정)
+② 투자 목표 정보(금액·기간·성향·자산 등) 2개 이상 언급 시
 
-형식: {"title":"요약","ops":[{"target":"TARGET","path":"PATH","value":VALUE}]}
+②의 경우 답변 텍스트에 "목표 프로필 저장됨" 문구를 반드시 포함할 것.
+
+\`\`\`heli-patch 블록 안에는 반드시 아래 JSON 형식만 넣는다:
+{"title":"요약","ops":[{"target":"TARGET","path":"PATH","value":VALUE}]}
 
 target/path:
 - goalProfile: goal · horizon_years · initial_capital_krw · monthly_contribution_krw · risk_tolerance("보수적"|"중립"|"공격적"|"매우 공격적") · max_drawdown_target_pct · daily_buy_limit_krw · daily_sell_limit_krw · assets_of_interest · strategy_direction("추세추종"|"평균회귀"|"모멘텀"|"변동성조절"|"무한매수"|"잘모름")
@@ -56,7 +59,8 @@ target/path:
 - regime: method("rule"|"hmm") · smoothing · n_states
 - strategy: maxDrawdownPct 등
 - code.<파일명>: value = 파일 전체 코드 재작성 결과
-불확실하면 patch 없이 질문.`;
+
+불확실하면 patch 없이 질문. 저장할 데이터가 있는데 patch를 생략하는 것은 금지.`;
 
 // Quant Developer IDE 에디터가 공유한 현재 코드를 Heli 컨텍스트로 만든다.
 // (window.__alphaLiveCode 는 DeveloperLab 이 wsId/fileContents 변경 시 갱신)
@@ -238,14 +242,14 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
   const fillExampleAnswer = () => {
     const example =
       "⭐ 한 번에 답변드릴게요\n" +
-      "1) 목표: 5년 안에 월 300만원 현금흐름 만들기\n" +
-      "2) 투자기간(년): 5\n" +
+      "1) 목표: 2년 안에 월 1000만원 현금흐름 만들기\n" +
+      "2) 투자기간(년): 2\n" +
       "3) 초기 투자금(원): 500000000\n" +
       "4) 월 적립금(원): 1000000\n" +
       "5) 투자성향(보수적/중립/공격적): 중립\n" +
       "6) MDD 허용(%): 25\n" +
-      "7) 관심자산(예: QQQ, SCHD): SPY, QQQ, SCHD, GLD\n" +
-      "8) 전략방향(추세추종/평균회귀/모멘텀/변동성조절/무한매수/잘모름): 추세추종 + 변동성조절";
+      "7) 관심자산(예: QQQ, SCHD): TQQQ, SOXL\n" +
+      "8) 전략방향(추세추종/평균회귀/모멘텀/변동성조절/무한매수/잘모름): 무한매수";
     setInput(example);
   };
 
@@ -379,19 +383,45 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
         fixedSys, model
       );
       const replyText = reply || "...";
-      // 패치 코드블록은 사용자에게 노출하지 않음 (자동 적용 후 안내 메시지만 표시)
-      const displayText = replyText
+
+      // bare JSON 탐지: 코드블록 없이 {"ops":[...]} 가 plain text로 출력된 경우 (GPT/Claude 폴백)
+      // 중첩 브레이스 카운팅으로 정확한 객체 범위를 찾는다
+      let bareJsonStr = null;
+      let searchFrom = 0;
+      while (searchFrom < replyText.length) {
+        const start = replyText.indexOf('{', searchFrom);
+        if (start < 0) break;
+        let depth = 0, end = -1;
+        for (let i = start; i < replyText.length; i++) {
+          if (replyText[i] === '{') depth++;
+          else if (replyText[i] === '}') { if (--depth === 0) { end = i; break; } }
+        }
+        if (end > start) {
+          const candidate = replyText.slice(start, end + 1);
+          if (candidate.includes('"ops"') && candidate.includes('"target"')) {
+            bareJsonStr = candidate;
+            break;
+          }
+        }
+        searchFrom = start + 1;
+      }
+
+      // 패치 코드블록·bare JSON은 사용자에게 노출하지 않음 (자동 적용 후 안내 메시지만 표시)
+      let cleanedReply = replyText
         .replace(/```(?:heli-patch|alpha-ezer-patch)\s*[\s\S]*?```/g, "")
         .replace(/```json\s*([\s\S]*?)```/g, (full, body) =>
           (body.includes('"ops"') && body.includes('"target"')) ? "" : full
-        )
-        .trim() || "...";
+        );
+      if (bareJsonStr) cleanedReply = cleanedReply.replace(bareJsonStr, "");
+      const displayText = cleanedReply.trim() || "...";
+
       setMessages(m => [...m, { role: "assistant", content: displayText }]);
       if (scrollRef.current) setTimeout(() => { scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, 50);
 
       try {
         // 1) heli-patch / alpha-ezer-patch 코드블록 우선 매칭
         // 2) 그게 없으면 일반 ```json 블록 중에서도 ops 배열을 가진 것을 fallback 으로 인정
+        // 3) 코드블록 없이 bare JSON으로 출력된 경우 (GPT/Claude 폴백 시 발생)
         let blockBody = null;
         const tagged = replyText.match(/```(?:heli-patch|alpha-ezer-patch)\s*([\s\S]*?)```/);
         if (tagged) {
@@ -405,6 +435,7 @@ export default function RightChatDock({ open, onClose, width = 380, onResize }) 
               break;
             }
           }
+          if (!blockBody && bareJsonStr) blockBody = bareJsonStr;
         }
 
         if (blockBody) {

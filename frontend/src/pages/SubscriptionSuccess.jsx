@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Check, X, Loader } from "lucide-react";
 
@@ -16,8 +16,12 @@ export default function SubscriptionSuccess() {
   const [params] = useSearchParams();
   const nav = useNavigate();
   const [state, setState] = useState({ loading: true, ok: false, msg: "", tier: "" });
+  const ran = useRef(false); // confirm 은 마운트당 1회만 (카카오페이 복귀/리렌더 이중호출 → 경합 '중복' 가짜실패 방지)
 
   useEffect(() => {
+    if (ran.current) return;
+    ran.current = true;
+
     const paymentKey = params.get("paymentKey");
     const orderId    = params.get("orderId");
     const amount     = Number(params.get("amount") || 0);
@@ -26,6 +30,27 @@ export default function SubscriptionSuccess() {
       setState({ loading: false, ok: false, msg: "잘못된 콜백 파라미터입니다.", tier: "" });
       return;
     }
+
+    // confirm 이 경합/중복으로 막혀도 결제 자체는 성공했을 수 있음 → 구독 상태를 폴링해 확정.
+    const verifyBySubscription = async () => {
+      for (let i = 0; i < 5; i++) {
+        await new Promise(res => setTimeout(res, 800));
+        try {
+          const r = await fetch("/api/subscription/me", { credentials: "include" });
+          const d = await r.json().catch(() => ({}));
+          // 성공 판정은 '활성 구독의 금액 == 방금 결제한 금액' 일 때만.
+          // (이미 다른 등급 구독이 있던 사용자가 업그레이드 결제에 실패해도, tier!=FREE 만 보고
+          //  옛 구독을 '결제 완료' 로 오판하던 버그 방지 — 예: 기존 PREMIUM 보유자의 EXPERT 결제 실패)
+          if (r.ok && d.tier && d.tier !== "FREE" && Number(d.amountKrw) === Number(amount)) {
+            setState({ loading: false, ok: true,
+              msg: `만료일: ${d.expiresAt ? d.expiresAt.substring(0, 10) : "-"}`,
+              tier: PLAN_NAMES[d.tier] || d.tier });
+            return true;
+          }
+        } catch { /* keep polling */ }
+      }
+      return false;
+    };
 
     fetch("/api/subscription/confirm", {
       method: "POST",
@@ -44,7 +69,15 @@ export default function SubscriptionSuccess() {
           tier: tierDisplay,
         });
       })
-      .catch(e => setState({ loading: false, ok: false, msg: e.message || String(e), tier: "" }));
+      .catch(async e => {
+        const recovered = await verifyBySubscription();
+        if (!recovered) {
+          const isDup = e.message && e.message.includes("중복");
+          setState({ loading: false, ok: false,
+            msg: isDup ? "결제는 처리됐을 수 있어요. 잠시 후 구독 상태를 확인해 주세요." : (e.message || String(e)),
+            tier: "" });
+        }
+      });
   }, [params]);
 
   return (
