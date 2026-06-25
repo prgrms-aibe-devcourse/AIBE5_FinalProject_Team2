@@ -102,11 +102,15 @@ public class SubscriptionController {
                     "expiresAt", sub.getExpiresAt().toString()
             ));
         } catch (org.springframework.dao.DataIntegrityViolationException dup) {
-            // 동시 confirm 경합 — DB 유니크(uq_subscription_toss_payment_key)에 막힘. 먼저 처리된 구독을 재사용.
-            Subscription existing = subscriptionService.findByPaymentKey(paymentKey);
-            if (existing != null) {
-                log.info("[Subscription] confirm 경합 멱등 처리 userId={} orderId={}", uid, orderId);
-                return ResponseEntity.ok(idempotentBody(existing, true));
+            // 동시 confirm 경합 — DB 유니크(uq_subscription_toss_payment_key)에 막힘.
+            // 승자 트랜잭션이 아직 커밋 전이라 즉시 재조회는 null 일 수 있어, 짧게 재시도하며 멱등 성공으로 수렴(가짜 실패 방지).
+            for (int i = 0; i < 4; i++) {
+                Subscription existing = subscriptionService.findByPaymentKey(paymentKey);
+                if (existing != null) {
+                    log.info("[Subscription] confirm 경합 멱등 처리 userId={} orderId={} (retry={})", uid, orderId, i);
+                    return ResponseEntity.ok(idempotentBody(existing, true));
+                }
+                try { Thread.sleep(300L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
             }
             log.warn("[Subscription] confirm 무결성 충돌 userId={} orderId={}: {}", uid, orderId, dup.getMessage());
             return ResponseEntity.badRequest().body(Map.of("error", "결제 처리 중 중복이 감지되었습니다. 잠시 후 구독 상태를 확인해 주세요."));
