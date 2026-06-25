@@ -33,8 +33,6 @@ public class AiModelCatalogSeeder implements CommandLineRunner {
                 .filter(m -> m.getProvider() == Provider.PERPLEXITY)
                 .forEach(m -> { repo.delete(m); log.info("Removed legacy model: {}", m.getModelId()); });
 
-        if (repo.count() > 0) return;
-
         List<AiModelCatalog> seed = List.of(
                 // free, pro(legacy), standard, premium, expert
                 model("gemini-2.5-flash",  "Gemini 2.5 Flash",  Provider.GEMINI,
@@ -53,8 +51,27 @@ public class AiModelCatalogSeeder implements CommandLineRunner {
                         "대화형 전략 설계 / 자연스러운 설명", 0L, 300_000L, 200_000L, -1L, -1L, 60)
         );
 
-        repo.saveAll(seed);
-        log.info("AiModelCatalog seeded: {} rows", seed.size());
+        int inserted = 0, updated = 0;
+        for (AiModelCatalog def : seed) {
+            AiModelCatalog existing = repo.findById(def.getModelId()).orElse(null);
+            if (existing == null) {
+                repo.save(def);
+                inserted++;
+            } else {
+                existing.setDisplayName(def.getDisplayName());
+                existing.setStrength(def.getStrength());
+                existing.setFreeQuota(def.getFreeQuota());
+                existing.setProQuota(def.getProQuota());
+                existing.setStandardQuota(def.getStandardQuota());
+                existing.setPremiumQuota(def.getPremiumQuota());
+                existing.setExpertQuota(def.getExpertQuota());
+                existing.setSortOrder(def.getSortOrder());
+                existing.setEnabled(def.isEnabled());
+                repo.save(existing);
+                updated++;
+            }
+        }
+        log.info("AiModelCatalog upsert: {} inserted, {} updated", inserted, updated);
     }
 
     private AiModelCatalog model(String id, String name, Provider p, String strength,
